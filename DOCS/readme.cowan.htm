@@ -1,0 +1,322 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<!-- saved from url=(0040)ftp://aphysics.lanl.gov/pub/cowan/readme -->
+<HTML><HEAD>
+<META http-equiv=Content-Type content="text/html; charset=windows-1251">
+<META content="MSHTML 6.00.2800.1276" name=GENERATOR></HEAD>
+<BODY><PRE>                           Robert D. Cowan
+                            December 1999
+ 
+     This suite of four programs calculates atomic structures and
+spectra via the superposition-of-configuration method:
+     (1)  RCN calculates one-electron radial wavefunctions (bound or
+free) for each of any number of specified electron configurations,
+using the Hartree-Fock or any of several more approximate methods.
+The principal output, for each configuration, consists of the center-
+of-gravity energy (Eav) of the configuration, and those radial Coulomb
+(Fk and Gk) and spin-orbit (zeta) integrals required to calculate the
+energy levels for that configuration.
+     (2)  RCN2 is an interface program that uses the output wave-
+functions from RCN (on a file called tape2n) to calculate the
+configuration-interaction Coulomb integrals (Rk) between each pair
+of interacting configurations, and the electric-dipole (E1) and/or
+electric quadrupole (E2) radial integrals between each pair of
+configurations.  RCN2 prepares an output file called out2ing that
+(after being renamed ing11) serves as input to RCG.
+     (3)  RCG sets up energy matrices for each possible value of the
+total angular momentum J, diagonalizes each matrix to get eigenvalues
+(energy levels) and eigenvectors (multi-configuration, intermediate-
+coupling wavefunctions in various possible angular-momentum-coupling
+representations), and then computes M1 (magnetic dipole), E2, and/or
+E1 radiation spectra, with wavelengths, oscillator strengths, radiative
+transition probabilities, and radiative lifetimes.  Other options, when
+a continuum (free) electron is present, are photoionization cross-
+sections, autoionization transition probabilities, total lifetimes,
+branching ratios for autoionization, and plane-wave Born collision
+strengths.
+     (4)  When higher accuracy results are desired, RCE can be used
+to vary the various radial energy parameters Eav, Fk, Gk, zeta, and Rk
+to make a least-squares fit of experimental energy levels by an
+iterative procedure.  The resulting least-squares-fit parameters can
+then be used to repeat the RCG calculation with the improved energy
+levels and (presumeably) wavefunctions.
+     Reference:  Robert D. Cowan, "The Theory of Atomic Structure and
+Spectra," (University of California Press, Berkeley, 1981), esp.
+Chapters 8 and 16.
+ 
+RCN input
+     A sample input file (to be named in36) for the HF program RCN is:
+ 
+2  -9    2   10  0.2    5.e-08    1.e-11-2   090    1.0 0.65  0.0  0.0
+-6
+    1    1H I   1s      1s
+   -1
+   19    6K VI  3s2 3p2     3s2 3p2
+   19    6K VI  3p4         3p4
+   19    6K VI  3p 3d       3s2 3p 3d
+   -1
+   29    1Cu I 1s2 4s        1s2 3d10 4s
+   29    1Cu I 1s 4s .1p     1s  3d10 4s 99p  0.1
+   29    1Cu I 1s 4s 1.p     1s  3d10 4s 99p  1.0
+   -1
+ 
+     The first line is an almost universal control card, except that
+the "090" should be changed to "190" if relativistic corrections in the
+wavefunctions are desired (used mainly for elements with Z greater than
+about 30), and that the "-6" in columns 74-75 (which sends abbreviated
+output on the course of the calculation to the monitor screen) should
+be deleted for batch running on a mainframe computer.
+     Each remaining line specifies an electron configuration, except
+that a negative atomic number (in columns 3-5) specifies a normal exit
+from RCN; thus the input file as given above will result in a calcula-
+tion for only the ground configuration 1s of hydrogen.  If the hydrogen
+card and associated exit card are removed (or moved to the end of the
+file), then the next four cards will cause a calculation to be made for
+the two even-parity configurations 3s2 3p2 and 3p4 and the odd-parity
+configuration 3s2 3p 3d of K VI (5-fold ionized potassium, Z=19).
+(With output passed on through RCN2 to RCG, one would then obtain a
+calculation of a 3s2 3p2 + 3p4 to 3s2 3p 3d electric-dipole spectrum.)
+The remaining four cards, if placed directly after the control card,
+would result in calculations for the ground configuration 3d10 4s of
+neutral copper together with two continuum configurations (a principal
+"quantum number" of 99 signifying a free electron) with free-electron
+kinetic energies of 0.1 and 1.0 rydbergs, for purposes in RCG of
+calculating photoionization cross-sections for 1s to ep transitions
+at e=0.1 and 1.0 Ry.
+     The value of atomic number must lie in columns 2-5, the spectrum
+number (one more than the ionization stage) in columns 9-10, and the
+ion and configuration description (for printed information only) in
+columns 11-28.  For maximum legibility in output from programs RCG and
+RCE, it is desirable that the element and spectrum identification be
+limited to columns 11-16 (e.g., "C I   ", "O III ", "Fe23+ " or
+"Fe+23 ", etc.), and that the configuration label be limited to columns
+17-22 or maybe 17-24.
+     The actual specification of electron orbitals for calculational
+purposes can follow a semi free-form format, beginning at least three
+blank spaces after the configuration label, with at least one blank
+space separating orbitals (and kinetic energy, if present).  The
+complete electron configuration is set up by RCN as follows: The number
+of electrons is calculated to be Z+1-spectrum number, and a configur-
+ation is set up for the ground configuration of the neutral noble gas
+(He, Ne, Ar, Kr, Xe, or Rn) containing no more than this number of
+electrons.  This configuration is then modified and/or added to
+according to the given orbital information.  As an example, for neutral
+copper, the number of electrons is 29+1-1=29, and so the code starts
+from the ground configuration 1s2 2s2 2p6 3s2 3p6 of neutral argon
+(18 electrons).  For the first copper configuration above, ten 3d
+electrons and one 4s electron are added to give the ground configur-
+ation of neutral copper.  For the other two Cu cases, 1s2 is modified
+to 1s (the occupation number is obtained by table lookup, and either
+a blank or a one will give unit occupation--similarly, d occupation
+numbers must be typed ...d7, d8, d9, d10, with no blank space for
+occupation less than 10), and then ten 3d electrons, a 4s electron,
+and a continuum p electron added.
+    Units internally to RCN are Bohr units of length and Rydberg units
+(units of 13.6058 eV) for energy.  The final line of the output (in
+file out36) for each configuration gives the quantities needed for
+energy-level calculations in RCG, with Eav in Ry and all other energy
+radial integrals in units of kK (1000 cm-1); these same quanties are
+given in the last line of the monitor-screen output for each cofigur-
+ation.
+ 
+RCN2 input
+     The two-card input for RCN2 is more-or-less universally of the form
+ 
+g5inp     000 0.0000          00                339099909090 0.00
+07229
+        -1
+ 
+The items on the control card will not be described except to say that
+if either digit in the "00" is made non-zero, then eigenvectors in the
+LS or jj-coupling representation, respectively, will not be printed in
+RCG; the "33" calls for M1 and E2 spectra, respectively, to be
+calculated in RCG for both parities (zeros will delete these), and the
+"7" calls for print in RCG of the spectrum line list sorted by first-
+parity energy levels, by second-parity energies, and by wavenumber
+(inverse wavelength); a 1, 2, or 4 instead of 7, prints only one of
+these sorts, and a 3, 5, or 6 will print two of them.  The "9099909090"
+represent 2-digit scale factors (in percent, 99 representing 100%) for
+respectively Fk between equivalent electrons, spin-orbit parameters,
+Fk and Gk for non-equivalent electrons, and configuration-interaction
+Rk radial integrals: It is known empirically that scaling down of the
+HF Coulomb radial integral values by 5 to 30 percent will give RCG
+eigenvalues in better agreement with experimental energy levels, the
+smaller factors being for neutral or weakly ionized systems, with
+factors approaching unity being appropriate for highly ionized systems.
+ 
+RCG input
+     Output from RCN2 consists of print output in file out2 and a file
+out2ing that, renamed ing11, forms an input file for RCG.  With the
+three K VI configurations used as input for RCN, this file (with "33"
+on the rcn2 control card replaced by "00" or "30") will be
+ 
+    3     10e-350e05    000005   10.        0 5.0  2.0  1.0  0.5  0.2
+    0                         0000000000          1000.0000
+    1    03 2 23 1 10         00                 0 1000.0000 0.00   1 07-6 0 0
+s 2  p 2  s 0  s 0  s 0  s 0  s 0  s 0  K VI  3s2 3p2       -130337.379   0.0000
+s 0  p 4  s 0  s 0  s 0  s 0  s 0  s 0  K VI  3p4           -129993.306   0.0000
+s 2  p 1  d 1  s 0  s 0  s 0  s 0  s 0  K VI  3p 3d         -130106.201   0.0000
+K VI  3s2 3p2      3        00   7609731    178682        00        00hf90999090
+K VI  3p4          3  34407320   7574361    178422        00        00hf90999090
+3s2 3p2  -3p4      1 101.64285   0.00005   0.00005   0.00005   0.00005hf90999090
+K VI  3p 3d        6  23117760    180352      8932   7177693   8834344hf90999090
+   5512094
+K VI  3s2 3p2       K VI  3p 3d            1.70752( 3p//r1// 3d)-0.990hf -92 -96
+K VI  3p4           K VI  3p 3d            0.00000(   //r1//   )0.0000hf   0   0
+                    -99999999.
+   -1
+ 
+except that the first two (optional) control cards will be absent (but
+can be edited in), and except that the "-6" in columns 73-74 of the
+principal control card will be zero if a zero was used in columns 71-75
+of the RCN control card.  (As in RCN, the value -6 causes intermediate
+calculational output to be sent to the monitor screen during the
+course of the RCG calculation.)  Here the Eav values in Ry from RCN
+(-1197.769, 1184.586, and 1185.615, resp.) have been changed by RCN2 to
+values in kK (-130337.379, etc.), and then to values 0.0, 344.0732, and
+231.1776 kK relative to the value for the first configuration. Values
+of the other radial energy integrals have been scaled down by the
+factors 0.90, 1.00, 0.90, etc., and are in kK, which will then be the
+units of energy-matrix elements and eigenvalues, unless the "1000.0000"
+on the second optional control card is changed--for example, to 8065.48
+to obtain all energies in eV.  (The "0000000000" on the second optional
+control card can be replaced by non-zero values to change the scale
+factors from the ones specified on the RCN2 control card to these new
+values.)
+     NOTE:  For a first RCG calculation, the input file must consist of
+(or begin with) a set of coefficient-of-fractional-parentage decks for
+each set of subshells (e.g., s0, s1, s2, p0, p1, p2,...) that will be
+involved in any of the configurations for which calculations are to be
+made.  (Decks are not needed for singly occupied subshells if there
+will be no more-highly occupied subshells of the same l.)  The file
+ing11k contains such a set of cfp decks, and can be used for this first
+calculation to compute files tape72, tape73, and tape74 for use in
+subsequent RCG calculations.  [Some IBM systems do not allow file
+numbers greater than 50.  For these systems, the "72" on the first line
+of ing11k can be changed to "42" to produce files tape42, tape43, and
+tape44; the statement id2def=72 near the beginning of the main program
+of RCG must correspondingly be changed to id2def=42, and the OPEN
+statements for units 72, 73, and 74 likewise changed appropriately.]
+ 
+ 
+ 
+NOTE:  The file "rcng.UNIX" is a c-shell procedure file for automatically
+running RCN, RCN2, and RCG in succession on UNIX-type systems.
+If it is launched by the command
+rcng.UNIX .KVI
+the three output files will be named
+out36.KVI, out2.KVI, and outg11.KVI  .
+The file rcng.VMS is a similar command file for VMS systems; for usage,
+see the file RCNwriteup.
+ 
+ 
+ 
+RCE input
+     If on the RCG control card a -1 is placed in columns 9-10 and the
+card containing "-99999999." is preceded with an identical card, except
+with 5's instead of 9's, then RCG will write a binary file tape2e and
+an ASCII file outgine.  (These changes will be made automatically if a 1
+is placed in column 10 of the RCN2 g5inp control card.)  If the name of
+outgine is changed to ine20, RCE can be run with the RCG energy
+parameters and theoretical energy levels as input.  RCE should then
+converge straightforwardly in about three cycles with little or no
+change in parameter values, which then provides a test run for the RCE
+code.  Genuine RCE runs require that experimental energy levels be
+edited by hand into ine20 in place of the theoretical eigenvalues.  An
+RCE output file parvals contains final least-squares parameter values,
+which can be edited into the RCG input file ing11 for a repeat run with
+the new parameter values.
+ 
+Program writeups
+     Various possible additional RCG options can be input on the RCN2
+control card and carried over automatically to RCG, or entered directly
+onto the RCG control card, but they are too numerous and detailed to
+describe here.  Likewise, notes on convergence problems, etc., in RCN
+and RCE will not be given here.  For details, see the hard-copy program
+writeups available from the author upon request:
+  e-mail to        rcowan@lanl.gov    or regular post to
+     Robert D. Cowan
+     2917-B Nickel
+     Los Alamos, NM  87544
+     USA
+phone (505)-662-4095.
+ 
+Note: ASCII versions of the writeups are included in the ftp directory;
+they are useful to a large extent, but are somewhat difficult to read in
+places, because there are no sub- nor super-scripts, Greek letters, nor
+script letters for coupled quantum numbers LSJ.  There are no sample
+output listings in the RCN and RCG writeups, but these are contained
+in files OutputK+5 and OutputSe+24 for a normal dipole-spectrum run
+in K VI and a dielectronic-recombination calculation in Se XXV.
+ 
+ 
+ 
+Program information
+     The programs rcn.f, rcn2.f, rcg.f, and rce.f are all in FORTRAN77,
+complete with all necessary subroutines except for standard intrinsic
+functions such as min, max, exp, log, etc. (Generic function names have
+been used so as to require no changes for either "single-precision"
+64-bit- or double-precision 32-bit-machine calculations.)  The programs
+were originally developed in the 1960's on the IBM 7030 ("Stretch"),
+and over the course of the years many new features were added and the
+programs adapted to other IBM mainframes, CDC 6600, 7600, and 205
+computers, CRAYs, various VAXs and MicroVAXs, and finally SUN and
+IBM RISC System/6000 workstations, and Macintosh and PC desk
+computers.  The programs have also been used on a Silicon Graphics
+Origin 200.  Other people have found the programs readily adaptable to
+Apollos, Hewlett Packards, and other computers.  Each program contains
+a timing routine "seconds," with sections appropriate to CRAYs, VAXs or
+Macintoshes, SUNs, IBM RISCs, and PCs; the appropriate section must be
+selected, or a new section written for the computer to be used (or t
+simply set to 0.0, as times are used for information only).
+ 
+     Compilation has generally been done with minimum options and op-
+timization--for example, cf77 on CRAYs, with or without the g_floating
+option on VAXs; f77 on SUNs; on Power Macs, the Language Systems MPW
+script RUNPPC with -t72 option added; and on PCs the GNU g77 compiler.
+     Relative computing times on different machines are roughly
+ 
+                          RCN         RCN2       RCG        RCE
+      CRAY(Y-MP):         1.0         1.0        1.0        1.0
+      SUN(Sparc2):        15           4          2
+      SUN(Sparc20):        4
+      SUN Ent. 3500        1           5         0.3        0.2
+      IBM930:              4          1.3        0.2
+      IBM550:             2.5         0.7        0.2
+      IBM320H(32H):        4          1.2        0.3
+      MAC 6500/300        2.4         20          4          6
+      MAC G3/350          2.8         75          7
+      Pow. Cen. Pro 240   3.2         12          6          5
+      IBM Aptiva E275      1          16          1
+      SGI Origin 200      0.3         1.7        0.7
+ 
+[The SUN Enterpise 3500 has four 336 MHz processors, the Power
+Center Pro MAC clone has a 240 MHz processor, the Aptiva has two
+475 MHz processors, and the Silicon Graphic has four 180 MHz
+processors.]  Absolute computing times for three-configuration
+K VI (K 5+) runs are on the CRAY about 1.8, 0.03, 0.4, and 0.2 sec
+for RCN, RCN2, RCG, and RCE, respectively, the RCE time being for
+test-run convergence in three cycles on each parity.
+     For the dimensions used, file sizes on the 240, in Mbytes, are
+approximately
+ 
+                                  RCN        RCN2       RCG        RCE
+       Source file                0.16       0.07       0.4        0.08
+       Executable file            0.40       0.26       0.78       0.24
+       Minimum RAM for execution  2.0        1.2        8.0        3.0
+ 
+Note:  The current versions of rcn.f and rcn2.f contain no equivalence
+statements, but rcg.f does have such.
+     The file rcg-noeq.f is a versions of rcg.f from which all equi-
+valence statements have been removed, as FORTRAN 90 is expected to frown
+on such statements.  The minimum RAM for execution of this version is
+about 40% greater than for the version with equivalences present.
+      Considerable recoding was required in rcg, in addition to simple
+removal of the equivalence statements, but these changes were made in an
+older version of rcg, and so rcg-noeq.f does not contain a number of
+refinements that were introduced later into rcg.f.
+     The file rcglg.f is a version of rcg.f with larger dimensions--
+large enough to handle f(n)d configurations for all n.  Note that
+for such configurations, the files tape72, tape73, and tape74 must
+be computed using the rcg input file "cfp" (with comment cards
+removed) instead of using ing11k.
+</PRE></BODY></HTML>

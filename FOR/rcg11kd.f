@@ -1,0 +1,17463 @@
+C     OVERLAY(G9,0,0)
+      PROGRAM RCG11
+C     PROGRAM RCG11(ING11,TAPE10=ING11,OUTG11,TAPE9=OUTG11,
+C    1  TAPE3,TAPE20,TAPE31,TAPE32,TAPE41,
+C    2  TAPE72,TAPE73,TAPE74,TAPE2E,TAPE2=TAPE2E,TAPE19,
+C    3  OUTGINE,TAPE11=OUTGINE,TAPE13,TAPE5)
+C
+C     PROGRAM COPYRIGHT 1980, LOS ALAMOS NATIONAL LABORATORY AND
+C          U.S. GOVERNMENT.  THIS PROGRAM MAY BE FREELY DISTRIBUTED
+C          GRATIS ANY PLACE IN THE WORLD, BUT MAY NOT BE SOLD.
+C
+C
+C
+C          RCG-MOD 11, MAIN CONTROL PROGRAM
+C
+C
+C     A. Kramida 2026.  WHAT IS NEW IN THIS VERSION.  EACH ITEM IS
+C     EXPLAINED IN FULL AT ITS POINT OF CHANGE, AND LSJJ/README.txt IS
+C     THE LONG ACCOUNT; ONLY THE ANNOUNCEMENT IS HERE.
+C
+C       - TRUE jj COUPLING, ASKED FOR BY KCPLD(8)=8 (COLUMN 38 OF THE
+C         MAIN CONTROL CARD).  THE LEVELS ARE ALSO PRINTED IN A GENUINE
+C         jj BASIS - SEQUENTIAL COUPLING OF THE RELATIVISTIC SUBSHELLS,
+C         NOT COWAN'S J1J2 - WITH EIGHT-CHARACTER BASIS-STATE LABELS
+C         WHOSE KEY IS WRITTEN TO true-jj_keys.txt.  THE SAME
+C         TRANSFORMATION IS APPENDED TO TAPE2E AS A TRAILER, SO RCE CAN
+C         PRINT THE FITTED LEVELS IN TRUE jj AS WELL.
+C
+C       - GENEALOGY OF THE BASIS STATES, ASKED FOR BY IPGEN (COLUMNS
+C         83-84 OF THE MAIN CONTROL CARD): ONE LINE PER BASIS STATE
+C         CARRYING THE WHOLE COUPLING CHAIN, FOR WHICH AN EIGHT-
+C         CHARACTER LABEL HAS NO ROOM.  IPGEN=1 PUTS THE TABLES IN
+C         OUTG11, IPGEN=2 IN genealogy.txt.
+C
+C       - PER-CONFIGURATION TERM CUTOFF, COLUMNS 83-85 OF A
+C         CONFIGURATION CARD: A PER-CONFIGURATION NLT11, LIMITING THE
+C         LS TERMS OF THE FIRST SUBSHELL SO THAT CONFIGURATIONS WITH
+C         DIFFERENT CORES CAN BE TRUNCATED DIFFERENTLY, WHICH ONE
+C         NLT11 CANNOT DO.  f SHELLS ONLY; VALIDATED IN NLTCHK, APPLIED
+C         IN PLEV.  A CUTOFF TURNS TRUE jj OFF WITH A WARNING, SINCE A
+C         TRUNCATED LS BASIS HAS NO ROTATION.
+C
+C       - NLSMAX (CARD 3, COLUMNS 23-25) READ AS A3 AND A BLANK FIELD
+C         TAKEN AS 999, NOT 0.  KCPLD(I)=0 ALREADY ASKS FOR COUPLING I
+C         AND BLANK COLUMNS GIVE 0, SO REQUIRING NLSMAX TO BE PUNCHED
+C         AS WELL MADE THE BLANK CARD CONTRADICT ITSELF.  THE FIELD IS
+C         NOW A PERMISSION: BLANK PERMITS COUPLINGS 3-7, A PUNCHED 0
+C         FORBIDS THEM, ANYTHING ELSE IS THE BLOCK-SIZE LIMIT IT
+C         ALWAYS WAS.  THIS IS THE ONE PLACE WHERE A BLANK FIELD DOES
+C         NOT REPRODUCE THE OLD BEHAVIOUR.
+C
+C       - SPEED AND MEMORY REVISION.  AN 800 MB STATIC ARRAY REMOVED
+C         (A POINTER-NAME TYPO IN SPRIN/MUPOLE), THE LINE SORT MADE
+C         O(N LOG N) (MSORTX), THE TWO CUBIC LOOPS OF CALCFC REPLACED
+C         BY ESSENTIALLY LINEAR ONES (CFCDUP, CFCORT, CFCUOR), AND THE
+C         REMAINING CUBIC LOOPS OF SPECTR, MLEW, ENERGY, SPRIN, SPRN37
+C         AND CPL37 THREADED WITH OpenMP.  NLSMAX=999 (CARD 3, COLUMNS
+C         23-25) NOW MEANS KMX, WITHOUT WHICH COUPLINGS 3-7 CANNOT BE
+C         REACHED AT ALL IN A MODERN CASE.  SUBROUTINE SECONDS REPORTS
+C         WALL-CLOCK TIME (SYSTEM_CLOCK) INSTEAD OF CPU TIME SUMMED
+C         OVER THREADS.
+C
+C     APART FROM THE OUTPUT THE NEW OPTIONS THEMSELVES ADD, EVERY
+C     CHANGE IS BIT-EXACT: WITH THE NEW FIELDS BLANK THE Pr III TEST
+C     CASE REPRODUCES TAPE2E BYTE FOR BYTE, AND OUTG11 AND OUTGINE
+C     EXACTLY APART FROM THE PRINTED TIMINGS, SERIAL AND THREADED
+C     ALIKE.  NO PARALLEL REGION REASSOCIATES A SUM, SO THE RESULTS DO
+C     NOT DEPEND ON THE THREAD COUNT.
+C
+C     KNOWN AND DELIBERATELY LEFT ALONE: THE E0MAX/DMINGA CUTS IN
+C     SPECTR ARE STILL APPLIED AFTER THE DOT PRODUCTS (HOISTING THEM
+C     WOULD CHANGE THE PRINTED SUM RULES), THE EIGENVECTOR PRINT LOOPS
+C     OF SPRIN AND SPRN37 ARE NOW THE LARGEST SINGLE ITEM IN AN ALL-
+C     COUPLINGS RUN, AND THE S6J BUILD LOOPS IN CPL37 ARE NOT THREADED
+C     BECAUSE -fno-automatic MAKES S6J'S LOCALS STATIC.  SEE THE NOTES
+C     AT THOSE PLACES.
+C
+C     BUILD: ADD -fopenmp TO THE USUAL FLAGS, E.G.
+C       gfortran -fshort-enums -malign-double -ftracer -fno-backslash
+C                -fallow-argument-mismatch -fcray-pointer -fno-automatic
+C                -O2 -fopenmp -o rcg11kd.exe rcg11kd.f
+C     -fno-automatic MUST ACCOMPANY -fopenmp, WHICH OTHERWISE IMPLIES
+C     -frecursive AND MOVES LOCALS ONTO THE STACK, CHANGING RESULTS.
+C     WITHOUT -fopenmp EVERY !$OMP LINE IS JUST A COMMENT AND THE
+C     PROGRAM STILL BUILDS AND RUNS, SERIALLY.  A -static OPENMP BUILD
+C     IS NOT POSSIBLE WITH THIS TOOLCHAIN, SO AN OPENMP EXECUTABLE MUST
+C     BE SHIPPED WITH libgomp-1.dll, libgfortran-5.dll,
+C     libquadmath-0.dll AND libwinpthread-1.dll ALONGSIDE IT.  SET THE
+C     THREAD COUNT WITH OMP_NUM_THREADS; IF IT IS UNSET, OPENMP USES
+C     EVERY LOGICAL PROCESSOR.
+C
+C
+C          PROGRAM TO COMPUTE COEFFICIENT MATRICES FOR ATOMIC
+C               ENERGY-LEVEL PARAMETERS (FK, GK, ZETA, ALPHA,
+C               BETA, GAMMA, T, RK), READ PARAMETER VALUES,
+C               AND COMPUTE AND DIAGONALIZE THE ENERGY MATRICES
+C               TO OBTAIN ENERGY LEVELS AND EIGENVECTORS.
+C          ALSO, IF DESIRED, COMPUTE ANGULAR COEFFICIENT MATRICES
+C               FOR MAGNETIC DIPOLE AND
+C               FOR ELECTRIC DIPOLE AND QUADRUPOLE TRANSITIONS,
+C               READ RADIAL MULTIPOLE INTEGRALS, AND CALCULATE
+C               OSCILLATOR STRENGTHS AND TRANSITION PROBABILITIES.
+C
+C          FIRST VERSION (RCG MOD 0) CODED BY B. FAGAN AND R. D. COWAN,
+C               LOS ALAMOS SCIENTIFIC LABORATORY, SUMMER AND FALL, 1964.
+C
+C          RCG MOD 5 (INCLUDING CONFIGURATION INTERACTION)
+C               CODED FALL,1968 BY R. D. COWAN FOR THE IBM 7030(STRETCH).
+C               --- MODIFIED FOR THE CDC 6500
+C               AT PURDUE UNIVERSITY, MARCH, 1971.  CONVERTED JULY-NOV,
+C               1971 TO LASL CDC 7600, USING LARGE CORE MEMORY.
+C               DIMENSIONS INCREASED TO 8 SUBSHELLS, FEB, 1975.
+C               AUTOIONIZATION TRANS-PROB CALCS ADDED SPRING 1975.
+C               PLANE-WAVE-BORN COLLISION-STRENGTH OPTIONS ADDED
+C               JAN-FEB 1980 BY W. D. ROBB AND R. D. COWAN.
+C          MODIFIED TO ALLOW DIFFERENT L FOR FINAL SUBSHELL, JULY 1981,
+C               AND TO ACCEPT RESCALING CARDS, OCTOBER 1981.
+C          MOD 10:
+C               FASTER 3NJ ROUTINES INCORPORATED JULY 21, 1983.
+C               MODIFIED FOR CRAY 1 COMPUTERS, DECEMBER 1983.
+C               MODIFIED FOR ZEEMAN-LAB CYBER 170/750, FEBRUARY 1984.
+C               OPTION TO TRUNCATE TO GIVEN SET OF LS VALUES ADDED JUNE 1984.
+C               WRITE ON TAPE11 OF RCE INPUT ADDED AT NBS MAY 1986.
+C               CHANGES IN ACTION OF PRINT-CONTROL VARIABLES IPCT
+C                    AND ICTC MADE AT ZEEMAN LAB, DECEMBER 1987.
+C
+C               A VERSION FOR THE VAX 8200 MADE AT LUND UNIVERSITY,
+C                    MARCH-APRIL 1988, INCORPORATING NUMEROUS MINOR
+C                    ADDITIONS AND IMPROVEMENTS
+C               RECONVERTED TO THE CRAY
+C                    AT LANL FALL 1988, LEAVING COMMENT CARDS FOR EASY
+C                    RECONVERSION TO THE VAX.  ENCODE AND DECODE
+C                    STATEMENTS REMOVED BY CHANGING MANY VARIABLES TO
+C                    CHARACTER STRINGS, JANUARY 1989
+C               THIS VERSION (MOD 11) HAS COMMONS MODIFIED SO THAT A
+C                    COMMON OF GIVEN NAME HAS THE SAME LENGTH IN ALL
+C                    ROUTINES.  NEW TIMING SUBROUTINE SECONDS CODED
+C                    WITH ALTERNATIVE SECTIONS AVAILABLE FOR CRAY, VAX
+C                    OR MACINTOSH, SUN, AND IBM SYSTEM/6000 RISC.
+C               -------------------------------------------------------
+C               NOTE: BACKSPACE COMMANDS IN THIS PROGRAM MAY CAUSE
+C                    DIFFICULTIES ON THE IBM RISC (BACKSPACES OF LONG
+C                    UNFORMATTED RECORDS NOT EFFECTIVE) IF FORTRAN
+C                    COMPILER VERSIONS EARLIER THAN 2.02 ARE USED.
+C                         ALSO, DECFORTRAN VERSION 3.0 IS INADEQUATE,
+C                    AND VERSION 3.2 IS REQUIRED.
+C                         VERY TIME-CONSUMING BACKSPACES IN SUBROUTINE
+C                    RCEINP REPLACED MAY 1993 BY REWIND AND
+C                    READS FORWARD
+C               -------------------------------------------------------
+C               THE DIMENSIONS USED IN THIS VERSION OF RCG ARE TOO
+C                    SMALL TO HANDLE CFP DECKS FOR F5, F6, F7, F8,
+C                    F9, AND F10.  TO MAKE POSSIBLE USE OF THESE
+C                    SUBSHELLS, MAKE THE FOLLOWING CHANGES IN PARAMETER
+C                    STATEMENTS THROUGHOUT THE PROGRAM:
+C                         KLSI  = 119
+C                         KJP   = 350
+C                         KMX   = 360
+C                         KTRAN = 3200
+C               -------------------------------------------------------
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION VECT(KMX,KMX)
+      pointer (C3LC4_PTR,VECT)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/C6/EMIN,EMAX,SUMWT,FLBDN,FLBDX,FNUNP,FNUXP,NLEV,IEWR
+      COMMON/CTKEV/NPTKEV,NTKEV,TKEV(6),TUNRGY(6),BRNCHL(6),BRNCHT(6),
+     1  EIONRY
+C     A. Kramida 2026: IJJROT is the true-jj switch set from KCPLD(8);
+C     the rest is filled by CAFCDOLP and read by LSJJRT.
+      COMMON/LSJJBK/IJJROT,IJJU,IBSJJ(KNSJK),NBKJJ(KS,KNSJK)
+      INCLUDE 'LSJJID.F'
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+      DIMENSION SJNK(2),SJXK(2),NOTKP(2)
+      CHARACTER*250 FIL
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,COUPL,COUPL1
+      CHARACTER*4 LSYMB,LHS1
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+C
+C       Alex K 10/27/02: Map NSCONF(2:3, 2:3) to character variables
+C       to enable checking for numeric overflow if NCONF > 99
+C       and read correct 3-digit values from other positions in the
+C       input file.
+      CHARACTER*4 CHCONF1, CHCONF2
+      CHARACTER*16 CHCONFS
+C       End Alex K 10/27/02
+C
+C       A. Kramida 2026: columns 23-25 (NLSMAX) are read as characters
+C       so that a BLANK field can be told apart from a punched zero.
+C       See label 105 below.
+      CHARACTER*3 CHNLS
+C
+C
+C      OPEN FILES
+C
+C          IF III=0, CHOOSE EXTERNAL NAMES OF INPUT AND
+C               OUTPUT FILES INTERACTIVELY (FOR VAX).
+C          IF III=1, USE STANDARD FILE NAMES (FOR VAX).
+C          FOR CRAY AND CDC COMPUTERS, SET III>1 AND
+C               UNCOMMENT PROGRAM CARD AT START OF PROGRAM.
+C
+c      if (KEE12.GT.KEE1) then
+c        STOP '(SET KEE1=KEE12 IN RCGPAR.F AND RECOMPILE)'
+c      endif
+c      if (KEE3.GT.0) then
+c        STOP '(Uncomment lines with DUMEE3, comment the IF (KEE3.GT.0)
+c     +block and recompile)'
+c      endif
+c       Allocate memory
+      MAXBC=MAXBC0
+      i_U2_size=(KLSI**2)*7
+      i_CFGP1_size=max(KMX**2,i_U2_size)
+      i_PC_size=KPC
+      i_C3LC4_size=KMX**2
+      ISER_size=KISER
+      i_CFP2_size=(KLS1**2)*7
+      i_CT4_size=max(KMX**2,(KLSI**2)*9,KISER,KLAM)
+c      write (*,*) 'CFGP1,PC,C3LC4,ISER sizes=',i_CFGP1_size,',',
+c     1  i_PC_size,i_C3LC4_size,ISER_size
+      CALL ALLOC(CFP2_PTR,i_CFP2_size,8)
+      CALL ALLOC(U2_PTR,i_U2_size,8)
+      CALL ALLOC(V2_PTR,i_U2_size,8)
+      CALL ALLOC(V3_PTR,i_U2_size,8)
+      CALL ALLOC(C_PTR,(KMX**2),8)
+      CALL ALLOC(CT4_PTR,i_CT4_size,8)
+      CALL ALLOC(U1_PTR, (KLSI**2)*9,8)
+      CALL ALLOC(V1_PTR, (KLSI**2)*9,8)
+      CALL ALLOC(CFGP1_PTR,i_CFGP1_size,8)
+      CALL ALLOC(PC_PTR,i_PC_size,8)
+      CALL ALLOC(C3LC4_PTR,i_C3LC4_size,8)
+      CALL ALLOC(NPARJ_PTR,KC**2,4)
+      CALL ALLOC(ISER_PTR,ISER_size,4)
+      CALL ALLOC(PCI_PTR,ISER_size,8)
+c      write (*,*) 'C_PTR,CFGP1_PTR=',C_PTR, CFGP1_PTR
+      III=1
+      IF (III.EQ.1) GO TO 50
+      IF (III.GT.1) GO TO 60
+C
+      WRITE(6,*) ' INPUT FILE NAME '
+      READ(5,3) FIL
+    3 FORMAT(A)
+      OPEN(10,FILE=FIL,STATUS='OLD')
+      WRITE(6,*) ' OUTPUT FILE NAME '
+      READ(5,3) FIL
+      OPEN(9,FILE=FIL,STATUS='UNKNOWN')
+      WRITE(6,*) ' FILE NAME FOR LEAST-SQS. COEFF. (BLANK, NO FILE)'
+      READ(5,3) FIL
+      OPEN(2,FILE=FIL,STATUS='UNKNOWN',FORM='UNFORMATTED')
+      WRITE (6,*) ' FILE NAME FOR LEAST-SQS. INPUT (BLANK, NO FILE) '
+      READ(5,3) FIL
+      OPEN(11,FILE=FIL,STATUS='UNKNOWN')
+      GO TO 55
+C
+   50 MSDOS=1
+      OPEN(10,FILE='ING11',STATUS='OLD')
+      OPEN(9,FILE='OUTG11',STATUS='UNKNOWN')
+      OPEN(2,FILE='TAPE2E',STATUS='UNKNOWN',FORM='UNFORMATTED')
+      OPEN(11,FILE='OUTGINE',STATUS='UNKNOWN')
+   55 OPEN(20,STATUS='SCRATCH',FORM='UNFORMATTED')
+      OPEN(31,STATUS='SCRATCH',FORM='UNFORMATTED')
+      OPEN(32,STATUS='SCRATCH',FORM='UNFORMATTED')
+      OPEN(41,STATUS='SCRATCH',FORM='UNFORMATTED')
+C     A. Kramida 2026: unit 42 carries the TRUE jj transformation matrix
+C     and the jj labels of its columns.  Nothing else changes: IL (31/32)
+C     and IC (41) go on carrying Cowan's J1J2 matrix exactly as before,
+C     so every existing section of OUTG11, every existing record of
+C     TAPE2E, CPL37, SPRN37 and the transition arrays are what they were.
+C     The true jj output is added on top of that, and reads its matrix
+C     from here: SPRIN for the extra eigenvector section, RCEINP for the
+C     trailer it appends to TAPE2E.  Written with PK1 like the others:
+C     measured on Pr III the rotated matrix is 13% dense against PK1's
+C     67% break-even, so packing still pays five times over.  Empty, and
+C     never read, unless KCPLD(8)=8 turned the rotation on.
+      OPEN(42,STATUS='SCRATCH',FORM='UNFORMATTED')
+C     Unit 43 holds one J block of the UNROTATED matrix while the
+C     rotation is being done.  CALCFC rotates TMX in place and has to
+C     give it back untouched, and rotating back with LSJJRT(...,-1,...)
+C     returns it only to roundoff -- which was enough to move the last
+C     bits of TAPE2E, and so to make the results of a run depend on
+C     whether the extra output had been asked for.  Saving and restoring
+C     the matrix instead makes that exact: with KCPLD(8)=8 the numbers
+C     everywhere outside the new sections are bit for bit the numbers
+C     without it.  One rewound record per block, so the file never grows
+C     past a single packed matrix.
+      OPEN(43,STATUS='SCRATCH',FORM='UNFORMATTED')
+C  55 OPEN(20,FILE='FOR020',STATUS='UNKNOWN',FORM='UNFORMATTED')
+C     OPEN(31,FILE='FOR031',STATUS='UNKNOWN',FORM='UNFORMATTED')
+C     OPEN(32,FILE='FOR032',STATUS='UNKNOWN',FORM='UNFORMATTED')
+C     OPEN(41,FILE='FOR041',STATUS='UNKNOWN',FORM='UNFORMATTED')
+C
+      IF (MSDOS.EQ.1) THEN
+C         READ THE PATH TO SYSTEM FILES FROM THE cowan.cfg in the current DIRECTORY
+        OPEN(1,FILE='COWAN.CFG',STATUS='OLD')
+        READ(1,3) FIL
+        CLOSE(1)
+        I=INDEX(FIL,' ')-1
+        IF (I.EQ.-1) I=LEN(FIL)-1
+c       !FIL=FIL(1:I)//'\CODE\'
+c        FIL(I+1:I+6)='\CODE\'
+        do J=1,I
+          I1=I-J+1
+          if (FIL(I1:I1).eq.'\') then
+            FIL(I1+1:I1+1)=' '
+            goto 5501
+          endif
+        enddo
+      ELSE
+********* Specify the COWAN directory here *************
+        FIL='/u/kramida/cowan/'
+********************************************************
+      ENDIF
+ 5501 I=INDEX(FIL,' ')-1
+      IF (I.EQ.-1) I=LEN(FIL)-1
+      OPEN(12,FILE=FIL(1:I)//'FOR072',STATUS='UNKNOWN',
+     1  FORM='UNFORMATTED')
+      OPEN(13,FILE=FIL(1:I)//'FOR073',STATUS='UNKNOWN',
+     1  FORM='UNFORMATTED')
+      OPEN(14,FILE=FIL(1:I)//'FOR074',STATUS='UNKNOWN',
+     1  FORM='UNFORMATTED')
+      OPEN(22,FILE=FIL(1:I)//'SENIOR',STATUS='OLD')
+C     A. Kramida 2026: LSJJ.DAT carries Cowan's LS cfp and the jj cfp
+C     from which the true LS -> jj transformation is built (LSJJIN,
+C     LSJJU, at the end of this file).  It sits with the other system
+C     files and is read only when it is wanted, so a missing file is not
+C     an error until then.  Unformatted, and machine specific with it;
+C     LSJJ/mkdeck.py rebuilds it -- see the header of LSJJIN.
+      OPEN(23,FILE=FIL(1:I)//'LSJJ.DAT',STATUS='OLD',
+     1  FORM='UNFORMATTED',ERR=5502)
+ 5502 CONTINUE
+      OPEN(3,STATUS='SCRATCH',FORM='UNFORMATTED')
+      OPEN(33,FILE='FOR033',STATUS='UNKNOWN')
+      OPEN(15,STATUS='SCRATCH',FORM='UNFORMATTED')
+C ----------- Added by Yu. Ralchenko for calculation of seniority numbers ----- v
+c     Removed by A. Kramida 6/23/04
+c     OPEN(21,STATUS='SCRATCH')
+c     End A. Kramida 6/23/04
+C ----------- End Yu. Ralchenko ----------------------------------------------- ^
+C
+C          SET INPUT AND OUTPUT DISK UNIT NUMBERS
+C
+   60 IR=10
+      IW=9
+      ID2DEF=12
+      ILA=31
+      ILB=32
+      IC=41
+      IJJU=42
+      E0MAX(1)=0
+      E0MAX(2)=0
+C     A. Kramida 2026: the genealogy print is off unless the main card
+C     asks for it.  Set here and not only at label 100, because a run
+C     with KCPL=0 never reads that card.
+      IPGEN=0
+C
+C          CALCULATE TABLE OF SCALED FACTORIALS
+C
+      CALL CALCFCT
+C
+      NTKEV=0
+      NPTKEV=0
+      DELEKEV=0.D0
+      IABG=1
+      IV=0
+      EMINA=0.D0
+      FLBDN=0.D0
+      FLBDX=0.D0
+      NOLSKP=0
+      NOTKP(1)=0
+      NOTKP(2)=0
+      ZERO=0.D0
+      HALF=0.5D0
+      ONE=1.D0
+      THRHAL=1.5D0
+      TWO=2.D0
+      CALL CLOCK(TIME0)
+      WRITE (IW,4)
+    4 FORMAT (1H1/)
+      IRES=0
+      IJJROT=0
+C     A. Kramida 2026: the true-jj label key is built up over the whole
+C     run and printed once at the end, so it is cleared here and nowhere
+C     else.
+      NKEYOV=0
+      DO KJ1=1,2
+        DO KJ2=1,KC
+          DO KJ3=1,KS
+            KEYNC(KJ3,KJ2,KJ1)=0
+          ENDDO
+        ENDDO
+      ENDDO
+C
+   80 READ (IR,5) KCPL
+    5 FORMAT (I5)
+      BACKSPACE IR
+      IF (KCPL.LE.2) GO TO 94
+      IF (KCPL.GT.10) GO TO 90
+      IF (KCPL.EQ.3) GO TO 85
+C     A. Kramida 2026: developer card.  KCPL=9 builds the true LS -> jj
+C     transformation for every shell the cfp deck covers and writes the
+C     matrices, with the orthogonality and 1-vs-2 route residuals, on the
+C     output unit; LSJJ/cmpfort.py checks that dump against recur.py.
+C     The card is then consumed and the run goes on as if it were absent.
+C     9 rather than 4 because 1 to 7 are the representation numbers of
+C     RCG_DOC, where 4 is LSLK, so a card called KCPL=4 reads as a
+C     request for LSLK to anyone who knows that list.  9 is outside it
+C     and outside Cowan's own card (KCPL=3).  This is the only card in
+C     this range: true jj itself is asked for by KCPLD(8)=8 on the main
+C     card, not by a card of its own.
+      IF (KCPL.EQ.9) THEN
+        CALL LSJJSF(23,IW,1,5)
+        READ (IR,5)
+        GO TO 80
+      ENDIF
+C     A. Kramida 2026: there is no longer a KCPL=8 card.  True jj is
+C     asked for by KCPLD(8)=8 on the main card, and is handled at label
+C     107 below, where the rest of KCPLD is.
+      WRITE (IW,6) KCPL
+    6 FORMAT (//30H *****CONTROL CARD VALUE KCPL=,I3,11H IS ILLEGAL//)
+      READ (IR,5)
+      GO TO 80
+C
+C          READ OPTIONAL FIRST CONTROL CARD (KCPL.EQ.3)
+C               (ID2.GT.0--E.G. ID2=42 OR 12-- IF CUVFD TO BE CALLED)
+C
+   85 READ (IR,7) KCPL,ILNCUV,ID2T,FLBDN,FLBDX,DELEKEV,EIONRY,NPTKEV,
+     1  (TKEV(I),I=2,6),EMINA
+    7 FORMAT (I5,I2,I3,2E5.1,2F10.5,I5,5F5.3,F10.5)
+      DO 1003 I=1,5
+   87 IF (TKEV(I+1).GT.0.D0) NTKEV=I
+ 1003 CONTINUE
+      TKEV(1)=9999.9D0
+      WRITE (IW,11) EIONRY,IABG,IV,NPTKEV,(TKEV(I),I=2,6),TIME0
+   11 FORMAT (11H0RCG MOD 11,5X,7HEIONRY=,F10.5,
+     1  7X,5HIABG=,I1,3X,3HIV=,I1,4X,6HNTKEV=,I1,3X,5HTKEV=,
+     2  5F6.2,6X,5HTIME=,F9.2)
+      IF (ID2T.EQ.0) GO TO 80
+      ID2=ID2T
+C
+C     CALL OVERLAY(2HG9,1,0)
+      CALL CUVFD
+      IRES=7
+      GO TO 80
+C
+C          READ OPTIONAL SECOND CONTROL CARD (KCPL.GT.3)
+C               (FOR CONFIGURATIONS WITH SERIAL NO..GE.NCLSKP(K),
+C   RETAIN ONLY THOSE BASIS STATES HAVING
+C        ONE OF THE NOTKP(K) VALUES OF TOTAL L AND S)
+C
+   90 READ (IR,8) J,K,NOLSKP,(MULS1(I),LHS1(I),I=1,NOLSKP)
+    8 FORMAT (I4,I1,I5,14(I4,A1))
+      NCLSKP(K)=J
+      NOTKP(K)=NOLSKP
+      IF (IRES.EQ.7) WRITE (IW,4)
+      IRES=0
+      IF (NOLSKP.LE.0) GO TO 80
+      WRITE (IW,9) K,J,(MULS1(I),LHS1(I),I=1,NOLSKP)
+    9 FORMAT (11H FOR PARITY,I2,19H AND CONFIGS. WITH ,
+     1  14HSERIAL NO..GE.,I3,18H, KEEP ONLY TERMS ,14(I3,A1))
+      DO 92 I=1,NOLSKP
+      ERAS=MULS1(I)
+      SCRSKP(I,K)=0.5D0*(ERAS-1.D0)
+      DO 91 J=1,24
+      IF (LHS1(I).NE.LSYMB(J)) GO TO 91
+      SCRLKP(I,K)=J-1
+      GO TO 92
+   91 CONTINUE
+   92 CONTINUE
+      GO TO 80
+C
+   94 IF (ID4.GT.0) GO TO 95
+      ID2=ID2DEF
+      ID3=ID2+1
+      ID4=ID3+1
+   95 IF (FLBDN.LE.0.D0) FLBDN=0.001D0
+      IF (FLBDX.LE.FLBDN) FLBDX=500000.D0
+      IF (DELEKEV.LE.0.D0) DELEKEV=0.00025D0
+C
+C          READ FINAL CONTROL CARD (OR RESCALE CARD IF KCPL=0)
+C
+C          READ KIND OF COUPLING (1=LS, OR 2=JJ),
+C               NUMBER OF SUB-SHELLS IN EACH CONFIGURATION, AND
+C               NUMBER OF CONFIGURATIONS (FOR EACH PARITY).
+C          IF IABG.GE.1, PARAMETERS ALPHA, BETA, GAMMA ARE INCLUDED
+C               FOR EQUIVALENT ELECTRONS (ALSO T FOR D2-D8, AND
+C               T1 AND T2 FOR D3-D7).  IF IABG=2 OR 4, THEN ILLEGAL-K
+C               PARAMETERS ARE INCLUDED FOR NON-EQUIVALENT ELECTRONS.
+C               IF IABG.GE.3, THEN SL COUPLING IS USED INSTEAD OF LS.
+C          IF EAV=-55555555., INPUT FOR LEAST-SQUARES ENERGY-LEVEL-FITTING
+C               PROGRAM RCE IS WRITTEN ON TAPE 2.
+C          IF ICTBCD.GT.0, INPUT FOR ARGONNE LEAST-SQUARES PROGRAM
+C               IS WRITTEN ON TAPE 19.  (TAPES 2 AND 19 CANNOT
+C               BOTH BE WRITTEN IN THE SAME RUN.)
+C          IF ICTBCD.LT.0, INPUT FOR ZEEMAN LABORATORY LEAST-SQUARES
+C               PROGRAM (KONFIT) IS WRITTEN ON TAPE 5 (=TAPE 19).
+C          IF IGEN=KCPLD(3).GE.5, PLANE-WAVE-BORN COLLISION
+C               STRENGTHS WILL BE CALCULATED (IGEN=9 GIVES MINIMUM PRINT).
+C               VALUES OF KCPL(4)-(5) AND (6)-(7) MUST BE SET APPROPRIATELY
+C               FOR MINIMUM AND MAXIMUM VALUES OF THE MULTIPOLE INDEX,
+C               FOR PARITY CONSERVING AND CHANGING EXCITATIONS, RESPECTIVELY.
+C
+      COUPL1=COUPL(1)
+C     KS=8
+C     KC=200
+      IRW19=0
+      I19 = 0
+      REWIND 2
+      ISCALE=0
+      DELEAV=0.D0
+      UENRGY=0.D0
+      FACT0(1)=0.D0
+      FACT0(2)=0.D0
+      FACT0(3)=0.D0
+      FACT0(4)=0.D0
+      FACT0(5)=0.D0
+      TEXCIT=0.D0
+      ICTC=0                    ! THIS PARAMETER IS DISABLED
+      IF (KCPL.EQ.0) GO TO 101
+c
+c      FORMAT OF THE PARAMETER LINE IN THE ING11 file
+c cols. format      variable name             normal value
+c ----- ------    -------------------    ------------------------
+c 1-5   I5       KCPL                    1
+c 6-7   I1,I2    NCK(K), K=1,2           blank
+c 9-10  I2       NOCET                   blank; see (iii) above
+c 11-15  I1,2I2   NSCONF(I,1)  )
+c                             ) I=1,3    see below
+c 16-20  I1,2I2   NSCONF(I,2)  )
+c 21     I1       IABG                    blank
+c 22     I1       IV                      blank
+c 23-25  A3       NLSMAX                  blank
+c                 Largest J-block size for which couplings 3-7 are
+c                 built.  BLANK = 999 = no limit, i.e. permission to
+c                 do them (KCPLD columns 33-37 still decide which).
+c                 A punched 0 forbids them.  See label 105 below.
+c 26-27  I2       NLT11                   blank
+c                 Global limit on the number of LS terms of the FIRST
+c                 subshell.  Applies to every configuration EXCEPT the
+c                 last of each parity, and 0 means 119 (no cut).  See
+c                 also columns 83-85 of the CONFIGURATION cards, which
+c                 set the same limit per configuration and override
+c                 this one wherever they are punched.
+c 28-30  I3       NEVMAX                  blank
+c 31-39  9I1      KCPLD(I), I=1,9         blank (except for Born calc.)
+c                 KCPLD(8)=8 adds true jj coupling to the output; see
+c                 label 107 below.  Anything else leaves it off.
+c 40     I1       IELPUN                  blank
+c 41-44  2F2.1    SJNK(1), SJXK(1)        blank
+c 45-48  2F2.1    SJNK(1), SJXK(2)        blank
+c 49     I1       IMAG                    blank (for no M1 trans.)
+c 50     I1       IQUAD                   blank (for no E2 trans.)
+c 51-60  F10.5    UENRGY                  1000.0
+c 61-65  F5.5     DMIN                    0.0
+c 66     I1       ILNCUV                  blank
+c 67     I1       IPLEV                   blank
+c 68     I1       ICPC                    blank
+c 69     I1       ICFC                    blank
+c 70     I1       IDIP                    blank
+c 71     I1       IENGYD                  0
+c 72     I1       ISPECC                  7
+c 73-74  I2       IW6                     -6  (blank for batch runs)
+c 75-76  I2       IPCT                    blank
+c 77-78  I2       ICTC                    blank
+c 79-80  I2       ICTBCD                  blank
+c 81-82  I2       ISENIOR                 blank; see label 100 below
+c 83-84  I2       IPGEN                   blank; 1 or 2 prints the
+c                 genealogy of the basis states, see label 100 below
+c
+C
+C        Alex K 10/27/02: Read stars in NSCONF as characters.
+C        If stars are read, read NSCONF values from positions 93 through 104.
+c 100 READ (IR,10) KCPL,NCK,NOCSET,NSCONF,IABG,IV,NLSMAX,NLT11,NEVMAX,
+c    1  KCPLD,IELPUN,SJNK(1),SJXK(1),SJNK(2),SJXK(2),IMAG,IQUAD,UENINP,
+c    2  DMIN,ILNCUV,IPLEV,ICPC,ICFC,IDIP, IENGYD,ISPECC,
+c    3  IW6,IPCT,INWOL,IQS,ICTBCD
+c  10 FORMAT (I5,I1,2I2,I1,2I2,I1,2I2,2I1,I3,I2,I3,
+c    1  9I1,I1,4F2.1,2I1,F10.5,   E5.1,5I1, 2I1,   2I2, 2I1, I2)
+C
+C     Alex K 6/23/04: New parameter, ISENIOR, in columns 81-82, is used as follows:
+C      ISENIOR = 1  - replace Cowan's indexes of repeated terms in dn shells with SENIORITY
+C      ISENIOR = 0 or blank - use Cowan's indexes of repeated terms in dn shells.
+C
+C     A. Kramida 2026: columns 83-84, IPGEN, print the genealogy of the
+C     basis states -- the subshell terms and the chain of running
+C     quantum numbers behind each eight-character label.  The field was
+C     read into IDUM and thrown away, so a blank keeps every existing
+C     deck exactly as it was.
+C      IPGEN = 0 or blank - no genealogy printed
+C      IPGEN = 1  - the tables go into OUTG11
+C      IPGEN = 2  - the tables go into genealogy.txt, and OUTG11 gets a
+C                   pointer to it.  Use this one on a large case: the
+C                   tables are one line per basis state per coupling
+C                   per J block.
+C     See SUBROUTINE GENPRT.
+  100 READ (IR,10) KCPL,NCK,NOCSET,NSCONF(1,1),CHCONF1,
+     1  NSCONF(1,2),CHCONF2,
+     2  IABG,IV,CHNLS,NLT11,NEVMAX,
+     3  KCPLD,IELPUN,SJNK(1),SJXK(1),SJNK(2),SJXK(2),IMAG,IQUAD,UENINP,
+     4  DMIN,ILNCUV,IPLEV,ICPC,ICFC,IDIP, IENGYD,ISPECC,
+     5  IW6,IPCT,INWOL,IQS,ICTBCD, ISENIOR, IPGEN, IDUM, CHCONFS
+   10 FORMAT (I5,I1,2I2,I1,A4,I1,A4,2I1,A3,I2,I3,
+     1  9I1,I1,4F2.1,2I1,F10.5,   E5.1,5I1, 2I1,   2I2, 2I1, I2,
+     2  2I2, I8, A12)
+      ICTBSD=0
+c
+      IF (CHCONF1(1:2) .EQ. '**' .OR. CHCONF1(3:4) .EQ. '**'
+     1  .OR. CHCONF2(1:2) .EQ. '**' .OR. CHCONF2(3:4) .EQ. '**') THEN
+        READ(CHCONFS, 1001) NSCONF(2,1), NSCONF(3,1), NSCONF(2,2),
+     1     NSCONF(3,2)
+ 1001   FORMAT (4I3)
+      ELSE
+        READ(CHCONF1, 1002) NSCONF(2,1), NSCONF(3,1)
+        READ(CHCONF2, 1002) NSCONF(2,2), NSCONF(3,2)
+ 1002   FORMAT (2I2)
+      ENDIF
+C
+C     A. Kramida 2026: decode columns 23-25 (NLSMAX).  A BLANK field is
+C     now 999, i.e. "no limit", and only a punched 0 switches couplings
+C     3-7 off.  The rationale is at label 105 below.  NLSPCH keeps what
+C     was actually punched, for the one place that needs to tell blank
+C     from 999 (SUBROUTINE ENERGY).
+      IF (CHNLS.EQ.'   ') THEN
+        NLSMAX=999
+        NLSPCH=0
+      ELSE
+        READ (CHNLS,1013) NLSMAX
+ 1013   FORMAT (I3)
+        NLSPCH=NLSMAX
+      ENDIF
+C
+      IF (KCPL.LT.0) THEN
+        CLOSE(20,STATUS='DELETE')
+        CLOSE(31,STATUS='DELETE')
+        CLOSE(32,STATUS='DELETE')
+        CLOSE(41,STATUS='DELETE')
+        CLOSE(3,STATUS='DELETE')
+        CLOSE(33,STATUS='DELETE')
+        CLOSE(15,STATUS='DELETE')
+c        STOP '(NORMAL EXIT)'
+        GOTO 700
+      ENDIF
+      IF (UENINP.LE.0.D0) UENINP=1000.D0
+      IF (KCPL.GT.0) GO TO 104
+C          IF (KCPL.EQ.0) INTERPRET AS A RESCALE CARD
+      BACKSPACE IR
+  101 READ (IR,12) DELEAV,KCPLD,IELPUN,UENINP,TEXCIT,E0MAX(1),E0MAX(2)
+   12 FORMAT (20X,F10.5,10I1,10X,F10.5,F5.2,2F10.5)
+      ISCALE=0
+      IF (UENINP.LE.0.D0) GO TO 102
+      ISCALE=7
+      UENRGY=UENINP
+  102 I=0
+      DO J=1,5
+        I=I+2
+        ERAS=10*KCPLD(I-1)+KCPLD(I)
+        if (ERAS.GT.0) then
+          IF (J.EQ.5) ERAS=10*KCPLD(9)+IELPUN
+          IF (ERAS.GE.98.5D0) ERAS=100.D0
+          IF (ERAS.GT.0.D0.AND.ERAS.LT.1.5D0) ERAS=0.1D0
+          FACT0(J)=ERAS/100.D0
+        endif
+      ENDDO
+      GO TO 100
+C
+  104 IF (NSCONF(2,1).LE.KC.AND.NSCONF(2,2).LE.KC) GO TO 105
+      WRITE (IW,13) NSCONF(2,1),NSCONF(2,2),KC
+   13 FORMAT (' NO. OF CONFIGURATIONS=',2I4,' GREATER THAN DIM. KC=',I2)
+c      STOP '(TOO MANY CONFIGURATIONS)'
+      write (*,*) '(TOO MANY CONFIGURATIONS)'
+      GOTO 700 
+  105 IF (ISCALE.EQ.0) UENRGY=UENINP
+      SCALE=UENINP/UENRGY
+      IF (NLT11.EQ.0) NLT11=119
+      IF (NEVMAX.EQ.0) NEVMAX=KMX
+C     A. Kramida 2026: NLSMAX, columns 23-25.  Two changes.
+C
+C     First, 999 -- the largest value the three-column field can hold --
+C     now means KMX, "no limit", the way Cowan elsewhere lets the
+C     largest value an input field can hold stand for the array bound.
+C     Without it couplings 3-7 could not be asked for at all in a
+C     modern case, where every J block is bigger than 999.
+C
+C     Second, a BLANK field is now 999 rather than 0.  KCPLD(I)=0 is
+C     what asks for coupling I, and 0 is what a blank column gives, so
+C     a deck that leaves columns 31-37 alone is already asking for all
+C     seven couplings; requiring a second, separate field to be punched
+C     before those requests take effect made the blank card contradict
+C     itself.  Columns 23-25 are therefore read as A3 and interpreted
+C     as a PERMISSION: blank permits couplings 3-7 (subject to KCPLD),
+C     and only an explicitly punched 0 forbids them.  Anything else is
+C     the block-size limit it always was.
+C
+C     This is the one place in this revision where a blank field does
+C     not reproduce the old behaviour, and it is deliberate.  A deck
+C     that wants the old result from blank KCPLD columns punches 0 in
+C     columns 23-25.
+      IF (NLSMAX.EQ.999) NLSMAX=KMX
+      IF (NOCSET.NE.0.AND.NLSMAX.NE.0) NLSMAX=KMX
+      IF (IELPUN.EQ.2) ICTBCD=0
+      IF (SJXK(1).LE.0.D0) SJXK(1)=99.D0
+      IF (SJXK(2).LE.0.D0) SJXK(2)=99.D0
+      IF (NOLSKP.EQ.0.AND.SJXK(1)+SJXK(2).NE.198.D0) NOLSKP=-7
+      IF (NOLSKP.EQ.0) GO TO 106
+C     KCPL=1
+C     KCPLD(2)=1
+C     NLSMAX=0
+  106 IF (IENGYD.EQ.0) IENGYD=500
+      IF (IENGYD.EQ.2) IENGYD=(NEVMAX+10)/11
+      IGDLEV=0
+      IF (ISPECC.EQ.0) IGDLEV=7
+      IF (IGDLEV.NE.0) ISPECC=8
+      IPLOTC=0
+      IF (ISPECC.EQ.0) IPLOTC=1
+C     A. Kramida 2026: TRUE jj COUPLING, ASKED FOR BY KCPLD(8)=8.
+C
+C     Column 38 of the main card.  True jj is an ADDITIONAL coupling: it
+C     adds an eigenvector section to OUTG11 and a trailer to TAPE2E and
+C     changes nothing that was there before, because Cowan's LSJJ (J1J2)
+C     output is what other programs parse -- OUTG11 here, LEVELS and
+C     OUTE out of RCE -- and has to stay as it is.
+C
+C     Why 8 and not 0.  KCPLD(I)=0 means "do coupling I" for I=1..7, and
+C     an eighth column read the same way would have been the obvious
+C     choice, but 0 is what a blank field gives, so every deck ever
+C     written would have switched this on.  The couplings 3..7 used to
+C     get away with 0-means-yes because NLSMAX gated them as well; that
+C     is no longer so -- a blank NLSMAX now permits them (label 105), so
+C     a blank card really does ask for couplings 1..7.  KCPLD(8)
+C     is not unused either: it is IKKK in ENERGY, which acts on 9 (and
+C     on nothing else), so 9 is out and the sense has to be inverted.
+C     Hence 8 = do it, which also reads as "coupling 8", the number this
+C     coupling carries internally (KCPL1=8 in SPRIN, COUPL(8)).
+  107 IJJROT=0
+      IF (KCPLD(8).EQ.8) THEN
+        CALL LSJJIN(23,IEJJ)
+        IJJROT=1
+        IF (IEJJ.NE.0) THEN
+          IJJROT=0
+          WRITE (IW,65) IEJJ
+          IF (IW6.LT.0) WRITE (6,65) IEJJ
+   65     FORMAT (//' *****LSJJ.DAT COULD NOT BE READ, IERR=',I2,
+     1    '.  TRUE jj COUPLING NOT AVAILABLE.'/
+     2    '      1 = MISSING OR UNREADABLE'/
+     3    '      2 = TOO BIG FOR LSJJPAR.F'/
+     4    '      3 = WRONG MAGIC OR VERSION: A DECK FROM ANOTHER'/
+     5    '          BYTE ORDER, OR ONE STILL IN TEXT FORM'/
+     6    '      REBUILD:  cd LSJJ ; python mkdeck.py ../LSJJ.DAT'//)
+        ELSE
+          WRITE (IW,66)
+   66     FORMAT (//' *****KCPLD(8)=8: TRUE jj COUPLING WILL BE ADDED',
+     1    ' TO THE OUTPUT.'/
+     2    '      COWAN''S JJ (J1J2) SECTIONS ARE UNCHANGED.'//)
+        ENDIF
+      ENDIF
+C     A. Kramida 2026: the genealogy print (columns 83-84).  Anything
+C     but 1 or 2 is off, so an old deck that put something else in this
+C     field -- it was IDUM and unused -- still prints nothing.
+      IF (IPGEN.LT.1.OR.IPGEN.GT.2) IPGEN=0
+      IF (IPGEN.NE.0) THEN
+        WRITE (IW,67) IPGEN
+   67   FORMAT (//' *****IPGEN=',I1,': THE GENEALOGY OF THE BASIS',
+     1  ' STATES WILL BE PRINTED.'/
+     2  '      SEE SUBROUTINE GENPRT.  NOTHING ELSE IN THE OUTPUT',
+     3  ' CHANGES.'//)
+      ENDIF
+      IGEN=KCPLD(3)
+      IF (IGEN.GE.5) GO TO 110
+      IRNQ=2
+      IRXQ=2
+      IRND=1
+      IRXD=1
+      GO TO 120
+  110 IRNQ=KCPLD(4)
+      IRXQ=MAX0(IRNQ,KCPLD(5))
+      IRND=MAX0(1,KCPLD(6))
+      IRXD=MAX0(IRND,KCPLD(7))
+      IF (NSCONF(2,2).LE.0) IQUAD=1
+      DMIN=0.D0
+      ISPECC=1
+      NTKEV=0
+      NPTKEV=0
+      IF (NCK(1).LE.0) NCK(1)=1
+  120 IF (NCK(1).EQ.0) NCK(1)=KC
+      IF (NCK(2).EQ.0) NCK(2)=KC
+      CALL CLOCK(TIME0)
+      COUPL(1)=COUPL1
+      IF (IABG.GE.3) COUPL(1)=COUPL(12)
+C       NOTE---THE SL-COUPLING OPTION CONCERNS ONLY (SCRS4,SCRL4)SCRJ8.
+C          THE JJ, JK, ETC. REPRESENTATIONS STILL USE (LI,SI)JI.
+      IF (IRES.EQ.7) WRITE (IW,4)
+      IRES=7
+      WRITE (IW,15) COUPL(KCPL),NSCONF,IABG,IV,NLT11,KCPLD,SJXK,
+     1  ILNCUV,IPLEV,ICPC,ICFC,IDIP,IENGYD,ISPECC,IPCT,ICTC,ICTBCD
+c  15 FORMAT (11H0RCG MOD 11,A6,9H COUPLING,4X,7HNSCONF=,3I2,3X,
+c    1  2I2,I3,4X,5HIABG=,I1,3X,3HIV=,I1,2X,I4,1X,9I1,2F5.1,2X,
+c    2  6HPRINT=,5I1, I4,4I2)
+   15 FORMAT (11H0RCG MOD 11,A6,9H COUPLING,4X,7HNSCONF=,I3,2I4,3H / ,
+     1  I3,2I4,4X,5HIABG=,I1,
+     2  /1X,3HIV=,I1,2X,I4,1X,9I1,2F5.1,2X,
+     3  6HPRINT=,5I1, I4,4I2)
+      IF (IW6.LT.0)
+     1  WRITE (6,15) COUPL(KCPL),NSCONF,IABG,IV,NLT11,KCPLD,SJXK,
+     2  ILNCUV,IPLEV,ICPC,ICFC,IDIP,IENGYD,ISPECC,IPCT,ICTC,ICTBCD
+      IF (ICTBCD.NE.0) THEN
+        IF (I19.EQ.0) OPEN(19,FILE='TAPE19',STATUS='UNKNOWN')
+        I19 = 1
+        IW = 19
+        REWIND 19
+      ENDIF
+      IF ((ICTBCD.GT.0.OR.IELPUN.GE.2).AND.IRW19.EQ.0) THEN
+        REWIND 19
+        IRW19=7
+      ENDIF
+  180 IF (NOCSET.NE.0) THEN
+        ICTBCD=0
+        IF (NOCSET.GE.0) THEN
+  182     READ (2) NOCDES,NSCRJ8,NPAR,J1X
+            NPAR=NPAR-J1X+1
+            DO 1005 N=1,NSCRJ8
+              READ (2) L
+              DO 1004 M=1,NPAR
+  183       READ (2) A
+ 1004         CONTINUE
+ 1005       CONTINUE
+            IF (NOCDES.NE.NOCSET) GO TO 182
+          GO TO 100
+        ENDIF
+      ENDIF
+C
+C          CALC LEVEL DESIGNATIONS AND COEFFICIENT MATRICES
+C
+C 200 CALL OVERLAY(2HG9,2,0)
+  200 CALL LNCUV
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      WRITE (IW,25) DELT
+   25 FORMAT (/19H0FINISHED LNCUV AT ,F7.3,4H MIN)
+      IF (IW6.LT.0) WRITE (6,1025) DELT
+ 1025 FORMAT (/19H FINISHED LNCUV AT ,F7.3,4H MIN)
+C
+      IL=ILA
+      REWIND IC
+C     A. Kramida 2026: the jj unit runs in lockstep with IC -- one record
+C     per J block, written in the same order by CALCFC and read back one
+C     for one by whichever consumer runs, SPRIN or the TAPE2E trailer in
+C     RCEINP.  Rewind it wherever IC is rewound and the two streams stay
+C     aligned.
+      REWIND IJJU
+      ICPTR=0
+      NOICWR=0
+      K=1
+C
+  400 KK=K                   ! K and KK are PARITY
+      NOIC(K)=NOICWR
+      NOICMUP(K)=0
+      NOLSKP=NOTKP(K)
+      DO I=1,KS
+        LL(I)=LLIJK(I,1,K)
+        FLL(I)=FLLIJK(I,1,K)
+      ENDDO
+      NOSUBC=NSCONF(1,K)
+      SJN=SJNK(K)
+      SJX=SJXK(K)
+      IF (ICTC.EQ.0) THEN
+C       CALL OVERLAY(2HG9,3,0)
+        CALL PLEV
+        CALL CLOCK(TIME)
+        DELT=TIME-TIME0
+        WRITE (IW,26) DELT
+   26   FORMAT (/19H0FINISHED PLEV AT  ,F7.3,4H MIN/1H1)
+        IF (IW6.LT.0) WRITE (6,1026) DELT
+ 1026   FORMAT (19H FINISHED PLEV AT  ,F7.3,4H MIN)
+C       CALL OVERLAY(2HG9,4,0)
+        WRITE (IW,2601)
+ 2601   FORMAT (/19H STARTING PFGD.....)
+        CALL PFGD
+        CALL CLOCK(TIME)
+        DELT=TIME-TIME0
+        IF (IW6.LT.0) WRITE (6,1027) DELT
+ 1027   FORMAT (19H FINISHED PFGD AT  ,F7.3,4H MIN)
+        WRITE (IW,2602) DELT
+ 2602   FORMAT (/19H0FINISHED PFGD AT  ,F7.3,4H MIN/1H1)
+        IF (NSCONF(1,2).EQ.0.AND.ICPC.EQ.9) GO TO 100
+        IF (NSCONF(2,K).GT.1) THEN
+C         CALL OVERLAY(2HG9,5,0)
+          WRITE (IW,2603)
+ 2603     FORMAT (/19H STARTING PRK......)
+          CALL PRK
+          CALL CLOCK(TIME)
+          DELT=TIME-TIME0
+          IF (IW6.LT.0) WRITE (6,1028) DELT
+ 1028     FORMAT (18H FINISHED PRK AT  ,F7.3,4H MIN)
+          WRITE (IW,2604) DELT
+ 2604     FORMAT (/19H0FINISHED PRK  AT  ,F7.3,4H MIN/1H1)
+        ENDIF
+        NOPC=25
+        NPAR1=-7
+        J1=1
+        WRITE (20) NPAR1,KPAR,K,I,J,AA,CAVE,J1,NOPC,(PC(N1),N1=1,NOPC)
+        REWIND 20
+        J1X=NSCONF(2,K)
+        NOTSX=0
+        DO I=1,NOSUBC
+          NOTSX=MAX0(NOTSJ1(I,J1X+1),NOTSX)
+        ENDDO
+        REWIND IL
+        ILC=IL
+        DO NN=1,2
+          WRITE (ILC) NOTSJ1,NSCRJ8,SJ8MN,SJ8MX,NPAR,NPARJ,PARNAM,
+     1      NOTSX, ((FL(L,I),S(L,I), L=1,NOTSX), I=1,NOSUBC),NALSJP,PJ
+          ILC=IC
+        ENDDO
+        ICPTR=ICPTR+1
+        NOICWR=NOICWR+1
+C       CALL OVERLAY(2HG9,6,0)
+C            WRITE (6,2468) NOICWR,NOICMUP
+C2468   FORMAT (' NOICWR,NOICMUP=',I5,2X,2I5)
+        WRITE (IW,2605)
+ 2605   FORMAT (/19H STARTING CALCFC...)
+        CALL CALCFC
+c        write (*,*) 'ICPTR,NOICWR=',ICPTR,NOICWR
+        CALL CLOCK(TIME)
+        DELT=TIME-TIME0
+        IF (IW6.LT.0) WRITE (6,1029) DELT
+ 1029   FORMAT (19H FINISHED CALCFC AT,F7.3,4H MIN)
+C            WRITE (6,2468) NOICWR,NOICMUP
+        WRITE (IW,2606) DELT
+ 2606   FORMAT (/19H0FINISHED CALCFC AT,F7.3,4H MIN/1H1)
+        IARG1=0
+        IARG2=IL
+        IARG3=IL
+        IRMN=1
+        IRMX=1
+C       IF (IMAG.EQ.K.OR.IMAG.GT.2) CALL OVERLAY(2HG9,7,0)
+        IF (IMAG.EQ.K.OR.IMAG.GT.2) CALL MUPOLE
+C            WRITE (6,2468) NOICWR,NOICMUP
+        IARG1=2
+        IRMN=IRNQ
+        IRMX=IRXQ
+C       IF (IQUAD.EQ.K.OR.IQUAD.GT.2) CALL OVERLAY(2HG9,7,0)
+        IF (IQUAD.EQ.K.OR.IQUAD.GT.2) CALL MUPOLE
+C            WRITE (6,2468) NOICWR,NOICMUP
+      ENDIF
+      REWIND IL
+      IF (IL.EQ.ILB) GO TO 500
+      IF (NSCONF(1,2).LE.0) GO TO 600
+      IL=ILB
+      K=2                        ! DO CALCULATIONS FOR THE SECOND PARITY
+      GO TO 400
+C
+  500 IARG1=IIPRTY
+      IARG2=ILA
+      IARG3=ILB
+      IRMN=IRND
+      IRMX=IRXD
+      IF (ICTC.NE.0) GO TO 600
+C     CALL OVERLAY(2HG9,7,0)
+      write (*,*) 'Starting MUPOLE...'
+      CALL MUPOLE
+      write (*,*) 'Done MUPOLE'
+C          WRITE (6,2468) NOICWR,NOICMUP
+C
+C          CALCULATE ENERGY LEVELS AND SPECTRA
+C
+  600 WRITE (IW,2607)
+      WRITE (*,2607)
+ 2607 FORMAT (/19H STARTING ENERGY...)
+C 600 CALL OVERLAY(2HG9,8,0)
+      CALL ENERGY
+      WRITE (IW,2608) DELT
+ 2608 FORMAT (/19H0FINISHED ENERGY AT,F7.3,4H MIN/1H1)
+      REWIND ILA
+      REWIND ILB
+      GO TO 100
+c
+c       Deallocate memory
+C     A. Kramida 2026: the key to the true jj labels goes last, after
+C     everything that uses those labels has been printed.  Silent unless
+C     a block was rotated, so a run without KCPLD(8)=8 is unaffected.
+  700 CALL LSJJKP(IW)
+      CALL DALLOC(CFP2_PTR)
+      CALL DALLOC(U2_PTR)
+      CALL DALLOC(V2_PTR)
+      CALL DALLOC(V3_PTR)
+      CALL DALLOC(C_PTR)
+      CALL DALLOC(CT4_PTR)
+      CALL DALLOC(U1_PTR)
+      CALL DALLOC(V1_PTR)
+      CALL DALLOC(CFGP1_PTR)
+      CALL DALLOC(PC_PTR)
+      CALL DALLOC(C3LC4_PTR)
+      CALL DALLOC(NPARJ_PTR)
+      CALL DALLOC(ISER_PTR)
+      CALL DALLOC(PCI_PTR)
+      STOP '(NORMAL EXIT)'
+      END
+********** End of Main Program ********************
+C
+      BLOCK DATA
+C
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,COUPL
+      CHARACTER*4 LSYMB
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      COMMON/PWBORN/NBIGKS,NENRGS,EKMINL,EKMAXL,DELEKL,BIGKS(KBGKS),
+     1  XMIN,XMAX,TEV(25),CORR(KENRGS),IBK,IPWR,I11
+      COMMON/TIMING/TINIT,ITINIT
+C
+      DATA ITINIT /0/                        ! INIT TIMING FOR IBM-PC
+      DATA PARNAM(1,1),PARNAM(1,2)/'EAV     ','EAV     '/
+C     A. Kramida 2026: slot 8 was 'J1-LSJ', which nothing ever printed
+C     -- RCG_DOC lists seven representations and KCPL1 never went past
+C     7 -- and is now the name of the true jj coupling, which is
+C     internally coupling 8 (see the KCPLD(8) block in the main program
+C     and the KCPL1=8 pass in SPRIN).
+      DATA (COUPL(I),I=1,12)/'    LS','    JJ','  JJJK','  LSLK',
+     1  '  LSJK','LSJLKS','LSJLSJ','TRUEjj',' ',' ',' ','    SL'/
+      DATA (LSYMB(I),I=1,24)/'S','P','D','F','G','H','I',
+     1  'K','L','M','N','O','Q','R','T','U','V','W',
+     2  'X','Y','Z','A','B','C'/
+      DATA TEV/1.D0,1.5D0,2.D0,3.D0,5.D0,7.D0,10.D0,15.D0,20.D0,30.D0,
+     1  50.D0,70.D0,100.D0,150.D0,200.D0,300.D0,500.D0,700.D0,1000.D0,
+     2  1500.D0,2000.D0,3000.D0,5000.D0,7000.D0,10000.D0/
+      END
+C
+      FUNCTION CIJKF(A,B,C)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+C
+      D=S3J0SQ(A,B,C)
+      D=DSQRT((2.D0*A+1.D0)*(2.D0*B+1.D0)*D)
+      TWO=2.D0
+      IF (DMOD(0.5D0*(B+C-A),TWO).NE.0.D0) D=-D
+      CIJKF=D
+      RETURN
+      END
+      SUBROUTINE LOCDSK(IDSK,FLLDES,NIDES)
+C
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*4 LLD
+C
+      REWIND IDSK
+  100 READ (IDSK) LLD,NID,FLLD,NOT,NLT,NORCD
+      IF (FLLD.EQ.FLLDES.AND.NID.EQ.NIDES) GO TO 300
+      DO 1006 NN=1,NORCD
+  200 READ (IDSK)
+ 1006 CONTINUE
+      GO TO 100
+  300 RETURN
+      END
+      SUBROUTINE SPRIN
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2A/SJ8K(2),NOTSJP(KS,KNT),NCFGP(KMX),NALSP(KMX,KS)
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS), MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION VECT(KMX,KMX),TMXP(KMX,KMX)
+      pointer (C3LC4_PTR,VECT),(C3LC4_PTR,TMXP)                         ! A. Kramida: was TMPX (typo) - left TMXP as an 800 MB static array
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE2/EIG(KMX),ELEM1(3),FNT(9,2),I1,I2,
+     1  IFACT(4),FACT(4),LCSER(KMX),X(KMX)
+c     +  ,DUMEE2(KEE2)                                                    ! A. Kramida 7/31/2012: if KEE2 <= 0,
+      CHARACTER*8 IDELEM(11),ELEM,D,E
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,COUPL
+      CHARACTER*4 LSYMB
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+C     A. Kramida 2026: the true jj switch, its unit, and the labels.
+      COMMON/LSJJBK/IJJROT,IJJU,IBSJJ(KNSJK),NBKJJ(KS,KNSJK)
+      INCLUDE 'LSJJID.F'
+C
+C
+C          PRINT COEF, MUPOLE, ENERGY, OR EIGENVECTOR MATRIX.
+C               IF NECESSARY, TRANSFORM AND PRINT AGAIN.
+C               FOR MUPOLE ELEMENTS, ALSO PRINT SQUARES.
+C          KPAR=-1,0,+1,+2 FOR FK,GK,ZETA,MUPOLE,RESPECTIVELY.
+C          KPAR=-2 FOR RK
+C          KPAR=+3,+4 FOR ENERGY OR EIGENVECTOR MATRIX, RESPECTIVELY.
+C
+C
+C     KS=8
+      K=KK
+      J1X=NSCONF(2,K)
+      JAB=MAX0(J1B-J1A,1)
+      ITEST=0
+  100 IF (KPAR.LT.2) THEN
+        IF (ICFC.EQ.3.AND.KPAR.NE.-2) ITEST=1
+        IF (ICFC.EQ.4.AND.KPAR.EQ.-2) ITEST=1
+        IF (ICFC.GT.4) ITEST=1
+        IF (ITEST.GT.0) WRITE (IW,10)
+   10   FORMAT (1H2)
+      ENDIF
+  108 IP=1
+      KCPL1=1
+      IF ((KPAR-1).LT.0) GO TO 121
+      IF ((KPAR-1).GT.0) GO TO 170
+  115 KCPL1=KCPL
+      GO TO 121
+C
+  120 IF ((KPAR-1).GT.0) GO TO 170
+  121 NLSP=NLS
+      IF (ITEST.NE.0) THEN
+        WRITE (IW,14) PARNAM(NPAR,K),CAVE,COUPL(KCPL1),SCRJ8,
+     1    (JN, (LLIJK(L,JN,K),NIJK(L,JN,K), L=1,KS), JN=J1A,J1B,JAB)
+   14   FORMAT (1H0,A10,6X,5HCAVE=,F9.5,10X,A6,9H COUPLING,8X,2HJ=,F4.1,
+     1    10X,6HCONFIG,I3,8(2X,A1,I2)/84X,I3,8(2X,A1,I2))
+        WRITE (IW,15)
+   15   FORMAT (1H0)
+      ENDIF
+      GO TO 200
+  170 IF ((KPAR-3).EQ.0) GO TO 180
+      IF ((KPAR-3).GT.0) GO TO 190
+  171 IP=2
+      I12=1
+      JX=MAX0(NSCONF(2,I1),NSCONF(2,I2))
+      JXM1=MIN0(JX-1,8)
+      IF (IDIP.EQ.0) GO TO 200
+      IF (IDIP.GT.1) WRITE (IW,10)
+  172 DO 174 J=1,JX
+        IF (J.GT.JXM1.AND.J.LT.JX) GO TO 174
+        WRITE (IW,16) I12,IX, J,(LLIJK(L,J,I1),NIJK(L,J,I1),L=1,KS),
+     1    SCRJ8,J,(LLIJK(L,J,I2),NIJK(L,J,I2), L=1,KS),SCRJ8P,
+     2    COUPL(KCPL1)
+  174 CONTINUE
+   16 FORMAT (7H MUP MX,I3,4H II=,I1,I3,8(2X,A1,I2),3X,2HJ=,
+     1  F4.1,4H ---,I3,8(2X,A1,I2),3X,3HJP=,F4.1,2X,A6,4H CPL)
+      WRITE (IW,15)
+      GO TO 200
+C
+  180 KCPL1=KCPL
+      NLST=NLS
+      IF (IENGYD.GT.2) NLS=MIN0(NLS,11*IENGYD)
+      NLSP=NLS
+      JXJ=J1X
+      I=5
+      IF (IENGYD.LT.200) I=1
+      IF (SCRJ8.NE.SJ8MN) JXJ=MIN0(JXJ,I)
+      WRITE (IW,18)  COUPL(KCPL1),SCRJ8,   ((ELEM(I,JN,K), I=1,3),
+     1  JN, (LLIJK(L,JN,K),NIJK(L,JN,K), L=1,KS), JN=1,JXJ)
+   18 FORMAT (15H1 ENERGY MATRIX,4H   (,A6,9H COUPLING,1H),7X,
+     1  2HJ=,F4.1,7X,3A6,5X,6HCONFIG,I3,8(2X,A1,I2)/
+     2  (55X,3A6,11X,I3,8(2X,A1,I2)))
+      IF (JXJ.LT.J1X) WRITE (IW,13)
+     1  (ELEM(I,J1X,K),I=1,3), J1X,(LLIJK(L,J1X,K),NIJK(L,J1X,K),L=1,KS)
+   13 FORMAT (55X,3A6,11X,I3,8(2X,A1,I2))
+      WRITE (IW,15)
+      IF ((IENGYD-2).LT.0) GO TO 500
+      GO TO 200
+C
+  190 KCPL1=KCPL
+      NLSP=NLS
+  191 IF (KCPL1.EQ.1) THEN
+C                CALCULATE G-FACTORS
+  192   M=NOSUBC
+        IF (SCRJ8.GT.0.D0) THEN
+          DO 1007 L=1,NLS
+            SS=SCRS(L,M)
+            SL=SCRL(L,M)
+  193     CT4(L,1)=0.50116D0*(SS*SS+SS-SL*SL-SL)
+     1      /(SCRJ8*SCRJ8+SCRJ8)+1.50116D0
+ 1007     CONTINUE
+          DO 1009 N=1,NLS
+            SS=0.D0
+            DO 1008 L=1,NLS
+              SL=C(L,N)
+              SL=SL*SL
+              SS=SS+CT4(L,1)*SL
+  194     CT4(N,2)=SS
+ 1008       CONTINUE
+ 1009     CONTINUE
+          WRITE  (IW,20) (CT4(N,2), N=1,NLS)
+   20     FORMAT (//11H   G-VALUES/(28X,11F9.3))
+        ENDIF
+      ENDIF
+      IPRINT=KCPLD(9)
+C     A. Kramida 2026: KCPL1=8 is the true jj pass, and it is not gated
+C     by KCPLD(8): that column is the switch that asked for this pass in
+C     the first place, and its value is 8, which the test below would
+C     read as "skip".
+  196 IF (KCPL1.EQ.8) THEN
+        IF (IPRINT.GE.8) GO TO 281
+      ELSE
+        IF (KCPLD(KCPL1).GT.0.OR.IPRINT.GE.8) GO TO 281 ! SKIP THE PRINT
+      ENDIF
+      WRITE (IW,19) COUPL(KCPL1)
+   19 FORMAT (//15H   EIGENVECTORS,4H   (,A6,9H COUPLING,1H)/)
+C
+  200 IF ((KPAR.LT.2.AND.ITEST.LE.0).OR.(KPAR.EQ.2.AND.IDIP.LE.1))
+     1  GO TO 282             ! SKIP THE PRINT LOOP
+      LX=0
+  210 LN=LX+1
+      LX=LX+11
+      IF (LX.GT.NLSP) LX=NLSP
+  212 IF (KPAR.LT.4) THEN
+        IF (KPAR.EQ.2) THEN
+          WRITE (IW,24) (NCFGP(L), L=LN,LX)
+        ELSE
+          WRITE (IW,24) (NCFG(L), L=LN,LX)
+        ENDIF
+        IF (KCPL1.EQ.1) THEN
+          WRITE (IW,22) (FIDLS(L,IP), L=LN,LX)
+   22     FORMAT (28X, 11(3H  (,A8,:))
+        ELSEIF (KCPL1.EQ.8) THEN
+C     A. Kramida 2026: the true jj label is eight code characters, one
+C     per subshell; LSJJKP prints the key at the end of the run.  All
+C     eight are wanted, so A8 rather than the A7 of the JJ heading, and
+C     the opening bracket goes to keep the 9-column pitch of the F9.5
+C     data underneath.
+          WRITE (IW,231) (FIDJ2(L), L=LN,LX)
+  231     FORMAT (28X, 11(1H(,A8,:))
+        ELSE
+          WRITE (IW,23) (FIDJJ(L,IP), L=LN,LX)
+   23     FORMAT (28X, 11(2H (,A7,:))
+        ENDIF
+        WRITE (IW,24) (L, L=LN,LX)
+   24   FORMAT (26X,11(I9,2X))
+        IF ((KPAR-3).LT.0) GO TO 250
+        IF ((KPAR-3).EQ.0) GO TO 290
+        GO TO 245
+      ENDIF
+  245 WRITE (IW,24)
+      IF (KCPL1.NE.KCPL) GO TO 248
+      DO 1010 L=LN,LX
+        N=LCSER(L)
+C 246   ENCODE (8,28,IDELEM(L-LN+1)) ELEM(2,N,K),ELEM(3,N,K)
+  246 WRITE (IDELEM(L-LN+1),28) ELEM(2,N,K),ELEM(3,N,K)
+ 1010 CONTINUE
+   28 FORMAT (A6,A2)
+      N=(LN+11)/11
+      WRITE (IW,25) N, (IDELEM(L-LN+1),L=LN,LX)
+   25 FORMAT (I21,9X,11(A8,1X))
+      WRITE (IW,29) (LDES(L),L=LN,LX)
+   29 FORMAT (30X,11(1H(,A8,:))
+  248 IF (LN.GT.NEVMAX) GO TO 281    ! BREAK THE LOOP
+C
+C          PRINT COEF, DIPOLE, OR EIGENVECTOR MATRIX
+C
+C     A. Kramida 2026: this loop produces most of OUTG11 and is about
+C     15 pct of a Pr III run.  The cost is FORMAT conversion, not disk:
+C     redirecting OUTG11 to NUL changed nothing.  Two rewrites were
+C     tried and BOTH were reverted, so please do not repeat them:
+C       - formatting each line into a buffer and emitting it with one
+C         (A) descriptor: no gain here, and 0.9 s LOST in the twin loop
+C         in SPRN37;
+C       - threading the formatting on top of that: 2.5x SLOWER overall
+C         (12 s -> 30 s), because the routine is entered about a
+C         thousand times per case and gfortran's internal writes do not
+C         run concurrently anyway.
+C     Cutting this further needs a hand-written F9.5 converter, which
+C     would have to reproduce gfortran's rounding exactly.
+  250 DO 280 L=1,NLS
+        N=NCFG(L)
+        D=ELEM(2,N,K)
+        E=ELEM(3,N,K)
+C       IF (KPAR.LE.2) THEN
+C         D='      '
+C         E=D
+C       ENDIF
+  255   IF (KCPL1.EQ.8) THEN
+          WRITE (IW,27) N,D,E, FIDJ2(L), L, (C(L,LP), LP=LN,LX)
+        ELSEIF (KCPL1.LE.1) THEN
+          WRITE (IW,26) N,D,E, FIDLS(L,1), L, (C(L,LP), LP=LN,LX)
+   26     FORMAT (I3,1H:,2A6, 1H(,A7, I3,1X,11F9.5)
+        ELSE
+          WRITE (IW,27) N,D,E, FIDJJ(L,1), L, (C(L,LP), LP=LN,LX)
+   27     FORMAT (I3,1H:,2A6, 1H(,A8, I3,11F9.5)
+        ENDIF
+  280 CONTINUE
+      IF (LX.LT.NLSP) GO TO 210      ! LOOP BACK TO NEXT LN,LX
+  281 WRITE (IW,27)
+      IF (KPAR.GE.4) GO TO 283
+  282 IF ((KCPL1-KCPL).NE.0) GO TO 300
+      GO TO 400
+  283 IF (NLS.GT.1) THEN
+        PUR=0.D0
+        DO 1011 N=1,NLS
+          FNLS=0.D0
+          DO 285 L=1,NLS
+            ERAS=C(L,N)
+            ERAS=ERAS*ERAS
+            IF (ERAS.GT.FNLS) FNLS=ERAS
+  285     CONTINUE
+          CT4(N,1)=FNLS
+  286   PUR=PUR+FNLS
+ 1011   CONTINUE
+        FNLS=NLS
+        AVP(KCPL1,K)=AVP(KCPL1,K)+PUR
+        FNT(KCPL1,K)=FNT(KCPL1,K)+FNLS
+        PUR=PUR/FNLS
+        NNN=MIN0(NLS,NEVMAX)
+        WRITE (IW,30) PUR, (CT4(N,1), N=1,NNN)
+   30   FORMAT (13X,8H PURITY=,F5.3,2X,11F9.5/(28X,11F9.5))
+      ENDIF
+  288 IF (NOLSKP.NE.0) GO TO 398
+      IF ((KCPL1-KCPL).NE.0) GO TO 287
+  289 IF ((NLS-1).LE.0) GO TO 400
+      GO TO 300
+C
+C          A. Kramida 2026: THE TRUE jj PASS (KCPL1=8).
+C
+C     Reached once per J block, after the LS and JJ passes have both
+C     printed, and only when KCPLD(8)=8 asked for it.  It is an extra
+C     section: nothing above it is changed, and without the switch this
+C     is a single comparison and a GO TO.
+C
+C     The eigenvectors are re-expressed, not recomputed.  C_jj = Ujj' C
+C     where C is the eigenvector matrix in the LS basis and Ujj is the
+C     rotated transformation matrix CALCFC left on IJJU.  Whichever of
+C     the two passes just ran, the LS vectors are still to hand: with
+C     KCPL=1 they are in VECT, put there at 398, and with KCPL=2 they
+C     are in C, which is where the second pass left them.
+C
+C     TMX is overwritten with the jj matrix and not put back.  That is
+C     safe here and nowhere earlier: SPRN37, at the foot of this
+C     routine, overwrites TMX for its own use anyway, which is why
+C     ENERGY reloads it from unit 3 after every call.
+C
+C     One IJJU record per block, in the order CALCFC wrote them, and
+C     KPAR=4 brings us here exactly once per block -- so the two streams
+C     stay in step provided every record is consumed.  Hence the reads
+C     happen before any of the tests that can abandon the pass.
+C
+  287 IF (KPAR.NE.4.OR.IJJROT.EQ.0.OR.KCPL1.EQ.8) GO TO 400
+      READ (IJJU,END=297,ERR=297) IOKJJ,SCRJ8J,NLSJ,NSBJ,
+     1  (((NJJST(K1,L,I),K1=1,4), I=1,NSBJ), FIDJ2(L), L=1,NLSJ)
+      IMSQ=NLS*NLS
+      CALL UNPK1(IJJU,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+      IF (IOKJJ.EQ.0) GO TO 400
+      IF (NLSJ.NE.NLS.OR.SCRJ8J.NE.SCRJ8) THEN
+        WRITE (IW,36) SCRJ8J,NLSJ,SCRJ8,NLS
+   36   FORMAT (//' *****TRUE jj RECORD OUT OF STEP: GOT J=',F5.1,
+     1    ', NLS=',I6,'; EXPECTED J=',F5.1,', NLS=',I6,
+     2    '.  NO TRUE jj OUTPUT FOR THIS J.'//)
+        GO TO 400
+      ENDIF
+!$OMP PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,L0,TEMP) SCHEDULE(STATIC)
+      DO L=1,NLS
+        DO LP=1,NLS
+          TEMP=0.D0
+          IF (KCPL.EQ.1) THEN
+            DO L0=1,NLS
+              TEMP=TEMP+TMX(L0,L)*VECT(L0,LP)
+            ENDDO
+          ELSE
+            DO L0=1,NLS
+              TEMP=TEMP+TMX(L0,L)*C(L0,LP)
+            ENDDO
+          ENDIF
+          CT4(L,LP)=TEMP
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+      DO L=1,NLS
+        DO LP=1,NLS
+          C(L,LP)=CT4(L,LP)
+        ENDDO
+      ENDDO
+      KCPL1=8
+      GO TO 191
+C          IJJU RAN OUT.  SAY SO ONCE AND STOP TRYING.
+  297 WRITE (IW,37)
+   37 FORMAT (//' *****TRUE jj SCRATCH FILE ENDED EARLY.  NO FURTHER',
+     1  ' TRUE jj OUTPUT.'//)
+      IJJROT=0
+      GO TO 400
+C
+C          PRINT ENERGY MATRIX
+C
+  290 ERAS=C(1,1)
+      DO 298 L=1,NLS
+        N=NCFG(L)
+        D=ELEM(2,N,K)
+        E=ELEM(3,N,K)
+        IF (KCPL1.LE.1) THEN
+C  291     IF (ERAS.LE.9999.D0.AND.ERAS.GE.-999.D0) THEN
+            WRITE (IW,31) N,D,E, FIDLS(L,1), L, (C(L,LP), LP=LN,LX)
+C   31       FORMAT (I3,1H:,2A6, 2H (,A8, I3,1X,11(F9.3,2X))
+   31       FORMAT (I3,1H:,2A6, 2H (,A8, I3,1X,11(F11.3))
+C          ELSE
+C  292       WRITE (IW,32) N,D,E, FIDLS(L,1), L, (C(L,LP), LP=LN,LX)
+C   32       FORMAT (I3,1H:,2A6, 2H (,A8, I3,1X,11(F9.2,2X))
+C          ENDIF
+        ELSE
+          ERAS1=0
+          ERAS2=0
+          do LP=LN,LX
+            CLLP = C(L,LP)
+            if (CLLP.GT.ERAS1) then
+              ERAS1=CLLP
+            endif
+            if (CLLP.LT.ERAS2) then
+              ERAS2=CLLP
+            endif
+          enddo
+  295     IF (ERAS1.LE.9999.D0.AND.ERAS2.GE.-999.D0) THEN
+            WRITE (IW,33) N,D,E, FIDJJ(L,1), L, (C(L,LP), LP=LN,LX)
+   33       FORMAT (I3,1H:,2A6,  2H (,A7, I3,11F9.3)
+          ELSE
+  296       WRITE (IW,34) N,D,E, FIDJJ(L,1), L, (C(L,LP), LP=LN,LX)
+   34       FORMAT (I3,1H:,2A6,  2H (,A7, I3,11F9.2)
+          ENDIF
+        ENDIF
+  298 CONTINUE
+      IF (LX.LT.11*IENGYD.AND.LX.LT.NLSP) GO TO 210   ! LOOP BACK
+  299 WRITE (IW,34)
+      NLS=NLST
+      GO TO 500
+C
+C          TRANSFORM MATRIX
+C
+C     A. Kramida 2026: every one of the six matrix products below is
+C     O(NLS**3) and is now threaded over its outermost index.  Each
+C     iteration of that index writes its own row (and, in the symmetric
+C     cases, the matching column) and reads only arrays it does not
+C     write, so the iterations are independent; the inner accumulation
+C     into TEMP keeps its original order, so the results are bit-for-bit
+C     unchanged at any thread count.  The triangular loops get DYNAMIC
+C     scheduling because their rows differ in length.  Small blocks stay
+C     serial - below about NLS=400 the fork costs more than the product.
+C     Without -fopenmp the directives are comments.
+  300 IF (KCPL1.GT.1) GO TO 355
+  305 CONTINUE
+!$OMP PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,L0,TEMP) SCHEDULE(STATIC)
+      DO L=1,NLS
+        DO LP=1,NLSP
+          TEMP=0.D0
+          DO L0=1,NLS
+            TEMP=TEMP+TMX(L0,L)*C(L0,LP)
+          ENDDO
+          CT4(L,LP)=TEMP
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+      IF ((KPAR-2).LT.0) GO TO 331
+      IF ((KPAR-2).GT.0) GO TO 396
+  321 CONTINUE
+!$OMP PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,L0,TEMP) SCHEDULE(STATIC)
+      DO L=1,NLS
+        DO LP=1,NLSP
+          TEMP=0.D0
+          DO L0=1,NLSP
+            TEMP=TEMP+CT4(L,L0)*TMXP(L0,LP)
+          ENDDO
+          C(L,LP)=TEMP
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+      GO TO 395
+  331 CONTINUE
+!$OMP PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,L0,TEMP) SCHEDULE(DYNAMIC,8)
+      DO L=1,NLS
+        DO LP=1,L
+          TEMP=0.D0
+          DO L0=1,NLS
+            TEMP=TEMP+CT4(L,L0)*TMX(L0,LP)
+          ENDDO
+          C(L,LP)=TEMP
+          C(LP,L)=TEMP
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+      GO TO 395
+C
+  355 IF (IABS(KPAR).GT.1) THEN
+!$OMP   PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&    PRIVATE(L,LP,L0,TEMP,ERAS) SCHEDULE(STATIC)
+        DO L=1,NLS
+          DO LP=1,NLSP
+            TEMP=0.D0
+            DO L0=1,NLS
+              ERAS=TMX(L,L0)
+              IF (ERAS.NE.0.D0) TEMP=TEMP+ERAS*C(L0,LP)
+            ENDDO
+            CT4(L,LP)=TEMP
+          ENDDO
+        ENDDO
+!$OMP   END PARALLEL DO
+      ELSE
+!$OMP   PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&    PRIVATE(L,LP,L0,TEMP,ERAS,NTEMP) SCHEDULE(STATIC)
+        DO L=1,NLS
+          NTEMP=NCFG(L)
+          DO LP=1,NLSP
+            TEMP=0.D0
+            IF (NTEMP.EQ.NCFG(LP)) THEN
+              DO L0=1,NLS
+                ERAS=TMX(L,L0)
+                IF (ERAS.NE.0.D0) TEMP=TEMP+ERAS*C(L0,LP)
+              ENDDO
+            ENDIF
+            CT4(L,LP)=TEMP
+          ENDDO
+        ENDDO
+!$OMP   END PARALLEL DO
+      ENDIF
+      IF ((KPAR-2).LT.0) GO TO 381
+      IF ((KPAR-2).GT.0) GO TO 397
+  371 CONTINUE
+!$OMP PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,L0,TEMP) SCHEDULE(STATIC)
+      DO L=1,NLS
+        DO LP=1,NLSP
+          TEMP=0.D0
+          DO L0=1,NLSP
+            TEMP=TEMP+CT4(L,L0)*TMXP(LP,L0)
+          ENDDO
+          C(L,LP)=TEMP
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+      GO TO 395
+  381 IF (IABS(KPAR).GT.1) THEN
+!$OMP   PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&    PRIVATE(L,LP,L0,TEMP,ERAS) SCHEDULE(DYNAMIC,8)
+        DO L=1,NLS
+          DO LP=1,L
+            TEMP=0.D0
+            DO L0=1,NLS
+              ERAS=TMX(LP,L0)
+              IF (ERAS.NE.0.D0) TEMP=TEMP+CT4(L,L0)*ERAS
+            ENDDO
+            C(L,LP)=TEMP
+            C(LP,L)=TEMP
+          ENDDO
+        ENDDO
+!$OMP   END PARALLEL DO
+      ELSE
+!$OMP   PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&    PRIVATE(L,LP,L0,TEMP,ERAS,NTEMP) SCHEDULE(DYNAMIC,8)
+        DO L=1,NLS
+          NTEMP=NCFG(L)
+          DO LP=1,L
+            TEMP=0.D0
+            IF (NTEMP.EQ.NCFG(LP)) THEN
+              DO L0=1,NLS
+                ERAS=TMX(LP,L0)
+                IF (ERAS.NE.0.D0) TEMP=TEMP+CT4(L,L0)*ERAS
+              ENDDO
+            ENDIF
+            C(L,LP)=TEMP
+            C(LP,L)=TEMP
+          ENDDO
+        ENDDO
+!$OMP   END PARALLEL DO
+      ENDIF
+C
+  395 IF (KPAR.LT.2.AND.ITEST.GT.0) WRITE (IW,35)
+      IF (KPAR.EQ.2.AND.IDIP.GT.1) WRITE (IW,35)
+   35 FORMAT (1H0)
+      KCPL1=KCPL
+      GO TO 120
+  396 KCPL1=2
+      GO TO 398
+  397 KCPL1=1
+C               STORE EIGENVECTORS IN COUPLING KCPL
+  398 DO L=1,NLS
+        DO LP=1,NLS
+          VECT(L,LP)=C(L,LP)
+          C(L,LP)=CT4(L,LP)
+        ENDDO
+      ENDDO
+      IF (NOLSKP.EQ.0) GO TO 191
+C
+  400 IF (KPAR.EQ.2.AND.I12.LT.2) THEN
+C       WRITE (IC) SCRJ8,SCRJ8P,NLS,NLSP, ((C(L,LP),L=1,NLS), LP=1,NLSP),
+C    1    NCFG,NCFGP
+C************************************************************ A.KRAMIDA v
+        WRITE (IC) SCRJ8,SCRJ8P,NLS,NLSP,NCFG,NCFGP
+        IMSQ=NLS*NLSP
+        CALL PK1(IC,NLS,NLSP,C,KMX,KMX,IMSQ,MAXBC)   !,1,IW)
+        ICPTR=ICPTR+2
+C************************************************************ A.KRAMIDA ^
+        NOICWR=NOICWR+2
+        NOICMUP(KK)=NOICMUP(KK)+2
+        IF (IDIP.NE.0) THEN
+          DO L=1,NLS
+            DO LP=1,NLSP
+              C(L,LP)=C(L,LP)**2
+            ENDDO
+          ENDDO
+          WRITE (IW,35)
+          I12=2
+          GO TO 172
+        ENDIF
+      ENDIF
+C
+  500 IF (KPAR.GE.2.OR.ITEST.NE.0) THEN
+        CALL CLOCK(TIME)
+        DELT=TIME-TIME0
+        WRITE (IW,50) DELT
+   50   FORMAT (11X,5HTIME=,F9.3,4H MIN)
+C     A. Kramida 2026: I4 -> I5 in formats 51 and 52; NLS/NLSP scale
+C     with KMX and already overflow to **** at KMX=10000.  STDOUT only
+C     -- the OUTG11 and OUTGINE formats are deliberately left alone.
+        IF (KPAR.EQ.2.AND.IW6.LT.0) WRITE (6,51) SCRJ8,SCRJ8P,DELT,
+     1    NLS,NLSP
+   51   FORMAT (' DONE MUPOLE MATRIX FOR J=',F4.1,', JP=',
+     1    F4.1,'; TIME=',F9.2,4H MIN,'; SIZE=',I5,' BY ',I5)
+        IF (KPAR.EQ.4.AND.IW6.LT.0) WRITE (6,52) SCRJ8,DELT,NLS
+   52   FORMAT (' DONE ENERGY FOR  J=',F4.1,
+     1    '  AT TIME=',F9.2,4H MIN,',     MATRIX SIZE=',I5)
+        IF (KPAR.GE.4) CALL SPRN37
+      ENDIF
+  600 RETURN
+      END
+C
+      SUBROUTINE SPRN37
+C
+C          PRINT EIGENVECTORS IN REPRESENTATIONS 3-7
+C
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS), MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION VECT(KMX,KMX)
+      pointer (C3LC4_PTR,VECT)
+c
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE2/EIG(KMX),ELEM1(3),FNT(9,2),I1,I2,
+     2  IFACT(4),FACT(4),LCSER(KMX),X(KMX)
+c     +  ,DUMEE2(KEE2)                                                    ! A. Kramida 7/31/2012: if KEE2 <= 0,
+c                                                                        ! comment the line with DUMEE2
+C
+      K=KK
+  100 IF (NOSUBC.LE.1.OR.NLS.LE.1.OR.NLS.GT.NLSMAX) GO TO 940
+C     A. Kramida 2026: return at once if no coupling 3-7 was asked for.
+C     Blank columns 23-25 now mean "no limit" instead of 0 (label 105 of
+C     the main program), so the NLSMAX test above no longer catches the
+C     deck that wants none of these couplings; without this test such a
+C     deck would walk the KCPL1=3..7 cycle doing nothing and still print
+C     the TIME line at 930, adding a line to OUTG11 that was not there
+C     before.  KCPLD(I)=0 asks for coupling I.
+      DO I=3,7
+        IF (KCPLD(I).EQ.0) GO TO 99
+      ENDDO
+      GO TO 940
+   99 CONTINUE
+      KCPL1=3
+      IQ=NOSUBC
+      IQM1=IQ-1
+      IQM2=IQ-2
+C
+  110 IF ((KCPLD(KCPL1)).GT.0) GO TO 900
+C 150 READ (IC) ((TMX(L,LP), LP=1,NLS),  FK(L),FKJ(L),SCRJ(L,IQM1),
+C    1  SCRJ(L,IQM2),SCRL6(L),FK6(L),SCRS6(L),LHQQ(L),MULTQQ(L),L=1,NLS)
+C     NOICRD=NOICRD+1
+C *****************************************************
+  150 READ (IC) (FK(L),FKJ(L),SCRJ(L,IQM1),
+     1  SCRJ(L,IQM2),SCRL6(L),FK6(L),SCRS6(L),LHQQ(L),MULTQQ(L),L=1,NLS)
+      NOICRD=NOICRD+1
+      IMSQ=NLS*NLS
+c     write (*,*) 'unpk1(IC) call 1'
+      CALL UNPK1(IC,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+      ICPTR=ICPTR+2
+      NOICRD=NOICRD+1
+      IPRINT=KCPLD(9)
+      IF (IPRINT.GE.8) GOTO 900
+C *****************************************************
+C
+C          TRANSFORM EIGENVECTORS
+C
+C     A. Kramida 2026: O(NLS**3), run once per coupling 3-7 per block.
+C     Threaded over L; each L writes its own row of C and reads only
+C     TMX and VECT, which it does not write, and the accumulation into
+C     TEMP keeps its order, so the result is bit-for-bit unchanged.
+  200 CONTINUE
+!$OMP PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,I,TEMP) SCHEDULE(STATIC)
+      DO L=1,NLS
+        DO LP=1,NLS
+          TEMP=0.D0
+          DO I=1,NLS
+            TEMP=TEMP+TMX(I,L)*VECT(I,LP)
+          ENDDO
+          C(L,LP)=TEMP
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+C
+C          PRINT EIGENVECTORS IN NEW COUPLING
+C
+      WRITE (IW,22) COUPL(KCPL1)
+   22 FORMAT (//15H   EIGENVECTORS,4H   (,A6,9H COUPLING,1H)/)
+C
+      LX=0
+  240 LN=LX+1
+      LX=LX+11
+      IF (LX.GT.NLS) LX=NLS
+C     A. Kramida 2026: this loop costs 5.8 s of the 25 s Pr III run when
+C     couplings 3-7 are asked for, and writes 260 MB of the 357 MB
+C     OUTG11.  Buffering the lines and emitting them with one (A)
+C     descriptor was tried and made it SLOWER (5.8 s -> 6.8 s); see the
+C     note on the twin loop in SPRIN.  The cost is FORMAT conversion.
+  242 DO 250 L=1,NLS
+      N=NCFG(L)
+      D=ELEM(2,N,K)
+      E=ELEM(3,N,K)
+      GO TO (243,243,243,244,245,246,247) KCPL1
+  243 WRITE (IW,23) N,D,E,SCRJ(L,IQM1),FKJ(L),L,(C(L,LP),LP=LN,LX)
+   23 FORMAT (I3,1H=,A6,A5,F4.1,1HK,F4.1,I3,1X,11F9.5)
+      GO TO 250
+  244 LP1=SCRL(L,NOSUBC)+1.D0
+      LHS4=LSYMB(LP1)
+      WRITE (IW,24) N,D,E,LHS4,FK(L),L,(C(L,LP),LP=LN,LX)
+   24 FORMAT (I3,1H=,2A6,2X,A1,F4.1,I4,1X,11F9.5)
+      GO TO 250
+  245 WRITE (IW,23) N,D,E,SCRJ(L,IQM1),FK(L),L,(C(L,LP),LP=LN,LX)
+      GO TO 250
+  246 WRITE (IW,26) N,D,E,SCRJ(L,IQM2),LHQQ(L),FK6(L),MULTQQ(L),L,
+     1  (C(L,LP), LP=LN,LX)
+   26 FORMAT (I3,1H=,A6,A5,F4.1,A1,F3.1,I2,I3,11F9.5)
+      GO TO 250
+  247 WRITE (IW,27) N,D,E,SCRJ(L,IQM2),MULTQQ(L),LHQQ(L),SCRJ(L,IQM1),
+     1  L, (C(L,LP), LP=LN,LX)
+   27 FORMAT (I3,1H=,A6,A5,F4.1,I2,A1,F3.1,I3,11F9.5)
+  250 CONTINUE
+      WRITE (IW,23)
+      IF (LX.GE.NEVMAX) GO TO 300
+      IF ((LX-NLS).LT.0) GO TO 240
+C
+C          CALCULATE PURITIES
+C
+  300 IF (NLS.LE.1) GO TO 900
+      PUR=0.D0
+      DO N=1,NLS
+        TEMP=0.D0
+        DO L=1,NLS
+          ERAS=C(L,N)**2
+          IF (ERAS.GT.TEMP) TEMP=ERAS
+        ENDDO
+        PUR=PUR+TEMP
+        CT4(N,1)=TEMP
+      ENDDO
+      FNLS=NLS
+      AVP(KCPL1,K)=AVP(KCPL1,K)+PUR
+      FNT(KCPL1,K)=FNT(KCPL1,K)+FNLS
+      PUR=PUR/FNLS
+      NNN=MIN0(NLS,NEVMAX)
+      WRITE  (9,30) PUR, (CT4(N,1), N=1,NNN)
+   30 FORMAT (13X,8H PURITY=,F5.3,2X,11F9.5/(15X,11F9.5))
+C
+C
+  900 KCPL1=KCPL1+1
+      IF ((KCPL1-4).LE.0) GO TO 110
+  910 IF ((KCPL1-6).EQ.0) GO TO 110
+      IF ((KCPL1-6).GT.0) GO TO 921
+  920 IF ((IQ-3).LT.0) GO TO 930
+      GO TO 110
+  921 IF ((KCPL1-7).LE.0) GO TO 110
+  930 CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      WRITE (IW,93) DELT
+   93 FORMAT (11X,5HTIME=,F9.3,4H MIN)
+  940 RETURN
+      END
+C
+      FUNCTION UNCPLA(FJ1,FJ2,FJ, FK,FJ1P,FJP)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+C
+      A=DSQRT((2.D0*FJ+1.D0)*(2.D0*FJP+1.D0))
+      TWO=2.D0
+      IF (DMOD(FJ1+FJ2+FJP+FK,TWO).GT.0.D0) A=-A
+      UNCPLA=A*S6J(FJ1,FJ,FJ2, FJP,FJ1P,FK)
+      RETURN
+      END
+      FUNCTION UNCPLB(FJ1,FJ2,FJ, FK,FJ2P,FJP)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+C
+      A=DSQRT((2.D0*FJ+1.D0)*(2.D0*FJP+1.D0))
+      TWO=2.D0
+      IF (DMOD(FJ1+FJ+FJ2P+FK,TWO).GT.0.D0) A=-A
+      UNCPLB=A*S6J(FJ2,FJ,FJ1, FJP,FJ2P,FK)
+      RETURN
+      END
+      FUNCTION RECPSH(FJ1,FJ2,FJP,FJ3,FJ,FJPP)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+C
+      A=DSQRT((2.D0*FJP+1.D0)*(2.D0*FJPP+1.D0))
+      TWO=2.D0
+      IF (DMOD(FJ1+FJ2+FJ3+FJ,TWO).GT.0.D0) A=-A
+      RECPSH=A*S6J(FJ1,FJ2,FJP, FJ3,FJ,FJPP)
+      RETURN
+      END
+      FUNCTION RECPJP(FJ1,FJ2,FJP,FJ3,FJ,FJPP)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+C
+      A=DSQRT((2.D0*FJP+1.D0)*(2.D0*FJPP+1.D0))
+      TWO=2.D0
+      IF (DMOD(FJ1+FJ+FJPP,TWO).GT.0.D0) A=-A
+      RECPJP=A*S6J(FJ1,FJ2,FJP, FJ3,FJ,FJPP)
+      RETURN
+      END
+      FUNCTION RECPEX(FJ1,FJ2,FJP,FJ3,FJ,FJPP)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+C
+      A=DSQRT((2.D0*FJP+1.D0)*(2.D0*FJPP+1.D0))
+      TWO=2.D0
+      IF (DMOD(FJ2+FJ3+FJP+FJPP,TWO).GT.0.D0) A=-A
+      RECPEX=A*S6J(FJ2,FJ1,FJP, FJ3,FJ,FJPP)
+      RETURN
+      END
+      SUBROUTINE CLOCK(TIME)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      CALL SECONDS(T)
+      TIME=T/60.D0
+      RETURN
+      END
+      SUBROUTINE SECONDS(T)
+C
+C          TIMING ROUTINE (RESULTS FOR INFORMATION ONLY)
+C               FOR OTHER MACHINES, SET T=0.0 OR ADD
+C               APPROPRIATE CODE.
+C
+      REAL*8 T
+c      REAL ETIME,T1,T2
+c      DIMENSION T2(2)
+C
+C------------------------------------
+C          USE THIS CODE FOR A VAX OR MACINTOSH
+C     T1=SECNDS(0.0)
+C     T=DBLE(T1)
+C------------------------------------
+C          USE THIS CODE FOR A CRAY
+C     T=SECOND(T)
+C------------------------------------
+C          USE THIS CODE FOR A SUN
+C     T=ETIME(T2)
+C-------------------------------------
+C          USE THIS CODE FOR IBM RISC
+C     IT=MCLOCK()
+C     T=IT
+C     T=T/100.D0
+C-------------------------------------
+C          USE THIS CODE FOR IBM-PC LAHEY FORTRAN COMPILER
+C      REAL*8 TINIT,T3
+C      COMMON/TIMING/TINIT,ITINIT
+C      CHARACTER TIMESTR*11
+C      INTEGER HH,MM,SS,HS
+C      CALL TIME(TIMESTR)
+C      READ (TIMESTR,10) HH,MM,SS,HS
+C   10 FORMAT (3(I2,1X),I2)
+C      T3=DFLOAT(3600*HH+60*MM+SS)+HS*1.D-2
+C      IF (ITINIT.EQ.0) THEN
+C        TINIT=T3
+C        ITINIT=1
+C      ENDIF
+C      T=T3-TINIT
+c------------------------------------
+C          USE THIS CODE FOR the G95 compiler on Windows systems
+C      REAL*8 T
+c      real*4 tarray(2)
+c      T=dble(etime(tarray))
+c     T=dble(tarray(1))
+C-------------------------------------
+C          USE THIS CODE FOR LINUX OR macOS
+C     NOTHING HAS TO BE UNCOMMENTED: THE ACTIVE CODE AT THE END OF
+C     THIS ROUTINE IS SYSTEM_CLOCK, WHICH IS FORTRAN STANDARD AND
+C     NEEDS NO LIBRARY, AND IS THE RIGHT CALL ON LINUX, macOS AND
+C     WINDOWS ALIKE.  THIS BLOCK RECORDS THE ALTERNATIVES AND THE ONE
+C     TRAP, BECAUSE THE BLOCKS ABOVE ARE ORGANIZED BY MACHINE AND A
+C     READER LOOKING FOR "LINUX" WOULD OTHERWISE FIND NOTHING HERE.
+C       THE TRAP: DECLARE SYSTEM_CLOCK'S ARGUMENTS INTEGER*8, NOT THE
+C       DEFAULT INTEGER.  gfortran GIVES THE INTRINSIC MILLISECOND
+C       RESOLUTION FOR INTEGER*4 ARGUMENTS AND NANOSECOND RESOLUTION
+C       (clock_gettime) FOR INTEGER*8 ONES, ON BOTH LINUX AND macOS.
+C       THAT IS WHY THE ACTIVE CODE BELOW DECLARES THEM INTEGER*8.
+C     WALL CLOCK THE OTHER WAY, WHEN -fopenmp IS IN USE ANYWAY:
+C     REAL*8 OMP_GET_WTIME
+C     T=OMP_GET_WTIME()
+C     CPU TIME, IF CPU TIME IS WHAT IS WANTED:
+C     CALL CPU_TIME(T)
+C       CPU_TIME IS STANDARD AND WORKS EVERYWHERE TOO, BUT IT SUMS
+C       OVER THE THREADS -- WHICH IS EXACTLY THE BUG DESCRIBED IN THE
+C       2026 NOTE BELOW.  DO NOT USE IT IN A THREADED BUILD.
+C     THE GNU EXTENSIONS IN THE BLOCKS ABOVE ALSO COMPILE UNDER
+C     gfortran ON LINUX AND macOS -- ETIME AND MCLOCK (CPU TIME, SO
+C     THEY CARRY THAT SAME BUG) AND SECNDS (TIME OF DAY, SO IT WRAPS
+C     AT MIDNIGHT).  NONE OF THEM IS PORTABLE TO ANOTHER COMPILER.
+C     PREFER THE STANDARD INTRINSICS.
+C-------------------------------------
+C     A. Kramida 2026: ETIME RETURNS CPU TIME SUMMED OVER ALL THREADS,
+C       WHICH OVERSTATES ELAPSED TIME BY THE NUMBER OF ACTIVE THREADS
+C       ONCE THE OPENMP REGIONS ARE IN USE.  ENERGY AND THE LINE SORT
+C       ARE THE FIRST HEAVILY THREADED STAGES, SO EVERY "TIME=" AND
+C       "ABS TIME=" PRINTED FROM THERE ON WAS TOO LARGE BY ROUGHLY THE
+C       THREAD COUNT.  USE THE WALL CLOCK INSTEAD.  THIS IS THE SAME
+C       FIX ALREADY MADE IN SUBROUTINE CLOCK OF RCE20KD.F.
+C       SYSTEM_CLOCK'S ORIGIN IS ARBITRARY, SO SUBTRACT THE COUNT READ
+C       AT THE FIRST CALL; THAT CALL IS AT THE TOP OF THE MAIN PROGRAM,
+C       SO "ABS TIME" KEEPS ITS OLD MEANING OF TIME SINCE START-UP.
+C       ICR=0 MEANS NO CLOCK IS AVAILABLE; REPORT ZERO THEN.
+C       SECONDS IS CALLED ONLY FROM CLOCK, AND NO CALL CLOCK LIES
+C       INSIDE A PARALLEL REGION, SO THE SAVED VARIABLES BELOW ARE NOT
+C       A THREAD-SAFETY PROBLEM (SEE THE -fno-automatic NOTE ABOVE).
+      INTEGER*8 ICNT,ICR,ICMAX,ICNT0
+      LOGICAL LFIRST
+      SAVE ICNT0,LFIRST
+      DATA LFIRST/.TRUE./
+      CALL SYSTEM_CLOCK(ICNT,ICR,ICMAX)
+      IF (ICR.EQ.0) THEN
+        T=0.D0
+      ELSE
+        IF (LFIRST) THEN
+          ICNT0=ICNT
+          LFIRST=.FALSE.
+        ENDIF
+C       GUARD AGAINST COUNTER WRAP-AROUND
+        IF (ICNT.LT.ICNT0) ICNT=ICNT+ICMAX
+        T=DBLE(ICNT-ICNT0)/DBLE(ICR)
+      ENDIF
+      RETURN
+      END
+C
+      SUBROUTINE CALCFCT
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      COMMON/CFACTRL/SCALE,SCALEM1,FCTN(200),FCTZ,FCT(200)
+C
+      SCALE=8.D0
+      SCALEM1=1.D0/SCALE
+      FCTZ=1.D0
+C     A. Kramida 2026: the loop used to start at I=1 and read FCT(0),
+C     relying on FCTZ sitting immediately before FCT(1) in COMMON to
+C     supply 0! = 1.  That is an out-of-bounds reference (gfortran
+C     diagnoses it, and -fcheck=bounds would trap).  Peel the first
+C     iteration instead; the values produced are identical.
+      FCTN(1)=0.D0
+      FCT(1)=FCTZ*DFLOAT(1)*SCALEM1
+      DO 1012 I=2,70
+      FCTN(I)=0.D0
+  100 FCT(I)=FCT(I-1)*DFLOAT(I)*SCALEM1
+ 1012 CONTINUE
+      RETURN
+      END
+C
+      FUNCTION S9J(A1,A2,A3,A4,A5,A6,A7,A8,A9)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+C
+      A9J=0.D0
+      A=DMAX1(DABS(A1-A9), DABS(A2-A6), DABS(A4-A8))
+      C=DMIN1(A1+A9, A2+A6, A4+A8)
+      FJ=2.D0*A+1.D0
+      J1=FJ
+      J2=2.D0*C+1.D0
+      IF (J2.LT.J1) GO TO 302
+      DO J=J1,J2,2
+        A9J=A9J-((-1.D0)**J)*FJ*S6J(A1,A2,A3,A6,A9,A)
+     1    *S6J(A4,A5,A6,A2,A,A8)*S6J(A7,A8,A9,A,A1,A4)
+        A=A+1.D0
+        FJ=FJ+2.D0
+      ENDDO
+  302 S9J=A9J
+      RETURN
+      END
+C
+      FUNCTION S6J(FJ1,FJ2,FJ3,FL1,FL2,FL3)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      COMMON/CFACTRL/SCALE,SCALEM1,FCTN(200),FCTZ,FCT(200)
+C
+      DELSQ(IA,IB,IC,ID)=FCT(ID-IA)*FCT(ID-IB)*FCT(ID-IC)/FCT(ID+1)
+      S6J=0.D0
+      S1=FJ1+FJ2+FJ3
+      S2=FJ1+FL2+FL3
+      S3=FL1+FJ2+FL3
+      IS1=S1
+      IS2=S2
+      IS3=S3
+      IF ((S1-DFLOAT(IS1)).GT.0.01D0) GO TO 200
+      IF ((S2-DFLOAT(IS2)).GT.0.01D0) GO TO 200
+      IF ((S3-DFLOAT(IS3)).GT.0.01D0) GO TO 200
+      IS4=FL1+FL2+FJ3
+      IS5=FJ1+FJ2+FL1+FL2
+      IS6=FJ2+FJ3+FL2+FL3
+      IS7=FJ3+FJ1+FL3+FL1
+      KN=MAX0(IS1,IS2,IS3,IS4)
+      KX=MIN0(IS5,IS6,IS7)
+      IF (KX.LT.KN) GO TO 200
+      IT1=2.000001D0*FJ1
+      IT2=2.000001D0*FJ2
+      IT3=2.000001D0*FJ3
+      IT4=2.000001D0*FL1
+      IT5=2.000001D0*FL2
+      IT6=2.000001D0*FL3
+      COEF=DSQRT(DELSQ(IT1,IT2,IT3,IS1)*DELSQ(IT1,IT5,IT6,IS2)
+     1  *DELSQ(IT4,IT2,IT6,IS3)*DELSQ(IT4,IT5,IT3,IS4))*SCALEM1
+      SGN=DFLOAT(-1+2*MOD(KN,2))
+      SUM=0.D0
+      DO K=KN,KX
+        SGN=-SGN
+        SUM=SUM+SGN*FCT(K+1)/(FCT(K-IS1)*FCT(K-IS2)*FCT(K-IS3)*
+     1    FCT(K-IS4)*FCT(IS5-K)*FCT(IS6-K)*FCT(IS7-K))
+      ENDDO
+      S6J=COEF*SUM
+  200 RETURN
+      END
+C
+      FUNCTION S3J0SQ(FJ1,FJ2,FJ3)
+C
+C          CALCULATE SQUARE OF 3-J SYMBOL WITH ZERO MAGNETIC QUANTUM NOS
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      COMMON/CFACTRL/SCALE,SCALEM1,FCTN(200),FCTZ,FCT(200)
+C
+      S3J0SQ=0.D0
+      FJ=FJ1+FJ2+FJ3
+      IFJ=FJ
+      IF (MOD(IFJ,2).NE.0) GO TO 100
+      IA=FJ-2.D0*FJ1
+      IB=FJ-2.D0*FJ2
+      IC=FJ-2.D0*FJ3
+      IF (IA.LT.0.OR.IB.LT.0.OR.IC.LT.0) GO TO 100
+      B=FCT(IA)*FCT(IB)*FCT(IC)/FCT(IFJ+1)
+      A=FCT(IFJ/2)/(FCT(IA/2)*FCT(IB/2)*FCT(IC/2))
+      S3J0SQ=SCALEM1*B*(A**2)
+  100 RETURN
+      END
+C
+      FUNCTION FCTRL(A)                                                 FCTR0030
+C                                                                       FCTR0020
+C          CALCULATE FACTORIAL OF A                                     FCTR0030
+C                                                                       FCTR0040
+      IMPLICIT REAL*8 (A-H,O-Z)
+C
+      FCTRL=1.D0                                                        FCTR0050
+      IF ((DABS(A)-0.1D0).GT.0) GO TO 11                                FCTR0060
+   10 A=0.D0                                                            FCTR0070
+   11 IF ((A).EQ.0) GO TO 15                                            FCTR0080
+      IF ((A).GT.0) GO TO 13
+   12 FCTRL=0.D0                                                        FCTR0090
+      GO TO 15                                                          FCTR0100
+   13 IMAX=A+0.1D0                                                      FCTR0110
+      DO 1013 I=1,IMAX                                                    FCTR0120
+   14 FCTRL=FCTRL*DFLOAT(I)                                             FCTR0130
+ 1013 CONTINUE
+   15 RETURN                                                            FCTR0140
+      END                                                               FCTR0150
+C
+      SUBROUTINE SORT2(N,L,X,T,Y1,Y2,Y3,Y4,Y5,Y6,Y7,Y8,Y9,Y10,Y11,Y12)
+C
+C        N NUMBERS IN TABLE X ARE SORTED NUMERICALLY INCREASING IN      MA130002
+C        VALUE. THEN L TABLES OF Y ARE REORDERED TO CORRESPOND TO THEIR MA130003
+C        ASSOCIATED X. TEMPORARY TABLE T MUST BE >=N WORDS LONG.        MA130004
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+c      DIMENSION X(90),T(KLAM),Y1(KLAM),Y2(KLAM),Y3(KLAM),Y4(KLAM),
+c     +  Y5(KLAM),Y6(KLAM),                                             MA130005
+c     1  Y7(KLAM),Y8(KLAM),Y9(KLAM),Y10(KLAM),Y11(KLAM),Y12(KLAM)       MA130006
+      DIMENSION X(N),T(N),Y1(N),Y2(N),Y3(N),Y4(N),Y5(N),Y6(N),          MA130005
+     1  Y7(N),Y8(N),Y9(N),Y10(N),Y11(N),Y12(N)                          MA130006
+      INTEGER T,Y1,Y3,Y4                                                MA130007
+      INTEGER, ALLOCATABLE :: IWK(:)                                    ! A. Kramida
+      REAL*8, ALLOCATABLE :: XT(:)                                      ! A. Kramida
+C
+      IF ( N.LE.1 ) RETURN                                              MA130008
+      DO I = 1,N                                                        MA130009
+        T(I) = I                                                        MA130010
+      ENDDO
+C         A. Kramida: the original insertion sort here was O(N**2).  It
+C         is replaced by a bottom-up STABLE merge sort of the index
+C         table T, followed by an explicit permutation of X.  Because
+C         both sorts are stable, T and the sorted X are bit-for-bit the
+C         same as before; only the cost changes, O(N**2) -> O(N LOG N).
+      ALLOCATE (IWK(N))
+      CALL MSORTX(N,X,T,IWK)
+      DEALLOCATE (IWK)
+      ALLOCATE (XT(N))
+      DO I = 1,N
+        XT(I) = X(T(I))
+      ENDDO
+      DO I = 1,N
+        X(I) = XT(I)
+      ENDDO
+      DEALLOCATE (XT)
+C         COMMENCE ORDERING OF ASSOCIATED TABLES OF Y.                  MA130024
+      IF (L.EQ.0) GO TO 100
+      GO TO (101,102,103,104,105,106,107,108,109,110,111,112), L
+  112 CALL ORDER2(N,T,Y12)                                              MA130048
+  111 CALL ORDER2(N,T,Y11)                                              MA130046
+  110 CALL ORDER2(N,T,Y10)                                              MA130044
+  109 CALL ORDER2(N,T,Y9)                                               MA130042
+  108 CALL ORDER2(N,T,Y8)                                               MA130040
+  107 CALL ORDER2(N,T,Y7)                                               MA130038
+  106 CALL ORDER2(N,T,Y6)                                               MA130036
+  105 CALL ORDER2(N,T,Y5)                                               MA130034
+  104 CALL ORDERI(N,T,Y4)                                               MA130032
+  103 CALL ORDERI(N,T,Y3)                                               MA130030
+  102 CALL ORDER2(N,T,Y2)                                               MA130028
+  101 CALL ORDERI(N,T,Y1)                                               MA130026
+  100 RETURN                                                            MA130049
+      END                                                               MA130050
+C
+      SUBROUTINE MSORTX(N,X,T,IWK)
+C
+C         A. Kramida: bottom-up STABLE merge sort of the index table T
+C         (on entry T(I)=I) so that X(T(1)) <= X(T(2)) <= ... .  Equal
+C         keys keep their entry order, so the permutation produced is
+C         identical to the one the old insertion sort produced.
+C         IWK is scratch, N words.
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      DIMENSION X(N)
+      INTEGER T(N),IWK(N)
+C
+      IWID = 1
+   10 IF ( IWID.GE.N ) RETURN
+      K  = 0
+      I1 = 1
+   20 IF ( I1.GT.N ) GO TO 40
+        I2 = MIN0(I1+IWID,N+1)
+        I3 = MIN0(I1+2*IWID,N+1)
+        IA = I1
+        IB = I2
+   30   IF ( IA.LT.I2 .AND. IB.LT.I3 ) THEN
+          K = K + 1
+C           strict .LT. on the right-hand run is what makes it stable
+          IF ( X(T(IB)).LT.X(T(IA)) ) THEN
+            IWK(K) = T(IB)
+            IB = IB + 1
+          ELSE
+            IWK(K) = T(IA)
+            IA = IA + 1
+          ENDIF
+          GO TO 30
+        ENDIF
+   32   IF ( IA.LT.I2 ) THEN
+          K = K + 1
+          IWK(K) = T(IA)
+          IA = IA + 1
+          GO TO 32
+        ENDIF
+   34   IF ( IB.LT.I3 ) THEN
+          K = K + 1
+          IWK(K) = T(IB)
+          IB = IB + 1
+          GO TO 34
+        ENDIF
+        I1 = I3
+        GO TO 20
+   40 DO I = 1,N
+        T(I) = IWK(I)
+      ENDDO
+      IWID = IWID*2
+      GO TO 10
+      END
+C
+      SUBROUTINE ORDERI(N,T,Y)
+C
+C         A TABLE OF N NUMBERS STARTING AT Y IS ORDERED ACCORDING TO A  MA140002
+C         SEQUENCE TABLE IN THE FIRST N WORDS OF T. T MUST BE INTEGER   MA140003
+C         AND >=N IN LENGTH.                                            MA140004
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      DIMENSION T(N),Y(N)                                               MA140005
+      INTEGER T1,T2,T,Y                                                 MA140006
+      INTEGER, ALLOCATABLE :: YT(:)     ! A. Kramida: was automatic YT(N)
+C          THE VARIABLE Y IS TYPE INTEGER
+C
+      ALLOCATE (YT(N))
+      DO I = 1,N                                                        MA140007
+        T1 = T(I)                                                       MA140008
+C       T2 = N + I                                                      MA140009
+C       T(T2) = Y(T1)                                                   MA140010
+        YT(I) = Y(T1)
+      ENDDO
+      DO I = 1,N                                                        MA140011
+C       T2 = N + I                                                      MA140012
+C       Y(I) = T(T2)                                                    MA140013
+        Y(I) = YT(I)
+      ENDDO
+      DEALLOCATE (YT)
+      RETURN                                                            MA140014
+      END                                                               MA140015
+C
+      SUBROUTINE ORDER2(N,T,Y)
+C
+C         A TABLE OF N NUMBERS STARTING AT Y IS ORDERED ACCORDING TO A  MA140002
+C         SEQUENCE TABLE IN THE FIRST N WORDS OF T. T MUST BE INTEGER   MA140003
+C         AND >=N IN LENGTH.                                            MA140004
+C
+C          THE VARIABLE Y IS REAL
+      INCLUDE 'RCGPAR.F'
+      DIMENSION T(N),Y(N)                                               MA140005
+      INTEGER T,T1                                                      MA140006
+      REAL*8, ALLOCATABLE :: YT(:)      ! A. Kramida: was automatic YT(N)
+C
+      ALLOCATE (YT(N))
+      DO I = 1,N                                                        MA140007
+        T1 = T(I)                                                       MA140008
+C       T2 = N + I                                                      MA140009
+        YT(I) = Y(T1)                                                   MA140010
+      ENDDO
+      DO I = 1,N                                                        MA140011
+C       T2 = N + I                                                      MA140012
+        Y(I) = YT(I)                                                    MA140013
+      ENDDO
+      DEALLOCATE (YT)
+      RETURN                                                            MA140014
+      END                                                               MA140015
+C
+      SUBROUTINE ORDERCH(N,T,Y)
+C
+C         A TABLE OF N CHAR*8  STARTING AT Y IS ORDERED ACCORDING TO A  MA140002
+C         SEQUENCE TABLE IN THE FIRST N WORDS OF T. T MUST BE INTEGER   MA140003
+C         AND >=N IN LENGTH.                                            MA140004
+C
+C          THE VARIABLE Y IS CHARACTER*8
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*8 Y
+      DIMENSION T(N),Y(N)                                               MA140005
+      INTEGER T,T1                                                      MA140006
+      CHARACTER*8, ALLOCATABLE :: YT(:) ! A. Kramida: was automatic YT(N)
+C
+      ALLOCATE (YT(N))
+      DO I = 1,N                                                        MA140007
+        T1 = T(I)                                                       MA140008
+C       T2 = N + I                                                      MA140009
+        YT(I) = Y(T1)                                                   MA140010
+      ENDDO
+      DO I = 1,N                                                        MA140011
+C       T2 = N + I                                                      MA140012
+        Y(I) = YT(I)                                                    MA140013
+      ENDDO
+      DEALLOCATE (YT)
+      RETURN                                                            MA140014
+      END                                                               MA140015
+C
+C     OVERLAY(G9,1,0)
+      SUBROUTINE CUVFD
+C
+C          READ CFP FROM CARDS OR TAPE,
+C               AND SET UP TABLES FOR U, V, FK(I,I), D(I)
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3C/CFP(KLS1,KLS1),
+     1  MULTBR(KLSI,2),LBRBCD(KLSI,2),IALFBR(KLSI,2),FLBR(KLSI,2),
+     2  SBR(KLSI,2),ITRM(KLSI),IPNT(KLSI),ABG(KLSI,3),CAVEI(3),
+     3  NALSJI(KJP),PJI(KJP),NJKI(25)
+      integer*8 CFPM1_PTR,CFP2_PTR,PC_PTR                                 ! PC, PC_PTR, CFP2 in CUVFD are independent of the other subroutines
+      DIMENSION PC(6100),CFGP(KLS1,KLS1),UA(KLS1,KLS1),VA(KLS1,KLS1),     ! CUVFD
+     1  UV(KLS1,KLS1),CFGPT(KLS1,KLS1),CFPM1(KLS1,KLS1),CFP2(KLS1,KLS1)   ! CUVFD
+      POINTER (PC_PTR,PC),(CFPM1_PTR,CFPM1),(CFPM1_PTR,CFGPT),            ! CUVFD
+     1  (CFPM1_PTR,UV),(CFP2_PTR,CFP2),(CFP2_PTR,CFGP),(CFP2_PTR,UA),     ! CUVFD
+     2  (CFP2_PTR,VA)                                                     ! CUVFD
+C     A. Kramida 2026: INTEGER alias for the REAL*8 scratch buffer PC,
+C     used only to hand SORT2 its permutation table T with the right
+C     type.  IPC(2*K-1) is the same address as PC(K), so IPC(399) and
+C     IPC(999) are the former PC(200) and PC(500) exactly.
+      INTEGER IPC(12200)
+      POINTER (PC_PTR,IPC)
+c
+      DIMENSION CAVEDN(7),TDN(21,7),T1DN(21,3),T2DN(21,3)
+      COMMON/SORTDUM/DUM(2),IDUM(2)
+C     CHARACTER*10 ZETANM,ABGNAM(3),ABGNM1,ABGNM2,AA
+      CHARACTER*8 SORTYS,SORTNO,ZETANM,ABGNAM(3),ABGNM1,ABGNM2,ERAS,AA
+      CHARACTER*4 IALF,IALFBR,IA1,LL,L1,LBCD,LBRBCD,LLL,LSYMB,ICUV,
+     1            LLM1,LLM2
+C
+      DATA ZETANM/'ZETA    '/
+      DATA (ABGNAM(I),I=1,3)/'ALPHA   ','BETA    ','GAMMA   '/
+      DATA ABGNM1/'ALPHA   '/
+      DATA ABGNM2/'1000 ALP'/
+C     A. Kramida 2026: IALF1 was implicitly INTEGER and initialised from a
+C     Hollerith constant.  It is not referenced anywhere else in this
+C     routine, so the declaration below merely gives the DATA
+C     statement a matching type; no generated code changes.
+      CHARACTER*4 IALF1
+      DATA IALF1/'1   '/
+      DATA SORTYS,SORTNO/'        ','NO SORT '/
+      DATA CAVEDN/-108.88888887D0,-122.5D0,-116.66666667D0,
+     1  -97.22222222D0,-70.D0,-40.83333333D0,-15.55555555D0/
+      DATA (TDN(I,1),I=1,5)/60.D0,210.D0,100.D0,170.D0,0.D0/
+      DATA (TDN(I,2),I=1,9)/60.D0,210.D0,30.D0,130.D0,210.D0,52.5D0,
+     1  34.36931771D0,322.5D0,135.D0/
+      DATA (TDN(I,3),I=1,21)/70.D0,10.D0,135.D0,40.D0,30.D0,175.D0,
+     1  310.D0,140.D0,37.41657387D0,150.D0,10.D0,66.66666667D0,
+     2  -55.27707984D0,248.33333333D0,235.D0,160.D0,127.2792206D0,
+     3  190.D0,0.D0,0.D0,640.D0/
+      DATA (TDN(I,4),I=1,21)/0.D0,50.D0,30.D0,155.D0,105.D0,5.D0,15.D0,
+     1  90.D0,0.D0,170.D0,150.D0,134.1640786D0,230.D0,35.D0,
+     2  39.68626967D0,195.D0,0.D0,148.492424D0,275.D0,225.D0,320.D0/
+      DATA (TDN(I,5),I=1,21)/0.D0,20.D0,45.D0,20.D0,-30.D0,125.D0,
+     1  80.D0,70.D0,-37.41657387D0,300.D0,0.D0,33.33333333D0,
+     2  55.27707984D0,91.66666667D0,225.D0,150.D0,-127.2792206D0,
+     3  360.D0,0.D0,0.D0,0.D0/
+      DATA (TDN(I,6),I=1,9)/0.D0,0.D0,0.D0,50.D0,90.D0,17.5D0,
+     1  -34.36931771D0,67.5D0,315.D0/
+      DATA (TDN(I,7),I=1,5)/0.D0,0.D0,0.D0,140.D0,0.D0/
+      DATA (T1DN(I,1),I=1,9)/-9.D0,21.D0,-15.D0,35.D0,-21.D0,0.D0,
+     1  -13.74772708D0,84.D0,-141.D0/
+      DATA (T1DN(I,2),I=1,21)/0.D0,-24.D0,26.D0,-12.D0,12.D0,-6.D0,
+     1  96.D0,28.D0,14.96662955D0,-136.D0,0.D0,20.D0,-92.86549413D0,
+     2  66.D0,-30.D0,-36.D0,118.7939392D0,-144.D0,0.D0,-54.99090834D0,
+     3  336.D0/
+      DATA (T1DN(I,3),I=1,21)/0.D0,0.D0,0.D0,0.D0,0.D0,0.D0,0.D0,0.D0,
+     1  0.D0,0.D0,0.D0,160.9968944D0,0.D0,0.D0,47.6235236D0,0.D0,0.D0,
+     2  178.1909089D0,0.D0,0.D0,0.D0/
+      DATA (T2DN(I,1),I=1,9)/-9.D0,21.D0,6.136363636D0,-3.75D0,2.25D0,
+     1  0.D0,-13.74772708D0,-9.D0,-1.5D0/
+      DATA (T2DN(I,2),I=1,21)/0.D0,-2.863636364D0,-12.75D0,-12.D0,12.D0,
+     1  17.25D0,3.D0,28.D0,14.96662955D0,3.5D0,12.681818182D0,20.D0,
+     2  0.603022689D0,-6.568181818D0,-6.75D0,-36.D0,-12.72792206D0,
+     3  -4.5D0,0.D0,-54.99090834D0,-36.D0/
+      DATA (T2DN(I,3),I=1,21)/0.D0,0.D0,0.D0,0.D0,0.D0,0.D0,0.D0,0.D0,
+     1  27.15015068D0,0.D0,0.D0,5.031152949D0,0.D0,0.D0,47.6235236D0,
+     2  0.D0,0.D0,-19.09188309D0,0.D0,0.D0,0.D0/
+c
+c      Allocate memory for CFPM1_PTR,CFP2_PTR,PC_PTR
+      i_CFPM1_size=KLS1**2
+      i_PC_size=KPC
+      CALL ALLOC(CFPM1_PTR,i_CFPM1_size,8)
+      CALL ALLOC(CFP2_PTR,i_CFPM1_size,8)
+      CALL ALLOC(PC_PTR,i_PC_size,8)
+C
+C
+C          SET UNIT NUMBERS ONTO WHICH CFP, UV, AND COEFFS ARE
+C               TO BE WRITTEN
+C
+      ICTBCD=0
+      ID3=ID2+1
+      ID4=ID3+1
+      WRITE (IW,8) ID2,ID3,ID4
+    8 FORMAT (/20H0CUVFD---WRITE UNITS,3I5)
+      REWIND ID2
+      REWIND ID3
+      REWIND ID4
+      LLM1='    '
+      FLLM1=0.D0
+      NIM1=-7
+      NIM2=-7
+      NTM1=1
+      ABGNAM(1)=ABGNM1
+      IF (ICTBCD.NE.0) ABGNAM(1)=ABGNM2
+c      write(6,*) ABGNAM(1)
+c      stop
+      GO TO 120
+C
+C          SET BACK CFP TABLES
+C
+  110 LLM2=LLM1
+      NIM2=NIM1
+      NTM2=NTM1
+      NLTM2=NLTM1
+      DO 1014 M=1,NTM1
+        MULT(M,3)=MULT(M,2)
+        LBCD(M,3)=LBCD(M,2)
+        S(M,3)=S(M,2)
+        FL(M,3)=FL(M,2)
+  112 IALF(M,3)=IALF(M,2)
+ 1014 CONTINUE
+      LLM1=LL(1)
+      FLLM1=FLL(1)
+      NIM1=NI(1)
+      NTM1=NOT
+      NLTM1=NLT
+      DO 1016 M=1,NOT
+      MULT(M,2)=MULT(M,1)
+      LBCD(M,2)=LBCD(M,1)
+      S(M,2)=S(M,1)
+      FL(M,2)=FL(M,1)
+      IALF(M,2)=IALF(M,1)
+      DO 1015 N=1,NOP
+  115 CFPM1(M,N)=CFP(M,N)
+ 1015 CONTINUE
+ 1016 CONTINUE
+C
+C          READ SUB-SHELL DATA, AND TERMS TO BE INCLUDED
+C
+  120 READ (IR,9) LL(1),NI(1),NOT,NOP,ICUV,KLAST,NLT,
+     1  (MULT(M,1),LBCD(M,1),IALF(M,1), M=1,12), NOSORT
+    9 FORMAT (3X,A1,3I4,2X,A1,I1,I4,4X,12(I1,A1,A2), I4)
+      IF (KLAST.EQ.0) KLAST=0
+      IF (NOT.LE.0) GO TO 900
+      ERAS=SORTYS
+      IF (NOSORT.NE.0) ERAS=SORTNO
+      IF (ILNCUV+ICPC.EQ.0) GO TO 122
+      WRITE (IW,10)
+   10 FORMAT (1H1)
+  122 IF (NLT.LE.12) GO TO 124
+      READ (IR,11) (MULT(M,1),LBCD(M,1),IALF(M,1), M=13,NLT)
+   11 FORMAT (20(I1,A1,A2))
+  124 IF (NLT.GT.0) GO TO 126
+      WRITE (IW,12) LL(1),NI(1),NOT,NOP,ICUV,KLAST,NLT,ERAS
+   12 FORMAT (/1H ,A1,I2,2I5,A1,I1,I5,5X,9HALL TERMS,10X,A7)
+      IF (ILNCUV.GT.0) WRITE (IW,9)
+      GO TO 127
+  126 WRITE (IW,13) LL(1),NI(1),NOT,NOP,ICUV,KLAST,NLT,
+     1  (MULT(M,1),LBCD(M,1),IALF(M,1), M=1,NLT)
+   13 FORMAT (/1H ,A1,I2,2I5,A1,I1,I5,5X,20(I1,A1,A2,1X)/
+     1  29X,20(I1,A1,A2,1X))
+  127 DO 128 J=1,24
+      IF (LSYMB(J).EQ.LL(1)) GO TO 129
+  128 CONTINUE
+  129 FLL(1)=J-1
+C
+C          READ CFP TABLE (TYPE 2) FROM CARDS
+C
+  140 READ (IR,16) (MULTBR(N,2),LBRBCD(N,2),IALFBR(N,2), N=1,NOP)
+   16 FORMAT (20(I1,A1,A2))
+      DO 1018 N=1,NOP
+      DO 1017 M=1,NOT
+  141 CFP2(M,N)=0.D0
+ 1017 CONTINUE
+ 1018 CONTINUE
+      M=0
+  142 M=M+1
+      IT=0
+  143 ITO=IT
+      READ (IR,17) MULT(M,4),LBCD(M,4),IALF(M,4),IT,
+     1  (IPNT(J),PC(J), J=1,4)
+   17 FORMAT (I1,A1,A2,I4, 4(I3,F13.10))
+      IF (ITO.GT.0) GO TO 144
+      M1=MULT(M,4)
+      L1=LBCD(M,4)
+      IA1=IALF(M,4)
+  144 DO 145 J=1,4
+      N=IPNT(J)
+      IF (N.EQ.0) GO TO 145
+      CFP2(M,N)=PC(J)
+  145 CONTINUE
+C CHECK CARD ORDERING
+      IF (M1.NE.MULT(M,4)) GO TO 146
+      IF (L1.NE.LBCD(M,4)) GO TO 146
+      IF (IA1.NE.IALF(M,4)) GO TO 146
+      IF (IABS(IT).EQ.(ITO+1)) GO TO 147
+  146 WRITE (IW,18) LL(1),NI(1),M1,L1,IA1,ITO,MULT(M,4),LBCD(M,4),
+     1  IALF(M,4),IT
+   18 FORMAT (//35H0CUVFD 18--CFD CARDS OUT OF ORDER  ,A1,I2,I4,A1,A2,I6
+     1  /34X,I4,A1,A2,I6///)
+  147 IF (IT.GT.0) GO TO 143
+      IF (M.LT.NOT) GO TO 142
+C
+C          REORDER PARENTS TO CORRESPOND TO TERMS OF PRECEEDING L(N),
+C          AND REORDER TERMS WITH SPECIFIED NLT TERMS FIRST
+C
+  150 IF (LL(1).EQ.LLM1.AND.NI(1).EQ.NIM1+1) GO TO 155
+      DO 1019 I=1,NOP
+  151 IPNT(I)=I
+ 1019 CONTINUE
+      GO TO 170
+  155 DO 1020 N=1,NOP
+      DO 159 M=1,NTM1
+      IF (MULTBR(N,2).NE.MULT(M,2)) GO TO 159
+      IF (LBRBCD(N,2).NE.LBCD(M,2)) GO TO 159
+      IF (IALFBR(N,2).EQ.IALF(M,2)) GO TO 160
+  159 CONTINUE
+      WRITE (IW,19) MULTBR(N,2),LBRBCD(N,2),IALFBR(N,2),LL(1),NI(1),
+     1  LLM1,NIM1
+   19 FORMAT (//18H0CUVFD 19--PARENT ,I1,A1,A2,4H OF ,A1,I2,
+     1  27H  NOT FOUND AMONG TERMS OF ,A1,I2)
+  160 IPNT(M)=N
+ 1020 CONTINUE
+C
+  170 IF (NLT.GT.0) GO TO 175
+      DO 1021 I=1,NOT
+  171 ITRM(I)=I
+ 1021 CONTINUE
+      NLT=NOT
+      GO TO 185
+  175 M=NLT
+      DO 180 I=1,NOT
+      DO 178 J=1,NLT
+      IF (MULT(I,4).NE.MULT(J,1)) GO TO 178
+      IF (LBCD(I,4).NE.LBCD(J,1)) GO TO 178
+      IF (IALF(I,4).EQ.IALF(J,1)) GO TO 179
+  178 CONTINUE
+      M=M+1
+      ITRM(M)=I
+      GO TO 180
+  179 ITRM(J)=I
+  180 CONTINUE
+      IF (M.EQ.NOT) GO TO 185
+      WRITE (IW,20) M,NOT
+   20 FORMAT (//17H0CUVFD 20--M,NOT=,2I5)
+C CALC VALUES OF S AND L
+  185 DO 1022 M=1,NOT
+      DO 188 J=1,24
+      IF (LSYMB(J).EQ.LBCD(M,4)) GO TO 189
+  188 CONTINUE
+  189 FL(M,4)=J-1
+      A=MULT(M,4)-1
+  190 S(M,4)=0.5D0*A
+ 1022 CONTINUE
+      DO 1023 N=1,NOP
+      DO 192 J=1,24
+      IF (LSYMB(J).EQ.LBRBCD(N,2)) GO TO 193
+  192 CONTINUE
+  193 FLBR(N,2)=J-1
+      A=MULTBR(N,2)-1
+  195 SBR(N,2)=0.5D0*A
+ 1023 CONTINUE
+      IF ((FLL(1)-FLLM1).LT.0) GO TO 198
+      IF ((FLL(1)-FLLM1).GT.0) GO TO 200
+  196 IF (NI(1).GT.NIM1) GO TO 200
+  198 WRITE (IW,21)
+   21 FORMAT (//37H0CUVFD 21--CFP DECKS OUT OF ORDER****//)
+C
+  200 SK1MIN=1.0D28
+      SK1MAX=-1.0D28
+      SK2MIN=1.0D28
+      SK2MAX=-1.0D28
+      SK3MIN=1.0D28
+      SK3MAX=-1.0D28
+C
+      DO 1024 M=1,NOT
+      I=ITRM(M)
+C     WRITE (11,1021) IALF(I,4)
+C1021 FORMAT (A2)
+C     BACKSPACE 11
+C     READ (11,22) N
+C     BACKSPACE 11
+      READ (IALF(I,4),22) N
+   22 FORMAT (I1)
+      A=N
+      IF (A.EQ.0.D0) A=9.5D0
+c  202 PC(M)=-100.D0*(S(I,4)+1.D0)-FL(I,4)+0.05D0*A
+      SK1=0.05D0*A
+      if (SK1.LT.SK1MIN) SK1MIN=SK1
+      if (SK1.GT.SK1MAX) SK1MAX=SK1
+c      SK2=FL(I,4)
+      SK2=FL(I,4)+1
+      if (SK2.LT.SK2MIN) SK2MIN=SK2
+      if (SK2.GT.SK2MAX) SK2MAX=SK2
+c      SK3=100.D0*(S(I,4)+1.D0)
+      SK3=200.D0*(S(I,4)+1.D0)
+      if (SK3.LT.SK3MIN) SK3MIN=SK3
+      if (SK3.GT.SK3MAX) SK3MAX=SK3
+  202 PC(M)=-SK3-SK2+SK1
+ 1024 CONTINUE
+      if (SK2MAX.GE.SK3MIN.OR.(SK2MIN+SK3MIN).LE.SK1MAX) then
+        write(IW,2021) SK1MIN,SK1MAX,SK2MIN,SK2MAX,SK3MIN,SK3MAX
+        write(6,*) ' WARN. CUVFD1: INSUFF. RANGE OF TERM SORTING KEY!'
+      endif
+2021  format(39H INSUFFICIENT TERM SORTING KEY: SK1MIN=, E15.5,
+     +  8H SK1MAX=, E15.5,
+     +  8H SK2MIN=, E15.5, 8H SK2MAX=, E15.5,
+     +  8H SK3MIN=, E15.5, 8H SK3MAX=, E15.5)
+C
+C          IF ALL TERMS INCLUDED AND NOSORT=0, SORT BY S AND L
+      IF (NLT.LT.NOT.OR.NOSORT.NE.0) GO TO 203
+      CALL SORT2(NLT,1,PC(1),IPC(399),ITRM,DUM,IDUM,IDUM,DUM,DUM,
+     1  DUM,DUM,DUM,DUM,DUM,DUM)
+C
+  203 DO 1031 N=1,NOP
+      J=IPNT(N)
+      MULTBR(N,1)=MULTBR(J,2)
+      LBRBCD(N,1)=LBRBCD(J,2)
+      IALFBR(N,1)=IALFBR(J,2)
+      SBR(N,1)=SBR(J,2)
+      FLBR(N,1)=FLBR(J,2)
+      DO 1030 M=1,NOT
+      I=ITRM(M)
+  205 CFP(M,N)=CFP2(I,J)
+ 1030 CONTINUE
+ 1031 CONTINUE
+      DO 1032 M=1,NOT
+      I=ITRM(M)
+      MULT(M,1)=MULT(I,4)
+      LBCD(M,1)=LBCD(I,4)
+      IALF(M,1)=IALF(I,4)
+      S(M,1)=S(I,4)
+  210 FL(M,1)=FL(I,4)
+ 1032 CONTINUE
+      IF (ILNCUV.EQ.0) GO TO 220
+      WRITE (IW,23) (MULTBR(N,1),LBRBCD(N,1),IALFBR(N,1), N=1,NOP)
+   23 FORMAT (//10H0CFP TABLE//5X,10(I9,A1,A2)/(5X,10(I9,A1,A2)))
+      DO 1033 M=1,NOT
+  218 WRITE (IW,24) MULT(M,1),LBCD(M,1),IALF(M,1), (CFP(M,N), N=1,NOP)
+ 1033 CONTINUE
+   24 FORMAT (1H ,I1,A1,A4,10F12.8/(2X,10F12.8))
+C CHECK ORTHONORMALITY OF CFP ROWS
+  220 DO 230 M=1,NOT
+      DO 229 M1=M,NOT
+      SUM=-1.D0
+      IF (M.EQ.M1) GO TO 222
+      SUM=0.D0
+      IF (MULT(M,1).NE.MULT(M1,1)) GO TO 229
+      IF (LBCD(M,1).NE.LBCD(M1,1)) GO TO 229
+  222 DO 1034 N=1,NOP
+  224 SUM=SUM+CFP(M,N)*CFP(M1,N)
+ 1034 CONTINUE
+      IF (DABS(SUM).LT.1.0D-6) GO TO 229
+      WRITE (IW,25) MULT(M,1),LBCD(M,1),IALF(M,1),
+     1             MULT(M1,1),LBCD(M1,1),IALF(M1,1)
+   25 FORMAT (//36H0CUVFD 25--CFP NOT ORTHONORMAL FOR  ,2(I4,A1,A2)//)
+  229 CONTINUE
+  230 CONTINUE
+C CHECK ORTHONORMALITY OF CFP COLUMNS
+      IF (NI(1).EQ.0) GO TO 250
+      A=NI(1)
+      B=(4.D0*FLL(1)+3.D0-A)/A
+      DO 239 N=1,NOP
+      SUM=-B*(2.D0*FLBR(N,1)+1.D0)*(2.D0*SBR(N,1)+1.D0)
+      DO 238 N1=N,NOP
+      IF (N.EQ.N1) GO TO 232
+      SUM=0.D0
+      IF (MULTBR(N,1).NE.MULTBR(N1,1)) GO TO 238
+      IF (LBRBCD(N,1).NE.LBRBCD(N1,1)) GO TO 238
+  232 DO 1035 M=1,NOT
+      A=(2.D0*FL(M,1)+1.D0)*(2.D0*S(M,1)+1.D0)
+  234 SUM=SUM+A*CFP(M,N)*CFP(M,N1)
+ 1035 CONTINUE
+      IF (DABS(SUM).LT.1.D-6) GO TO 238
+      WRITE (IW,25) MULTBR(N,1),LBRBCD(N,1),IALFBR(N,1),
+     1             MULTBR(N1,1),LBRBCD(N1,1),IALFBR(N1,1)
+  238 CONTINUE
+  239 CONTINUE
+C
+C          READ OR CALC CFGP (IF NEEDED) AND WRITE DISK ID2
+C
+  250 NLP=1
+      NOCFP=0
+      IF (LL(1).NE.LLM1.OR.NI(1).NE.(NIM1+1)) GO TO 252
+      NLP=NLTM1
+      NOCFP=1
+  252 NLGP=0
+      NOCFGP=0
+      IF (LL(1).NE.LLM2.OR.NI(1).NE.(NIM2+2)) GO TO 254
+      NLGP=NLTM2
+      NOCFGP=2.D0*FLL(1)+1.D0
+  254 NORCD=1+NOCFP+NOCFGP
+      IF (NOCFP.GT.0) NORCD=NORCD+1
+      IF (NOCFGP.GT.0) NORCD=NORCD+1
+      WRITE (ID2) LL(1),NI(1),FLL(1),NOT,NLT,NORCD
+      WRITE (ID2) (MULT(M,1),LBCD(M,1),IALF(M,1),FL(M,1),S(M,1),
+     1  M=1,NLT), NLP,NLGP,NOCFP,NOCFGP
+      IF (NOCFP.EQ.0) GO TO 257
+      WRITE (ID2) ((CFP(M,N),M=1,NLT), N=1,NLP)
+      WRITE (ID2) (MULT(M,2),LBCD(M,2),IALF(M,2),FL(M,2),S(M,2),M=1,NLP)
+  257 IF (NOCFGP.EQ.0) GO TO 300
+C
+  260 WRITE (ID2) (MULT(M,3),LBCD(M,3),IALF(M,3),FL(M,3),S(M,3),
+     1  M=1,NTM2)
+      FLP=-1.D0
+      DO 285 K=1,NOCFGP
+      FLP=FLP+1.D0
+      SP=0.5D0*(1.D0+(-1.D0)**K)
+      MULP=2.D0*SP+1.D0
+      IFLP=FLP
+      LLL=LSYMB(IFLP+1)
+      A=DSQRT((2.D0*FLP+1.D0)*(2.D0*SP+1.D0))
+      DO 1037 M=1,NLT
+      X0=FL(M,1)+S(M,1)+1.D0
+      DO 1036 N=1,NLGP
+      SUM=0.D0
+      DO 272 N1=1,NOP
+      B=S6J(FLL(1),FLL(1),FLP, FL(M,1),FL(N,3),FL(N1,2))
+      IF (B.EQ.0.D0) GO TO 272
+      B=B*S6J(HALF,HALF,SP, S(M,1),S(N,3),S(N1,2))
+      IF (B.EQ.0.D0) GO TO 272
+      B=B*DSQRT((2.D0*FL(N1,2)+1.D0)*(2.D0*S(N1,2)+1.D0))
+      B=B*CFP(M,N1)*CFPM1(N1,N)
+      SUM=SUM+B
+  272 CONTINUE
+      SUM=SUM*A
+      X=X0+FL(N,3)+S(N,3)
+      IF (DMOD(X,TWO).GT.ZERO) SUM=-SUM
+  273 CFGP(M,N)=SUM
+ 1036 CONTINUE
+ 1037 CONTINUE
+      IF (ILNCUV.EQ.0) GO TO 276
+      WRITE (IW,29) LL(1),MULP,LLL, (MULT(N,3),LBCD(N,3),IALF(N,3),
+     1   N=1,NLGP)
+   29 FORMAT (///11H0CFGP FOR  ,A1,2H2(,I1,A1,1H)//5X,10(I9,A1,A2)/
+     1  (5X,10(I9,A1,A2)))
+      DO 1038 M=1,NLT
+  275 WRITE (IW,24) MULT(M,1),LBCD(M,1),IALF(M,1), (CFGP(M,N), N=1,NLGP)
+ 1038 CONTINUE
+  276 WRITE (ID2) ((CFGP(M,N),M=1,NLT), N=1,NLGP)
+C          CHECK ORTHONORMALITY OF CFGP ROWS
+      IF (NLGP.NE.NLTM2) GO TO 295
+      L=200
+      DO 280 M=1,NLT
+      DO 279 M1=M,NLT
+      IF (MULT(M,1).NE.MULT(M1,1)) GO TO 279
+      IF (LBCD(M,1).NE.LBCD(M1,1)) GO TO 279
+      L=L+1
+      IF (K.EQ.1) PC(L)=0.D0
+  277 DO 1039 N=1,NLGP
+  278 PC(L)=PC(L)+CFGP(M,N)*CFGP(M1,N)
+ 1039 CONTINUE
+  279 CONTINUE
+  280 CONTINUE
+C
+  285 CONTINUE
+C
+      L=200
+      DO 290 M=1,NLT
+      DO 289 M1=M,NLT
+      IF (MULT(M,1).NE.MULT(M1,1)) GO TO 289
+      IF (LBCD(M,1).NE.LBCD(M1,1)) GO TO 289
+      L=L+1
+      IF (M.EQ.M1) PC(L)=PC(L)-1.D0
+      IF (DABS(PC(L)).LT.1.D-6) GO TO 289
+      WRITE (IW,30) MULT(M,1),LBCD(M,1),IALF(M,1),
+     1             MULT(M1,1),LBCD(M1,1),IALF(M1,1),MULP,LLL
+   30 FORMAT (/37H CUVFD 30--CFGP NOT ORTHONORMAL FOR  ,2(I4,A1,A2)/)
+  289 CONTINUE
+  290 CONTINUE
+  295 CONTINUE
+C
+C          CALCULATE NUMBER OF TERMS OF EACH KIND
+C
+  300 K=0
+      N2=-100
+      DO 310 M=1,NLT
+      N1=N2
+      N2=-100.D0*S(M,1)-FL(M,1)
+      IF (N2.NE.N1) GO TO 309
+      NTRMK(K)=NTRMK(K)+1
+      GO TO 310
+  309 K=K+1
+      NTRMK(K)=1
+  310 CONTINUE
+      NDIFFT=K
+C
+C          CALCULATE NUMBER OF LEVELS OF EACH J
+C
+      M=0
+      DO 1041 J=1,NLT
+      EJI=DABS(FL(J,1)-S(J,1))-1.D0
+      NJI=FL(J,1)+S(J,1)-EJI
+C
+      SK1MIN=1.0D28
+      SK1MAX=-1.0D28
+      SK2MIN=1.0D28
+      SK2MAX=-1.0D28
+      SK3MIN=1.0D28
+      SK3MAX=-1.0D28
+C
+      DO 1040 IJ=1,NJI
+      M=M+1
+      EJI=EJI+1.D0
+      NALSJI(M)=J
+      A=DFLOAT(J)
+c      PC(M)=-200.D0*EJI-25.D0*S(J,1)-FL(J,1)+0.008403361D0*A
+      SK1=0.008403361D0*A
+      if (SK1.LT.SK1MIN) SK1MIN=SK1
+      if (SK1.GT.SK1MAX) SK1MAX=SK1
+c      SK2=FL(J,1)
+      SK2=FL(J,1)+1
+      if (SK2.LT.SK2MIN) SK2MIN=SK2
+      if (SK2.GT.SK2MAX) SK2MAX=SK2
+      SK3=200.D0*(EJI+1)+25.D0*S(J,1)
+      if (SK3.LT.SK3MIN) SK3MIN=SK3
+      if (SK3.GT.SK3MAX) SK3MAX=SK3
+      PC(M)=-SK3-SK2+SK1
+  315 PJI(M)=EJI
+ 1040 CONTINUE
+ 1041 CONTINUE
+      if ((SK2MAX.GE.SK3MIN.OR.(SK2MIN+SK3MIN).LE.SK1MAX).and.M.gt.1)
+     +then
+        write(IW,2021) SK1MIN,SK1MAX,SK2MIN,SK2MAX,SK3MIN,SK3MAX
+        write(6,*) ' WARN. CUVFD2: INSUFF. RANGE OF TERM SORTING KEY!'
+      endif
+      NTOTJI=M
+      CALL SORT2(M,2,PC(1),IPC(999),NALSJI,PJI,IDUM,IDUM,DUM,DUM,DUM,
+     1  DUM,DUM,DUM,DUM,DUM)
+C
+      K=1
+      NJKI(K)=1
+      IF (M.LE.1) GO TO 320
+      DO 319 J=2,M
+      IF (PJI(J).NE.PJI(J-1)) GO TO 317
+      NJKI(K)=NJKI(K)+1
+      GO TO 319
+  317 K=K+1
+      NJKI(K)=1
+  319 CONTINUE
+  320 NDIFJI=K
+C
+C        WRITE U,V ON DISK ID3, AND COEFFS FOR L(N) ON DISK ID4
+C
+  400 FN=NI(1)
+      NMXM1=4.D0*FLL(1)+1.D0
+      NPAR=0
+      IF (NI(1).EQ.0.OR.NI(1).EQ.(NMXM1+1).OR.FLL(1).EQ.0.D0) GO TO 410
+      NPAR=1
+      IF (NI(1).EQ.1.OR.NI(1).EQ.NMXM1) GO TO 410
+      NPAR=1.D0+FLL(1)
+      IF (IABG.EQ.0) GO TO 410
+      NPAR=1.D0+FLL(1)+FLL(1)
+      IF (FLL(1).NE.TWO) GO TO 410
+      NPAR=NPAR+1
+      IF (NI(1).GT.2.AND.NI(1).LT.8) NPAR=NPAR+2
+  410 NORCD=1+NPAR
+      WRITE (ID4) LL(1),NI(1),FLL(1),NOT,NLT,NORCD
+      WRITE (ID4) NDIFFT, (NTRMK(K), K=1,NDIFFT), NTOTJI,               ! WID4
+     1  (NALSJI(M),PJI(M), M=1,NTOTJI), NDIFJI, (NJKI(M), M=1,NDIFJI)   ! WID4
+      IF (NPAR.EQ.0) GO TO 800
+      IF (NI(1).EQ.1) GO TO 500
+      NORCD=4.D0*FLL(1)+2.D0
+      WRITE (ID3) LL(1),NI(1),FLL(1),NOT,NLT,NORCD
+C
+C          CALC U MATRICES
+C
+      NOR=NORCD/2
+      DO 485 IRP1=1,NOR
+      K=IRP1-1
+      R=K
+      DO 1043 M=1,NOT
+      MPX=MIN0(M,NLT)
+      DO 1042 MP=1,MPX
+      A=0.D0
+      B=0.D0
+      IF (S(M,1).NE.S(MP,1)) GO TO 434
+      IF (R.GT.(FL(M,1)+FL(MP,1))) GO TO 434
+      IF (R.LT.DABS(FL(M,1)-FL(MP,1))) GO TO 434
+      DO 432 N=1,NOP
+      B=CFP(M,N)*CFP(MP,N)
+      IF (B.EQ.0.D0) GO TO 432
+      B=B*S6J(FLL(1),FLL(1),R, FL(M,1),FL(MP,1),FLBR(N,1))
+      X=DMOD(FLBR(N,1),TWO)
+      IF (X.GT.0.D0) B=-B
+      A=A+B
+  432 CONTINUE
+      A=A*DSQRT((2.D0*FL(M,1)+1.D0)*(2.D0*FL(MP,1)+1.D0))*FN
+      X=DMOD(FLL(1)+FL(M,1)+R,TWO)
+      IF (X.GT.0.D0) A=-A
+      B=A
+      X=DMOD(FL(M,1)-FL(MP,1),TWO)
+      IF (X.NE.0.D0) B=-B
+  434 UA(M,MP)=A
+  435 UA(MP,M)=B
+ 1042 CONTINUE
+ 1043 CONTINUE
+      WRITE (ID3) K, ((UA(M,MP),M=1,NLT), MP=1,NLT)
+C
+      IF (R.EQ.0.D0.OR.NPAR.LE.1) GO TO 485
+      X=DMOD(R,TWO)
+      IF (X.GT.0.D0) GO TO 460
+C CALC FK
+  440 A=2.D0*FLL(1)+1.D0
+      CIJ=0.5D0*A*S3J0SQ(FLL(1),R,FLL(1))
+      CAVE=CIJ*FN*(FN-1.D0)/(A+FLL(1)+FLL(1))
+      CAVEP=CAVE-FN*CIJ
+      CIJ=CIJ*A
+      IF (ILNCUV.GT.0) WRITE (IW,41) K,CAVE,LL(1),NI(1)
+   41 FORMAT (//2H0F,I1,8X,5HCAVE=,F12.7,10X,A1,I2//)
+C
+      NOPC=0
+      MMAX=0
+      DO 1045 L=1,NDIFFT
+        MMIN=MMAX+1
+        MMAX=MMAX+NTRMK(L)
+        DO 450 M=MMIN,MMAX
+          CIJ1=CIJ/(2.D0*FL(M,1)+1.D0)
+          DO 448 MP=MMIN,M
+            NOPC=NOPC+1
+            A=0.D0
+            DO 1044 MPP=1,NOT
+  445       A=A+UA(MPP,M)*UA(MPP,MP)
+ 1044       CONTINUE
+            PC(NOPC)=CIJ1*A
+            IF (M.EQ.MP) PC(NOPC)=PC(NOPC)+CAVEP
+  448     CONTINUE
+          IF (ICPC.EQ.0) GO TO 450
+          N2=NOPC-M+MMIN
+          WRITE (IW,42) NOPC,MULT(M,1),LBCD(M,1), (PC(N1), N1=N2,NOPC)
+   42     FORMAT (2I5,A1,10F11.6/(13X,10F11.6))
+  450 CONTINUE
+ 1045 CONTINUE
+      KPAR=-1
+      WRITE (AA,43) K,LL(1),NI(1)
+   43 FORMAT (1HF,I1,1H(,A1,I2,2H) )
+      WRITE (ID4) KPAR,K,AA,CAVE,NOPC, (PC(N1), N1=1,NOPC)
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      IF (ILNCUV.GT.0) WRITE (IW,45) AA,NOPC,CAVE,DELT
+   45 FORMAT (1H ,A7,7H    PC(,I4,1H),7X,5HCAVE=,F12.7,8X,5HTIME=,F9.3,
+     1  4H MIN)
+      GO TO 485
+C CALC BETA OR GAMMA
+  460 IF (K.GT.5) GO TO 485
+      I=(K+1)/2
+      DO 480 M=1,NLT
+      A=0.D0
+      DO 1046 MP=1,NOT
+  465 A=A+UA(MP,M)**2
+ 1046 CONTINUE
+      A=A/(2.D0*FL(M,1)+1.D0)
+      GO TO (471,473,475) I
+  471 ABG(M,2)=3.D0*A
+      ABG(M,3)=0.D0
+      GO TO 480
+  473 ABG(M,3)=ABG(M,2)+7.D0*A
+      GO TO 480
+  475 ABG(M,2)=ABG(M,2)+11.D0*A
+      ABG(M,3)=ABG(M,3)+11.D0*A
+  480 CONTINUE
+C
+  485 CONTINUE
+C   FINISH CALCULATION OF ALPHA, BETA, GAMMA, T, T1, AND T2
+      IF (NPAR.LE.1.OR.IABG.EQ.0) GO TO 500
+      A=4.D0*FLL(1)+1.D0
+      B=FN*(FN-A-1.D0)
+      CAVEI(2)=B/26.D0
+      B=B*FLL(1)/A
+      AFACT=1.D0
+      IF (ICTBCD.NE.0) AFACT=0.001D0
+      CAVEI(1)=B*(FLL(1)+1.D0)*AFACT
+      A=1.D0/(2.D0*FLL(1)-1.D0)
+      CAVEI(3)=A*B
+      DO 1047 M=1,NLT
+        ABG(M,1)=FL(M,1)*(FL(M,1)+1.D0)*AFACT+CAVEI(1)
+        ABG(M,2)=0.25D0*ABG(M,2)+CAVEI(2)
+  487 ABG(M,3)=A*ABG(M,3)+CAVEI(3)
+ 1047 CONTINUE
+      DO 1048 I=1,NOPC
+  488 PC(I)=0.D0
+ 1048 CONTINUE
+      K=0
+      IMAX=FLL(1)
+      DO 492 I=1,IMAX
+        J=I
+        AA=ABGNAM(J)
+        IF (LL(1).EQ.LSYMB(3).AND.I.EQ.2) J=3
+        IF (ILNCUV.GT.0) WRITE (IW,48) AA,CAVEI(J),LL(1),NI(1)
+   48   FORMAT (//1H0,A10,5HCAVE=,F12.7,10X,A1,I2//)
+        M=0
+        NOPC=0
+        DO 1049 L=1,NDIFFT
+          NK=NTRMK(L)
+          DO 490 N=1,NK
+            M=M+1
+            N2=NOPC+1
+            NOPC=NOPC+N
+c            IF (NOPC.GT.KPC) GO TO 4991
+            if (NOPC.GT.KPC) then
+*             Double the allocation of storage for the PC array
+*
+              NEWSIZ = 2*i_PC_size
+              CALL RALLOC(PC_PTR,i_PC_size,NEWSIZ,8)
+              i_PC_size = NEWSIZ
+            endif
+            PC(NOPC)=ABG(M,J)
+            IF (ICPC.EQ.0) GO TO 490
+            WRITE (IW,42) NOPC,MULT(M,1),LBCD(M,1),(PC(N1), N1=N2,NOPC)
+  490   CONTINUE
+ 1049   CONTINUE
+c        write (*,*) 'CUVFD1: NOPC=',NOPC
+        WRITE (ID4) KPAR,K,AA,CAVEI(J),NOPC, (PC(N1), N1=1,NOPC)
+        CALL CLOCK(TIME)
+        DELT=TIME-TIME0
+        IF (ILNCUV.GT.0) WRITE (IW,45) AA,NOPC,CAVEI(J),DELT
+  492 CONTINUE
+      IF ((FLL(1).EQ.2.D0).AND.(NI(1).GT.1.AND.NI(1).LT.9)) THEN
+        J=NI(1)-1
+        K=0
+        M=0
+        NOPC=0
+        DO 1050 L=1,NDIFFT
+          NK=NTRMK(L)
+          DO 495 N=1,NK
+            N2=NOPC+1
+            DO 494 N1=1,N
+              M=M+1
+              NOPC=NOPC+1
+c              IF (NOPC.GT.KPC) GO TO 4991
+              if (NOPC.GT.KPC) then
+*               Double the allocation of storage for the PC array
+*
+                NEWSIZ = 2*i_PC_size
+                CALL RALLOC(PC_PTR,i_PC_size,NEWSIZ,8)
+                i_PC_size = NEWSIZ
+              endif
+              PC(NOPC)=TDN(M,J)
+              IF (N1.EQ.N) PC(NOPC)=PC(NOPC)+CAVEDN(J)
+  494       CONTINUE
+            IF (ICPC.NE.0) WRITE (IW,42) NOPC,MULT(M,1),LBCD(M,1),
+     *        (PC(N1), N1=N2,NOPC)
+  495   CONTINUE
+ 1050   CONTINUE
+        WRITE (AA,49) LL(1),NI(1)
+   49   FORMAT(2HT(,A1,I2,3H)  )
+        WRITE (ID4) KPAR,K,AA,CAVEDN(J),NOPC, (PC(N1), N1=1,NOPC)
+        IF (NI(1).GT.2.AND.NI(1).LT.8) THEN
+          J=MIN0(NI(1)-2,8-NI(1))
+          ERAS1=0.D0
+          DO 1052 I=1,2
+            M=0
+            NOPC=0
+            DO 1051 L=1,NDIFFT
+              NK=NTRMK(L)
+              DO 498 N=1,NK
+                N2=NOPC+1
+                DO 497 N1=1,N
+                  M=M+1
+                  NOPC=NOPC+1
+c                  IF (NOPC.GT.KPC) GO TO 4991
+                  if (NOPC.GT.KPC) then
+*                   Double the allocation of storage for the PC array
+*
+                    NEWSIZ = 2*i_PC_size
+                    CALL RALLOC(PC_PTR,i_PC_size,NEWSIZ,8)
+                    i_PC_size = NEWSIZ
+                  endif
+                  PC(NOPC)=T1DN(M,J)
+                  IF (I.EQ.2) PC(NOPC)=T2DN(M,J)
+                  IF (NI(1).GT.5) PC(NOPC)=-PC(NOPC)
+  497           CONTINUE
+                IF (ICPC.NE.0) WRITE (IW,42) NOPC,MULT(M,1),LBCD(M,1),
+     *            (PC(N1), N1=N2,NOPC)
+  498       CONTINUE
+ 1051       CONTINUE
+            WRITE (AA,50) I,LL(1),NI(1)
+   50       FORMAT(1HT,I1,1H(,A1,I2,2H) )
+  499     WRITE (ID4) KPAR,K,AA,ERAS1,NOPC, (PC(N1), N1=1,NOPC)
+ 1052     CONTINUE
+        ENDIF
+      ENDIF
+c      write (*,*) 'CUVFD2: NOPC=',NOPC
+c      GO TO 500
+c 4991 WRITE (IW,*) ' INSUFFICIENT DIMENSION KPC'
+c      STOP '( KPC TOO SMALL)'
+C
+C          CALC V MATRICES
+C
+  500 NOV=NOR
+      IF (NI(1).EQ.1) NOV=1
+      DO 585 IRP1=1,NOV
+      K=IRP1-1
+      IF (NOV.EQ.1) K=1
+      R=K
+      DO 1054 M=1,NLT
+        DO 1053 MP=1,NLT
+          A=0.D0
+          B=0.D0
+          IF (S(M,1)+S(MP,1).LT.1.D0) GO TO 534
+          IF (DABS(S(M,1)-S(MP,1)).GT.1.D0) GO TO 534
+          IF (FL(M,1)+FL(MP,1).LT.R) GO TO 534
+          IF (DABS(FL(M,1)-FL(MP,1)).GT.R) GO TO 534
+            DO 532 N=1,NOP
+              B=CFP(M,N)*CFP(MP,N)
+              IF (B.EQ.0.D0) GO TO 532
+              B=B*S6J(HALF,HALF,ONE, S(M,1),S(MP,1),SBR(N,1))
+     1           *S6J(FLL(1),FLL(1),R, FL(M,1),FL(MP,1),FLBR(N,1))
+              X=DMOD(S(M,1)+SBR(N,1)+1.5D0+FLBR(N,1),TWO)
+              IF (X.GT.0.D0) B=-B
+              A=A+B
+  532       CONTINUE
+            A=A*FN*DSQRT(1.5D0*(2.D0*S(M,1)+1.D0)*(2.D0*S(MP,1)+1.D0)
+     1        *(2.D0*FL(M,1)+1.D0)*(2.D0*FL(MP,1)+1.D0))
+            X=DMOD(FLL(1)+FL(M,1)+R,TWO)
+            IF (X.GT.0.D0) A=-A
+            B=A
+            X=DMOD(FL(M,1)-FL(MP,1)+S(M,1)-S(MP,1),TWO)
+            IF (X.NE.0.D0) B=-B
+  534     VA(M,MP)=A
+  535 VA(MP,M)=B
+ 1053   CONTINUE
+ 1054 CONTINUE
+      IF (NOV.NE.1) WRITE (ID3) K, ((VA(M,MP),M=1,NLT), MP=1,NLT)
+  539 IF (K.NE.1) GO TO 585
+C CALC COEFFS OF ZETA
+  540 IF (ILNCUV.GT.0) WRITE (IW,52) LL(1),NI(1)
+   52 FORMAT (//5H0ZETA,33X,A1,I2//)
+C
+      B=DSQRT(FLL(1)*(FLL(1)+1.D0)*(2.D0*FLL(1)+1.D0))
+      NOPC=0
+      MMAX=0
+      DO 1055 L=1,NDIFJI
+      MMIN=MMAX+1
+      MMAX=MMAX+NJKI(L)
+      DO 560 M=MMIN,MMAX
+      J=NALSJI(M)
+      DO 550 MP=MMIN,M
+      JP=NALSJI(MP)
+      NOPC=NOPC+1
+      PC(NOPC)=0.D0
+      A=VA(J,JP)
+      IF (A.EQ.0.D0) GO TO 550
+      X=DMOD(FL(JP,1)+S(J,1)+PJI(M),TWO)
+      IF (X.GT.0.D0) A=-A
+      PC(NOPC)=A*B*S6J(S(J,1),FL(J,1),PJI(M), FL(JP,1),S(JP,1),ONE)
+  550 CONTINUE
+      IF (ICPC.EQ.0) GO TO 560
+      N2=NOPC-M+MMIN
+      WRITE (IW,54) NOPC,MULT(J,1),LBCD(J,1),PJI(M),
+     1  (PC(N1), N1=N2,NOPC)
+   54 FORMAT (2I5,A1,F4.1,10F11.6/(17X,10F11.6))
+  560 CONTINUE
+ 1055 CONTINUE
+      KPAR=1
+      CAVE=0.D0
+      AA=ZETANM
+      WRITE (ID4) KPAR,K,AA,CAVE,NOPC, (PC(N1), N1=1,NOPC)
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      IF (ILNCUV.GT.0) WRITE (IW,45) AA,NOPC,CAVE,DELT
+C
+  585 CONTINUE
+C
+  800 CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      WRITE (IW,60) LL(1),NI(1),DELT
+   60 FORMAT (26H FINISHED CUVFD CALC FOR  ,A1,I2,11H   AT TIME=,F9.3,
+     1  4H MIN)
+      GO TO 110
+C
+C          WRITE DUMMY RECORDS REQUIRED BY SYSTEM BUG ON IBM7030
+C
+  900 WRITE (ID2) (PC(J), J=1,20)
+      WRITE (ID3) (PC(J), J=1,20)
+      WRITE (ID4) (PC(J), J=1,20)
+      REWIND ID2
+      REWIND ID3
+      REWIND ID4
+c      write (*,*) 'CUVFD3: NOPC=',NOPC
+c       Deallocate memory
+      CALL DALLOC(CFPM1_PTR)
+      CALL DALLOC(CFP2_PTR)
+      CALL DALLOC(PC_PTR)
+      RETURN
+      END
+C
+C     OVERLAY(G9,2,0)
+      SUBROUTINE LNCUV
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/ENERGIES/ETOT(KC,2),EE8(KC,2),E0KIN(KC),EKIN(KMX)
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C     A. Kramida 2026: IBLANK was implicitly INTEGER and initialised
+C     from the Hollerith constant 4H    , then assigned into IALF just
+C     below.  IALF lives in COMMON/C2/, is declared in 26 routines and
+C     is re-read by an unformatted READ(ID2), so its INTEGER type must
+C     not change.  IBLANK is CHARACTER*4 now and TRANSFER performs the
+C     same character-to-integer reinterpretation the Hollerith constant
+C     used to perform implicitly: the identical four bytes, but with no
+C     extension involved.
+      CHARACTER*4 IBLANK
+      DATA IBLANK/'    '/
+C     A. Kramida 2026: the per-configuration term cutoff, columns 83-85
+C     of the configuration card.  CHNLT is the field as punched -- read
+C     as characters, not as I3, because a blank field and a punched zero
+C     are different things here and I3 cannot tell them apart.  CLAB is
+C     the configuration label, carried into the error message so that a
+C     bad cutoff names the configuration it belongs to.  The true-jj
+C     switch IJJROT is here because a truncated first subshell makes the
+C     rotation undefined; see label 259 below.
+      CHARACTER*3 CHNLT
+      CHARACTER*18 CLAB
+      COMMON/LSJJBK/IJJROT,IJJU,IBSJJ(KNSJK),NBKJJ(KS,KNSJK)
+C
+C
+C
+C          READ AND CHECK INPUT CONFIGURATIONS
+C
+C     KS=8
+  200 IERROR=0
+      ICUTNY=0
+      WRITE (IW,10) UENRGY
+   10 FORMAT (/8H0  K   J,11X,13HCONFIGURATION,35X,
+     1  35HN   PAR   I   TERMS OF LI(NI) -----,7X,
+     2  9H(E UNIT =,F8.1,6H CM-1))
+      II=0
+      DO 1062 K=1,2         ! K is the number of configuration set (sequential number of parity)
+      IF (NSCONF(1,K).LE.0) GO TO 259
+      WRITE (IW,11)
+   11 FORMAT (1H )
+      NOSUBC=NSCONF(1,K)               ! Max. nuber of subshells in conf. set K
+      JMAX=NSCONF(2,K)                 ! Total number of configs in set K
+      DO 1061 I=1,KS
+      LL(I)=LSYMB(1)
+      FLL(I)=0.D0
+      NLASTT(I)=1
+      MULT(1,I)=1
+      LBCD(1,I)=LSYMB(1)
+      JJJ=MAX0(NSCONF(2,1),NSCONF(2,2))  ! Max. number of configs in one set (#1 or #2)
+      DO 1060 J=1,JJJ
+        LLIJK(I,J,K)=LSYMB(1)
+        FLLIJK(I,J,K)=0.D0
+  202 NIJK(I,J,K)=0
+ 1060 CONTINUE
+ 1061 CONTINUE
+      DO 249 J=1,JMAX
+      N=0
+      IPRITY=1
+C
+C       LL(i) is shell symbol (S, P, D, F, ...)
+C       NI(i) is occupation number of this subshell
+C       PCI(k), k = 1..3, will here be used to store the spectrum name and configuration label
+C       A1 will store the total average energy of configuration
+c
+c      FORMAT OF A CONFIGURATION CARD IN THE ING11 file
+c cols. format      variable name             normal value
+c ----- ------    -------------------    ------------------------
+c 1-40  8(A1,I2,2X) LL(I),NI(I), I=1,8  subshell symbol and occupation
+c 41-58  3A6      PCI(1..3)              spectrum name and config label
+c 59-71  F13.3    A1                     average energy of the config
+c 72-80  F9.4     A2                     kinetic energy
+c 81-82           -                      blank
+c 83-85  I3       NLTCF(J,K)             blank; see below
+c
+C     A. Kramida 2026: columns 83-85 (CHNLT) carry the per-configuration
+C     limit on the number of LS terms of the FIRST subshell.  The card
+C     Cowan wrote ends at column 80 and RCN2 still writes exactly that,
+C     so on every existing deck the record is short and the A3 field
+C     reads as blanks, which means "use NLT11" -- the old behaviour, to
+C     the bit.  Two columns are skipped between the old end of the card
+C     and the new field so that the eye can find it.
+      READ (IR,20) (LL(I),NI(I), I=1,8),(PCI(I),I=1,3),A1,A2,CHNLT
+   20 FORMAT (8(A1,I2,2X),3A6,F13.3,F9.4,2X,A3)
+      ILL1=0
+      DO 229 I=1,NOSUBC
+      NIJK(I,J,K)=NI(I)                 ! Occupation numbers (shell #, conf #, set #)
+      DO 212 L=1,24
+        IF (LSYMB(L).EQ.LL(I)) THEN
+          ILL=L-1                       ! ILL and FLL(i) is orbital momentum of the subshell
+          IF (I.EQ.1) ILL1=ILL          ! A. Kramida 2026: for NLTCHK below
+          FLL(I)=L-1
+          FLLIJK(I,J,K)=FLL(I)          ! J is sequential number of configuration in set K
+          GO TO 213
+        ENDIF
+  212 CONTINUE
+  213 LLIJK(I,J,K)=LL(I)                ! The subshell names (shell #, conf #, set #)
+      IF (LL(I).EQ.LLIJK(I,1,K)) GO TO 220
+      IF (I.EQ.NOSUBC.AND.NI(I).EQ.1) GO TO 220
+      DO 217 M=1,J
+      IF (NIJK(I,M,K).NE.0) GO TO 218
+  217 CONTINUE
+      GO TO 220
+  218 IF (LL(I).EQ.LLIJK(I,M,K)) GO TO 220
+      IERROR=7
+  220 N=N+NI(I)
+      IF (MOD(NI(I)*ILL,2).NE.0) IPRITY=-IPRITY   ! Set parity to 1 or -1
+  229 CONTINUE
+C     A. Kramida 2026: decode and validate the cutoff now, while the
+C     configuration's own label is still in hand, so that a bad value
+C     names the card it was punched on rather than a bare index.  The
+C     label is written through an internal file with the same A6 that
+C     FORMAT 23 below uses on PCI.
+      WRITE (CLAB,1229) (PCI(I),I=1,3)
+ 1229 FORMAT (3A6)
+      CALL NLTCHK (CHNLT,ILL1,NI(1),K,J,CLAB,NLTCF(J,K))
+C
+      NPT=0
+      DO 232 I=1,NOSUBC
+        NN=NIJK(I,J,K)
+        NFULL=4.D0*FLL(I)+2.D0                   ! FLL(i) is the occupation number of subshell i
+C       IF (NN.GT.1.AND.NN.LT.NFULL-1) GO TO 230
+        IF (NN.LE.1.OR.NN.GE.NFULL-1) THEN
+          NOT=1
+          NLT=1
+          MULT(1,I)=1
+          LBCD(1,I)=LSYMB(1)
+          IALF(1,I)=TRANSFER(IBLANK,IALF(1,I))
+          FL(1,I)=0.D0
+          S(1,I)=0.D0
+C         IF (NN.EQ.0.OR.NN.EQ.NFULL) GO TO 1230
+          IF (NN.NE.0.AND.NN.NE.NFULL) THEN     ! Fool-proof: if occupation # is negative or > max.
+            MULT(1,I)=2
+            LBCD(1,I)=LL(I)                     ! Set term label = shell label
+            FL(1,I)=FLL(I)                      ! Quantum number L
+            S(1,I)=0.5D0                        ! spin
+          ENDIF
+        ELSE
+  230     CALL LOCDSK(ID2,FLL(I),NIJK(I,J,K))
+          READ(ID2) (MULT(M,I),LBCD(M,I),IALF(M,I),FL(M,I),S(M,I),
+     1      M=1,NLT)
+        ENDIF
+C     A. Kramida 2026: the term cutoff for the first subshell.  NLTCF is
+C     the value punched on this configuration's card and applies to this
+C     configuration alone -- no exemption, that is the whole point of a
+C     per-configuration field.  A blank field (NLTCF=0) falls back to the
+C     global NLT11 together with Cowan's exemption of the last
+C     configuration of each parity, so a deck that does not use the new
+C     field behaves exactly as before.  9999 is a "no cut" sentinel: it
+C     is above any term count in the CFP decks, and using it rather than
+C     119 means the exempt case applies no MIN0 at all, as before.
+C     ICUTNY records that some configuration really did lose terms; it
+C     is read at label 259 below.  The same eight lines appear in PLEV,
+C     which is where the cut has its effect -- here it only trims what
+C     is printed.
+ 1230   NLTX=NLTCF(J,K)
+        IF (NLTX.EQ.0) THEN
+          NLTX=9999
+          IF (J.LT.JMAX.OR.JMAX.EQ.1) NLTX=NLT11
+        ENDIF
+        IF (I.EQ.1) THEN
+          IF (NLTX.LT.NLT) ICUTNY=1
+          NLT=MIN0(NLT,NLTX)
+        ENDIF
+        IF (NLT.NE.NOT) THEN
+          NPT=NPT+1
+          IF (NPT.LE.1) THEN
+            WRITE (IW,21) K,J, (LL(IP),NIJK(IP,J,K),IP=1,KS),
+     1        N,IPRITY,I, (MULT(L,I),LBCD(L,I),IALF(L,I), L=1,NLT)
+   21       FORMAT (I4,I4,7X,8(A1,I2,3X),I5,I5,I5,3X,13(I1,A1,A2)/
+     1        81X,13(I1,A1,I2))
+          ELSE
+  231       WRITE (IW,22) I, (MULT(L,I),LBCD(L,I),IALF(L,I), L=1,NLT)
+   22       FORMAT (73X,I5,3X,13(I1,A1,A2)/81X,13(I1,A1,A2))
+          ENDIF
+        ENDIF
+  232 CONTINUE
+      IF (NPT.GT.0) GO TO 240
+      A1=A1*1000.D0/UENRGY
+      WRITE (IW,23) K,J, (LL(I),NIJK(I,J,K),I=1,KS), N,IPRITY,
+     1  (PCI(I),I=1,3),A1,A2
+   23 FORMAT (I4,I4,7X,8(A1,I2,3X),I5,I5,8X,3HALL,8X,3A6,F13.3,F9.4)
+C ----------- Added by Yu. Ralchenko for calculation of seniority numbers ----- v
+c     Removed by A. Kramida 6/23/04
+c     WRITE (21,23) K,J, (LL(I),NIJK(I,J,K),I=1,KS)
+c     End A. Kramida 6/23/04
+C  ---------- End Yu. Ralchenko ----------------------------------------------- ^
+      ETOT(J,K)=A1                           ! Total energy of conf J of set K
+      EE8(J,K)=A2                            ! Kinetic energy (of the outer electron?)
+  240 IF (J.GT.1) GO TO 245
+      IF ((K-1).GT.0) GO TO 242
+  241 NO=N
+  242 IPRTYO=IPRITY
+      GO TO 249
+  245 IF (N.NE.NO) GO TO 247
+      IF (IPRITY.EQ.IPRTYO) GO TO 249
+  247 IERROR=7
+  249 CONTINUE
+  259 II=II+IPRITY
+ 1062 CONTINUE
+C     A. Kramida 2026: a term cutoff and the true-jj rotation cannot both
+C     be had.  LSJJRT rotates a whole fibre of the LS basis at once, and
+C     the deck in LSJJ.DAT carries the complete term list of the shell;
+C     with terms missing the term map is no longer a bijection and the
+C     block shape no longer matches, which is what LSJJRT reports as
+C     IERR=5 and IERR=6.  There is nothing to patch over -- the rotation
+C     is genuinely undefined on an incomplete basis.  Rather than let the
+C     run die deep inside PLEV, the cutoff wins and the rotation is
+C     switched off here, with a warning on both the listing and stdout.
+C     Everything Cowan's code produces, including his LSJJ (J1J2)
+C     sections, is unaffected; only the added true-jj sections go away.
+      IF (ICUTNY.NE.0.AND.IJJROT.NE.0) THEN
+        IJJROT=0
+        WRITE (IW,26)
+        WRITE (6,26)
+   26   FORMAT (//' *****A TERM CUTOFF IS IN EFFECT FOR THE FIRST',
+     1  ' SUBSHELL OF AT LEAST ONE'/
+     2  '      CONFIGURATION (NLT11, OR COLUMNS 83-85 OF A',
+     3  ' CONFIGURATION CARD).'/
+     4  '      THE LS BASIS IS THEREFORE INCOMPLETE AND THE TRUE jj',
+     5  ' ROTATION IS'/
+     6  '      UNDEFINED.  KCPLD(8)=8 IS IGNORED: TRUE jj COUPLING',
+     7  ' IS TURNED OFF.'/
+     8  '      COWAN''S JJ (J1J2) OUTPUT IS NOT AFFECTED.'//)
+      ENDIF
+      IIPRTY=1
+      IF (II.NE.0) IIPRTY=2
+C
+      IF (IERROR.EQ.0) GO TO 281
+      WRITE (IW,25) IERROR
+   25 FORMAT (///27H0LNCUV 25--DECK SETUP ERROR,I5////)
+      STOP '(LNCUV 25)'
+C
+C          CALC (LI//CK//LJ) TABLE
+C
+  281 WRITE (IW,28)
+   28 FORMAT (///)
+      IF (ILNCUV.LE.0) GO TO 900
+      N=NOSUBC
+      DO 1065 I1=1,NOSUBC
+        DO 299 I2=I1,NOSUBC
+          IF (I2.LE.I1) THEN
+            I=I1
+          ELSE
+            N=N+1
+            I=N
+          ENDIF
+          DO 1063 NK=1,6
+  286     CIJK(I,NK)=0.D0
+ 1063     CONTINUE
+          FK0=DABS(FLL(I1)-FLL(I2))-2.D0
+          KMIN=FK0+2.D0
+          NOK=(FLL(I1)+FLL(I2)-FK0)/2.D0
+          DO 1064 NK=1,NOK
+            FK0=FK0+2.D0
+  295     CIJK(I,NK)=CIJKF(FLL(I1),FLL(I2),FK0)
+ 1064     CONTINUE
+  297     WRITE (IW,29) KMIN,I1,LL(I1),I2,LL(I2),(CIJK(I,NK),NK=1,NOK)
+   29     FORMAT (6H KMIN=,I2,5X,1H(,I1,A1,6H//CK//,I1,A1,2H)=,
+     1      3X,6F15.8)
+  299 CONTINUE
+ 1065 CONTINUE
+C
+  900 RETURN
+      END
+C
+C     A. Kramida 2026
+      SUBROUTINE NLTCHK (CHNLT,LSH,NOCC,K,J,CLAB,NLTV)
+C
+C          DECODE AND VALIDATE THE PER-CONFIGURATION TERM CUTOFF FROM
+C          COLUMNS 83-85 OF A CONFIGURATION CARD.  RETURNS NLTV=0 IF THE
+C          FIELD IS BLANK (USE THE GLOBAL NLT11); OTHERWISE THE VALIDATED
+C          NUMBER OF LS TERMS TO KEEP FOR THE FIRST SUBSHELL.  ANYTHING
+C          THAT IS NOT USABLE STOPS THE RUN HERE, WHERE THE CARD IT CAME
+C          FROM CAN STILL BE NAMED.
+C
+C     WHY THE ALLOWED VALUES ARE A SHORT LIST AND NOT A RANGE.
+C
+C     The cut keeps the FIRST NLTV terms of the CFP deck.  Deck order is
+C     not energy order and is not the same from shell to shell, so a
+C     number chosen freely would keep an arbitrary set of parents.  What
+C     deck order does do, for some shells, is group the terms by
+C     multiplicity with the highest multiplicity first; there a prefix
+C     that ends on a block boundary is exactly "all terms of the highest
+C     multiplicities", which by Hund's rule is the set lying lowest, and
+C     that is the truncation the physics justifies.  Those boundaries are
+C     the table below.
+C
+C     For f**4, f**5 and f**11 the deck runs the other way, lowest
+C     multiplicity first, and for f**2, f**3 and f**12 it alternates; no
+C     prefix of those decks is a set of low terms -- for f**4 a prefix
+C     would throw the 5S..5I block, the ground terms, away.  Their entry
+C     is therefore the full term count alone, i.e. no cut is offered.
+C     The same reasoning is why only f shells are accepted at all: for
+C     anything smaller the truncation buys nothing, and d**5, to take the
+C     obvious trap, lists 6S last of its sixteen terms.
+C
+C     The table was read out of the CFP decks themselves (LSJJ/cowan_cfp.py,
+C     Deck.terms, which is in deck order) rather than typed from a
+C     reference, so it is what LOCDSK will actually hand back.
+C
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*3 CHNLT
+      CHARACTER*18 CLAB
+      DIMENSION NALL(4,11),NNAL(11)
+C          NNAL(M) VALUES ARE ALLOWED FOR F**(M+1); NNAL=1 MEANS NO CUT.
+      DATA NNAL /1,1,1,1,4,4,4,3,3,1,1/
+      DATA NALL /
+     1    7,  0,  0,  0,
+     2   17,  0,  0,  0,
+     3   47,  0,  0,  0,
+     4   73,  0,  0,  0,
+     5    1, 17, 73,119,
+     6    1,  7, 47,119,
+     7    1, 17, 73,119,
+     8    3, 27, 73,  0,
+     9    5, 27, 47,  0,
+     A   17,  0,  0,  0,
+     B    7,  0,  0,  0/
+C
+      NLTV=0
+      IF (CHNLT.EQ.' ') RETURN
+C
+      READ (CHNLT,10,IOSTAT=IOS) NLTV
+   10 FORMAT (I3)
+      IF (IOS.NE.0) THEN
+        WRITE (IW,20) K,J,CLAB,CHNLT
+        WRITE (6,20) K,J,CLAB,CHNLT
+   20   FORMAT (//' *****TERM CUTOFF ERROR, PARITY SET',I2,
+     1  ', CONFIGURATION',I4,' (',A18,'):'/
+     2  '      COLUMNS 83-85 HOLD "',A3,'", WHICH IS NOT AN INTEGER.'//)
+        STOP '(BAD TERM CUTOFF)'
+      ENDIF
+C
+      IF (NLTV.LT.1.OR.NLTV.GT.119) THEN
+        WRITE (IW,30) K,J,CLAB,NLTV
+        WRITE (6,30) K,J,CLAB,NLTV
+   30   FORMAT (//' *****TERM CUTOFF ERROR, PARITY SET',I2,
+     1  ', CONFIGURATION',I4,' (',A18,'):'/
+     2  '      COLUMNS 83-85 HOLD',I5,'.  THE CUTOFF MUST LIE IN',
+     3  ' 1..119.'/
+     4  '      LEAVE THE FIELD BLANK TO USE THE GLOBAL NLT11',
+     5  ' (COLUMNS 26-27 OF THE MAIN CARD).'//)
+        STOP '(BAD TERM CUTOFF)'
+      ENDIF
+C
+      IF (LSH.NE.3) THEN
+        WRITE (IW,40) K,J,CLAB,NLTV
+        WRITE (6,40) K,J,CLAB,NLTV
+   40   FORMAT (//' *****TERM CUTOFF ERROR, PARITY SET',I2,
+     1  ', CONFIGURATION',I4,' (',A18,'):'/
+     2  '      A CUTOFF OF',I5,' IS PUNCHED, BUT THE FIRST SUBSHELL',
+     3  ' IS NOT AN f SHELL.'/
+     4  '      THE CUTOFF IS MEANINGLESS FOR ANY OTHER SHELL AND IS',
+     5  ' NOT ACCEPTED.'//)
+        STOP '(BAD TERM CUTOFF)'
+      ENDIF
+C
+      IF (NOCC.LT.2.OR.NOCC.GT.12) THEN
+        WRITE (IW,50) K,J,CLAB,NLTV,NOCC
+        WRITE (6,50) K,J,CLAB,NLTV,NOCC
+   50   FORMAT (//' *****TERM CUTOFF ERROR, PARITY SET',I2,
+     1  ', CONFIGURATION',I4,' (',A18,'):'/
+     2  '      A CUTOFF OF',I5,' IS PUNCHED, BUT f**',I2,' HAS A',
+     3  ' SINGLE LS TERM.'/
+     4  '      THERE IS NOTHING TO CUT.  LEAVE THE FIELD BLANK.'//)
+        STOP '(BAD TERM CUTOFF)'
+      ENDIF
+C
+      M=NOCC-1
+      NA=NNAL(M)
+      DO 60 I=1,NA
+        IF (NLTV.EQ.NALL(I,M)) RETURN
+   60 CONTINUE
+C
+      IF (NA.EQ.1) THEN
+        WRITE (IW,70) K,J,CLAB,NLTV,NOCC,NALL(1,M)
+        WRITE (6,70) K,J,CLAB,NLTV,NOCC,NALL(1,M)
+   70   FORMAT (//' *****TERM CUTOFF ERROR, PARITY SET',I2,
+     1  ', CONFIGURATION',I4,' (',A18,'):'/
+     2  '      ',I4,' IS NOT AN ALLOWED CUTOFF FOR f**',I2,'.'/
+     3  '      THE CFP DECK FOR THIS SHELL IS NOT ORDERED BY',
+     4  ' DESCENDING MULTIPLICITY, SO NO'/
+     5  '      LEADING PART OF IT IS THE SET OF LOWEST TERMS AND NO',
+     6  ' TRUNCATION IS OFFERED.'/
+     7  '      THE ONLY ACCEPTED VALUE IS',I5,' (= NO CUT); OR LEAVE',
+     8  ' THE FIELD BLANK.'//)
+      ELSE
+        WRITE (IW,80) K,J,CLAB,NLTV,NOCC,(NALL(I,M),I=1,NA)
+        WRITE (6,80) K,J,CLAB,NLTV,NOCC,(NALL(I,M),I=1,NA)
+   80   FORMAT (//' *****TERM CUTOFF ERROR, PARITY SET',I2,
+     1  ', CONFIGURATION',I4,' (',A18,'):'/
+     2  '      ',I4,' IS NOT AN ALLOWED CUTOFF FOR f**',I2,'.'/
+     3  '      ALLOWED VALUES ARE:',4I5/
+     4  '      A CUTOFF MUST END ON A MULTIPLICITY-BLOCK BOUNDARY OF',
+     5  ' THE CFP DECK, SO THAT'/
+     6  '      THE TERMS KEPT ARE WHOLE BLOCKS OF THE HIGHEST',
+     7  ' MULTIPLICITIES -- BY HUND''S'/
+     8  '      RULE, THE PARENTS LYING LOWEST.  THE LAST VALUE IS THE',
+     9  ' FULL COUNT (= NO CUT).'//)
+      ENDIF
+      STOP '(BAD TERM CUTOFF)'
+      END
+C
+C     OVERLAY(G9,3,0)
+      SUBROUTINE PLEV
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+C     A. Kramida 2026: SORT2 fills its scratch table T with an INTEGER
+C     permutation, and the ORDER2/ORDERI calls below read it back.  The
+C     REAL*8 buffer PCI was being passed for that, a type mismatch that
+C     gfortran rejects without -fallow-argument-mismatch.  IPCI is an
+C     INTEGER alias for exactly the same storage, so the generated code
+C     is unchanged and the mismatch is gone.  PCI is not used in PLEV
+C     for anything else.
+      INTEGER IPCI(KISER)
+      pointer (PCI_PTR,IPCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/C3LC7/M,I,J,K,L,I1,J2,K1,L8,J1
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/SORTDUM/DUM(2),IDUM(2)
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+      CHARACTER*4 IBLANK,IALF
+      DATA IBLANK/'    '/
+C
+C     NOTE--IF EQUIV OF CFP2 AND CFGP2 CHANGED,
+C           MAKE CORRESPONDING CHANGE IN PRK CODE, STATEMENT 540 TO 569
+C
+C     KS=8
+C     KJP=600
+C     KLSC=210
+C     KJK=300
+      NTOTTJ(1)=0
+      NDIFFT=0
+      SUMX=0.D0
+      SJ8MN=1000.D0
+      SJ8MX=0.D0
+      SJ8MX1=0.D0
+      DO 1066 I=1,KS
+        NALSJP(1,I)=0
+        NOTSJ1(I,1)=0
+        NTOTJJ(I,1)=0
+   50 NDIFFJ(I)=0
+ 1066 CONTINUE
+C
+      NOTSX=0
+      JX=NSCONF(2,KK)
+c       Dimension check added by Alex K 10/28/02
+      IF (JX.GE.KNT)
+     1  STOP ' PLEV ERROR 1: INSUFFICIENT NTOTTJ DIMENSION'
+c       END ALEX K 10/28/02
+      DO 229 J1=1,JX
+        LL(NOSUBC)=LLIJK(NOSUBC,J1,KK)
+        FLL(NOSUBC)=FLLIJK(NOSUBC,J1,KK)
+        DO 79 I=1,KS
+          NOTS=NOTSJ1(I,J1)
+C             READ TERMS FROM DISK 12
+          NI(I)=NIJK(I,J1,KK)
+          NN=NI(I)
+          NFULL=4.D0*FLL(I)+2.D0
+          IF (NN.LE.1.OR.NN.GE.NFULL-1) THEN
+            NOT=1
+            NLT=1
+            NLASTT(I)=NLT
+            NOT1=NOTS+1
+            NOTS=NOTS+NLT
+            MULT(NOT1,I)=1
+            LBCD(NOT1,I)=LSYMB(1)
+            IALF(NOT1,I)=IBLANK
+            FL(NOT1,I)=0.D0
+            S(NOT1,I)=0.D0
+            IF (NN.NE.0.AND.NN.NE.NFULL) THEN
+              MULT(NOT1,I)=2
+              LBCD(NOT1,I)=LL(I)
+              IALF(NOT1,I)=IBLANK
+              FL(NOT1,I)=FLL(I)
+              S(NOT1,I)=0.5D0
+            ENDIF
+          ELSE
+   70       CALL LOCDSK(ID2,FLL(I),NI(I))
+C     A. Kramida 2026: the term cutoff for the first subshell.  This is
+C     the site that matters: LOCDSK has set NLT from the CFP deck but
+C     the READ below has not happened yet, so cutting NLT here really
+C     does shrink the basis rather than merely hide terms.  NLTCF(J1,KK)
+C     is this configuration's own value from columns 83-85 of its card,
+C     applied with no exemption; a blank field (0) falls back to the
+C     global NLT11 with Cowan's exemption of the last configuration of
+C     each parity, so an old deck is untouched.  See the matching block
+C     in LNCUV, which trims the printed term table the same way.  The
+C     value is validated in NLTCHK, so by the time it gets here it is a
+C     multiplicity-block boundary of an f shell and the retained terms
+C     are a complete set of the highest multiplicities.
+            NLTX=NLTCF(J1,KK)
+            IF (NLTX.EQ.0) THEN
+              NLTX=9999
+              IF (J1.LT.JX.OR.JX.EQ.1) NLTX=NLT11
+            ENDIF
+            IF (I.EQ.1) NLT=MIN0(NLT,NLTX)
+            NLASTT(I)=NLT
+            NOT1=NOTS+1
+            NOTS=NOTS+NLT
+            READ (ID2) (MULT(M,I),LBCD(M,I),IALF(M,I),FL(M,I),S(M,I),
+     1        M=NOT1,NOTS)
+          ENDIF
+   78     NOTSJ1(I,J1+1)=NOTS
+          NOTSX=MAX0(NOTS,NOTSX)
+   79   CONTINUE
+C
+C          CALC PRELIMINARY LS TERMS
+C
+        M=NTOTTJ(J1)
+        N1=NOTSJ1(1,J1)+1
+        N2=NOTSJ1(2,J1)+1
+        N3=NOTSJ1(3,J1)+1
+        N4=NOTSJ1(4,J1)+1
+        N5=NOTSJ1(5,J1)+1
+        N6=NOTSJ1(6,J1)+1
+        N7=NOTSJ1(7,J1)+1
+        N8=NOTSJ1(8,J1)+1
+        N11=NOTSJ1(1,J1+1)
+        N22=NOTSJ1(2,J1+1)
+        N33=NOTSJ1(3,J1+1)
+        N44=NOTSJ1(4,J1+1)
+        N55=NOTSJ1(5,J1+1)
+        N66=NOTSJ1(6,J1+1)
+        N77=NOTSJ1(7,J1+1)
+        N88=NOTSJ1(8,J1+1)
+        DO 1073 I=N1,N11
+          DO 1072 J=N2,N22
+          DO 1071 K=N3,N33
+          DO 1070 L=N4,N44
+          DO 1069 I1=N5,N55
+          DO 1068 J2=N6,N66
+          DO 1067 K1=N7,N77
+          DO 120 L8=N8,N88
+C
+C          15-FOLD DO LOOP (101 LINES) MOVED TO SUBROUTINE PLEVDOLP
+C
+            CALL PLEVDOLP
+C
+  120   CONTINUE
+ 1067     CONTINUE
+ 1068     CONTINUE
+ 1069     CONTINUE
+ 1070     CONTINUE
+ 1071     CONTINUE
+ 1072     CONTINUE
+ 1073   CONTINUE
+        NOTOTT=M
+        L=NTOTTJ(J1)+1
+        NTOTTJ(J1+1)=M
+        IF (IPLEV.GT.0) THEN
+  121     WRITE (IW,12)
+   12     FORMAT (9H1LS TERMS)
+          DO 1074 M=L,NOTOTT
+  122     WRITE (IW,13) NCFGP(M),PC(M),
+     1      (NALSP(M,I),PSCRS(M,I),PSCRL(M,I), I=1,NOSUBC)
+ 1074     CONTINUE
+   13     FORMAT (1H ,I5,F10.5,8(I3,F5.1,F3.0))
+        ENDIF
+C
+C          SORT ON DECREASING   25*SCRS4+SCRL4
+C
+  125   M1=NTOTTJ(J1+1)-NTOTTJ(J1)
+        IF (M1.LE.1) GO TO 129
+        M1check = 2*M1
+c        if (M1check.GT.KISER) then
+c          write (6,1251) M1check,KISER
+c 1251     FORMAT(' Dimension required for sorting =',I8,'; KISER =',I8)
+c          STOP ' KISER DIMENSION EXCEEDED.'
+        if (M1.GT.ISER_size) then
+          new_size=2*ISER_size
+          CALL RALLOC(PCI_PTR,ISER_size,new_size,8)
+          CALL RALLOC(ISER_PTR,ISER_size,new_size,4)
+          ISER_size=new_size
+        endif
+c        if (M1check.GT.KLAM) then
+c          write (6,1252) M1check,KLAM
+c 1252     FORMAT(' Dimension required for sorting =',I8,'; KLAM =',I8)
+c          STOP ' KLAM DIMENSION EXCEEDED.'
+c        endif
+        CALL SORT2(M1,11,PC(L),IPCI,NALSP(L,1),PSCRS(L,1),NALSP(L,2),
+     1     NALSP(L,3),PSCRL(L,1),PSCRS(L,2),PSCRL(L,2),PSCRS(L,3),
+     2     PSCRL(L,3),PSCRS(L,4),PSCRL(L,4),DUM)
+        CALL ORDERI(M1,IPCI,NALSP(L,4))
+        IF (NOSUBC.LE.4) GO TO 129
+        IF (NOSUBC.LT.7) GO TO 127
+        CALL ORDER2(M1,IPCI,PSCRL(L,8))
+        CALL ORDER2(M1,IPCI,PSCRS(L,8))
+        CALL ORDERI(M1,IPCI,NALSP(L,8))
+        CALL ORDER2(M1,IPCI,PSCRL(L,7))
+        CALL ORDER2(M1,IPCI,PSCRS(L,7))
+        CALL ORDERI(M1,IPCI,NALSP(L,7))
+  127   CALL ORDER2(M1,IPCI,PSCRL(L,6))
+        CALL ORDER2(M1,IPCI,PSCRS(L,6))
+        CALL ORDERI(M1,IPCI,NALSP(L,6))
+        CALL ORDER2(M1,IPCI,PSCRL(L,5))
+        CALL ORDER2(M1,IPCI,PSCRS(L,5))
+        CALL ORDERI(M1,IPCI,NALSP(L,5))
+C
+  129   IF (IPLEV.GT.0) THEN
+  130     WRITE (IW,14)
+   14     FORMAT (///18H0LS TERMS (SORTED)/)
+          DO 1075 M=L,NOTOTT
+  131     WRITE (IW,13) NCFGP(M),PC(M),
+     1      (NALSP(M,I),PSCRS(M,I),PSCRL(M,I), I=1,NOSUBC)
+ 1075     CONTINUE
+          WRITE (IW,15)
+   15     FORMAT (1H1)
+        ENDIF
+C
+C         CALC NO. OF TERMS OF EACH KIND
+C
+  135   K=NDIFFT
+        N2=100000
+  140   DO 143 M=L,NOTOTT
+          N1=N2
+          N2=50.D0*PSCRS(M,NOSUBC)+PSCRL(M,NOSUBC)
+          IF ((N2-N1).LT.0) GO TO 142
+          IF ((N2-N1).GT.0) GO TO 1411
+  141     NTRMK(K)=NTRMK(K)+1
+          GO TO 143
+ 1411     IF (NOTOTT.GT.KLSC) THEN
+            WRITE (6,1142) NOTOTT,KLSC
+ 1142       FORMAT(' NUMBER OF TERMS =',I5,'; KLSC =',I5)
+            STOP ' KLSC DIMENSION EXCEEDED.'
+          ENDIF
+          STOP ' FAILED TO SORT DIFFERENT LS TERMS IN PLEVDOLP.'
+  142     K=K+1
+          NTRMK(K)=1
+          SJ8MN=DMIN1(SJ8MN,DABS(PSCRS(M,NOSUBC)-PSCRL(M,NOSUBC)))
+          SJ8MX=DMAX1(SJ8MX,PSCRS(M,NOSUBC)+PSCRL(M,NOSUBC))
+          SJ8MX1=DMAX1(SJ8MX1,PSCRS(M,NOSUBC)+PSCRL(M,NOSUBC))
+  143   CONTINUE
+        NDIFFT=K
+  150   IF (SJ8MN.EQ.SJ8MX) GO TO 170
+        IF (SJ8MN.GE.SJN) GO TO 160
+        SJ8MN=SJ8MN+1.D0
+        GO TO 150
+  160   IF (SJ8MX.LE.SJX) GO TO 170
+        SJ8MX=SJ8MX-1.D0
+        GO TO 160
+  170   NSCRJ8=SJ8MX-SJ8MN+1.D0
+C
+C          CALC PRELIMINARY LEVELS FOR EACH SUBSHELL
+C
+  200   IF (NOLSKP.NE.0) GO TO 229
+        SUM=0.D0
+        DO 1080 I=1,NOSUBC
+          M=NTOTJJ(I,J1)
+          N1=NOTSJ1(I,J1)+1
+          N11=NOTSJ1(I,J1+1)
+          DO 1077 J=N1,N11
+            EJI=DABS(FL(J,I)-S(J,I))-1.D0
+            NJI=FL(J,I)+S(J,I)-EJI
+            DO 1076 IJ=1,NJI
+              M=M+1
+              EJI=EJI+1.D0
+              NALSJP(M,I)=J
+              A=DFLOAT(J)
+              NCFGJP(M,I)=J1
+              PC(M)=-200.D0*EJI-25.D0*S(J,I)-FL(J,I)+0.008403361D0*A
+  205     PJ(M,I)=EJI
+ 1076       CONTINUE
+ 1077     CONTINUE
+c          write (*,*) 'PLEV1: M,KPC=',M,KPC
+          NOTOTJ(I)=M
+          NTOTJJ(I,J1+1)=M
+          L=NTOTJJ(I,J1)+1
+          IF ((IPLEV).LE.0) GO TO 215
+  206     WRITE (IW,20) I
+   20     FORMAT (/20H0LEVELS OF SUBSHELL ,I1)
+          DO 1078 N=L,M
+            J=NALSJP(N,I)
+  211     WRITE (IW,21)  NCFGJP(N,I),NALSJP(N,I),MULT(J,I),LBCD(J,I),
+     1      PJ(N,I)
+ 1078     CONTINUE
+   21     FORMAT (I13,I4,I5,A1,F5.1)
+C
+C            SORT ON DECREASING PJ
+C
+  215     M1=NTOTJJ(I,J1+1)-NTOTJJ(I,J1)
+          CALL SORT2(M1,2,PC(L),IPCI,NALSJP(L,I),PJ(L,I),IDUM,IDUM,DUM,
+     1      DUM,DUM,DUM,DUM,DUM,DUM,DUM)
+C
+          IF ((IPLEV).LE.0) GO TO 218
+  216     WRITE (IW,22) I
+   22     FORMAT (/20H0LEVELS OF SUBSHELL ,I1,9H (SORTED))
+          DO 1079 N=L,M
+            J=NALSJP(N,I)
+  217     WRITE (IW,21)  NCFGJP(N,I),NALSJP(N,I),MULT(J,I),LBCD(J,I),
+     1      PJ(N,I)
+ 1079     CONTINUE
+C
+C             CALC NO. OF LEVELS OF EACH PJ
+C
+  218     K=NDIFFJ(I)+1
+          NJK(K,I)=1
+          L=L+1
+          IF (M.GE.L) THEN
+            DO J=L,M
+              IF (PJ(J,I).EQ.PJ(J-1,I)) THEN
+                NJK(K,I)=NJK(K,I)+1
+              ELSE
+                K=K+1
+                NJK(K,I)=1
+              ENDIF
+            ENDDO
+          ENDIF
+          NDIFFJ(I)=K
+  225   SUM=SUM+PJ(L-1,I)
+ 1080   CONTINUE
+        IF (SUM.GT.SUMX) SUMX=SUM
+  229 CONTINUE
+c      write (*,*) 'PLEV2: ,KPC=',M,KPC
+C
+      IF (SUMX.EQ.SJ8MX1) GO TO 256
+      WRITE (IW,23) SJ8MX1,SUMX
+   23 FORMAT (///15H0MAXIMUM SCRJ8=,F5.1,10H  FROM LS ,
+     1  10HCALC, AND=,F5.1, 14H  FROM JJ CALC
+     2  /52H   (LS.LT.JJ IS OK IF J VALUES HAVE BEEN RESTRICTED)
+     3  /52H    (JJ.EQ.0 IS OK IF LS TERMS HAVE BEEN RESTRICTED))
+  256 DO 270 I=1,KS
+        IF (I.LE.NOSUBC.AND.NOLSKP.EQ.0) GO TO 270
+        DO 1081 J=1,JX
+          IF (I.LE.NOSUBC) GO TO 258
+          NOTSJ1(I,J+1)=J
+  258     NTOTJJ(I,J)=J
+          NOTOTJ(I)=J
+          NDIFFJ(I)=J
+          NJK(J,I)=1
+          NALSJP(J,I)=J
+  260   PJ(J,I)=0.D0
+ 1081   CONTINUE
+  270 CONTINUE
+C
+  300 IERROR=0
+      MAXM=0
+      MAXK=0
+      DO 1083 I=1,KS
+        MAXM=MAX0(MAXM,NOTOTJ(I))
+  310 MAXK=MAX0(MAXK,NDIFFJ(I))
+ 1083 CONTINUE
+      IF (NOTOTT.GT.KLSC.OR.NDIFFT.GT.KLSC) IERROR=7
+      IF (MAXM.GT.KJP.OR.MAXK.GT.KJK) IERROR=7
+      IF (NOTSX.GT.KLS2) IERROR=7
+      WRITE (IW,30) KK,KLSC,NOTOTT,KLSC,NDIFFT,KJP,(NOTOTJ(I),I=1,KS),
+     1  KJK,(NDIFFJ(I),I=1,KS),KLS2,NOTSX
+   30 FORMAT (///25H MAXIMUM SUBSCRIPT VALUES,', PARITY NUMBER',I2//
+     1  32H NALSP(M,I), PSCRL(M,I),   KLSC=,I5,15H   M=NOTOTT=   ,I5/
+     2  17H NTRMK(K), LF(K),, 10X,5HKLSC=,I5,15H   K=NDIFFT=   ,I5/
+     3  32H NALSJP(M,I), PJ(M,I),     KJP= ,I5,15H   M=NOTOTJ(I)=,8I5/
+     4  10H NJK(K,I),,17X,5HKJK= ,I5,3X,12HK=NDIFFJ(I)=,8I5/
+     5  16H FL(M,I),S(M,I),,11X,5HKLS2=,I5,14H   MMAX=NOTSX=,I6)
+      JX=JX+1
+      WRITE (IW,31) (NTOTTJ(J), J=1,JX)
+   31 FORMAT (/8H0NTOTTJ=,20I6/(8X,20I6))
+      WRITE (IW,32) (NTRMK(K), K=1,NDIFFT)
+   32 FORMAT (/8H0 NTRMK=,20I6/(8X,20I6))
+      IF (IERROR.EQ.0) GO TO 400
+      WRITE (IW,33)
+   33 FORMAT (//25H***** DIMENSIONS EXCEEDED)
+      STOP '(PLEV 33)'
+  400 RETURN
+      END
+C
+      SUBROUTINE PLEVDOLP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/C3LC7/M,I,J,K,L,I1,J2,K1,L8,J1
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C     A. Kramida 2026: IBLANK was implicitly INTEGER and initialised from a
+C     Hollerith constant.  It is not referenced anywhere else in this
+C     routine, so the declaration below merely gives the DATA
+C     statement a matching type; no generated code changes.
+      CHARACTER*4 IBLANK
+      DATA IBLANK/'    '/
+C
+C     NOTE--IF EQUIV OF CFP2 AND CFGP2 CHANGED,
+C           MAKE CORRESPONDING CHANGE IN PRK CODE, STATEMENT 540 TO 569
+C
+C     KS=8
+C     KJP=600
+C     KLSC=210
+C     KJK=300
+      ES2=DABS(S(I,1)-S(J,2))-1.D0
+      NS2=S(I,1)+S(J,2)-ES2
+      DO 1097 IS2=1,NS2
+      ES2=ES2+1.D0
+      EL2=DABS(FL(I,1)-FL(J,2))-1.D0
+      NL2=FL(I,1)+FL(J,2)-EL2
+      DO 1096 IL2=1,NL2
+      EL2=EL2+1.D0
+      ES3=DABS(ES2-S(K,3))-1.D0
+      NS3=ES2+S(K,3)-ES3
+      DO 1095 IS3=1,NS3
+      ES3=ES3+1.D0
+      EL3=DABS(EL2-FL(K,3))-1.D0
+      NL3=EL2+FL(K,3)-EL3
+      DO 1094 IL3=1,NL3
+      EL3=EL3+1.D0
+      ES4=DABS(ES3-S(L,4))-1.D0
+      NS4=ES3+S(L,4)-ES4
+      DO 1093 IS4=1,NS4
+      ES4=ES4+1.D0
+      EL4=DABS(EL3-FL(L,4))-1.D0
+      NL4=EL3+FL(L,4)-EL4
+      DO 1092 IL4=1,NL4
+      EL4=EL4+1.D0
+      ES5=DABS(ES4-S(I1,5))-1.D0
+      NS5=ES4+S(I1,5)-ES5
+      DO 1091 IS5=1,NS5
+      ES5=ES5+1.D0
+      EL5=DABS(EL4-FL(I1,5))-1.D0
+      NL5=EL4+FL(I1,5)-EL5
+      DO 1090 IL5=1,NL5
+      EL5=EL5+1.D0
+      ES6=DABS(ES5-S(J2,6))-1.D0
+      NS6=ES5+S(J2,6)-ES6
+      DO 1089 IS6=1,NS6
+      ES6=ES6+1.D0
+      EL6=DABS(EL5-FL(J2,6))-1.D0
+      NL6=EL5+FL(J2,6)-EL6
+      DO 1088 IL6=1,NL6
+      EL6=EL6+1.D0
+      ES7=DABS(ES6-S(K1,7))-1.D0
+      NS7=ES6+S(K1,7)-ES7
+      DO 1087 IS7=1,NS7
+      ES7=ES7+1.D0
+      EL7=DABS(EL6-FL(K1,7))-1.D0
+      NL7=EL6+FL(K1,7)-EL7
+C
+      SK1MIN=1.0D28
+      SK1MAX=-1.0D28
+      SK2MIN=1.0D28
+      SK2MAX=-1.0D28
+      SK3MIN=1.0D28
+      SK3MAX=-1.0D28
+C
+      DO 1086 IL7=1,NL7
+      EL7=EL7+1.D0
+      ES8=DABS(ES7-S(L8,8))-1.D0
+      NS8=ES7+S(L8,8)-ES8
+      DO 1085 IS8=1,NS8
+      ES8=ES8+1.D0
+      EL8=DABS(EL7-FL(L8,8))-1.D0
+      NL8=EL7+FL(L8,8)-EL8
+      DO 110 IL8=1,NL8
+      EL8=EL8+1.D0
+      IF (DABS(EL8-ES8).GT.SJX) GO TO 110
+      IF (EL8+ES8.LT.SJN) GO TO 110
+      IF (NOLSKP.LE.0) GO TO 100
+      IF (J1.LT.NCLSKP(KK)) GO TO 100
+      DO 95 II=1,NOLSKP
+      IF (EL8.EQ.SCRLKP(II,KK).AND.ES8.EQ.SCRSKP(II,KK)) GO TO 100
+   95 CONTINUE
+      GO TO 110
+  100 M=M+1
+      GO TO (108,107,106,105,104,103,102,101) NOSUBC
+  101 NALSP(M,8)=L8
+      PSCRS(M,8)=ES8
+      PSCRL(M,8)=EL8
+  102 NALSP(M,7)=K1
+      PSCRS(M,7)=ES7
+      PSCRL(M,7)=EL7
+  103 NALSP(M,6)=J2
+      PSCRS(M,6)=ES6
+      PSCRL(M,6)=EL6
+  104 NALSP(M,5)=I1
+      PSCRS(M,5)=ES5
+      PSCRL(M,5)=EL5
+  105 NALSP(M,4)=L
+      PSCRS(M,4)=ES4
+      PSCRL(M,4)=EL4
+  106 NALSP(M,3)=K
+      PSCRS(M,3)=ES3
+      PSCRL(M,3)=EL3
+  107 NALSP(M,2)=J
+      PSCRS(M,2)=ES2
+      PSCRL(M,2)=EL2
+  108 NALSP(M,1)=I
+      PSCRS(M,1)=S(I,1)
+      PSCRL(M,1)=FL(I,1)
+      NCFGP(M)=J1
+c     write(IW,1081) M, NCFGP(M)
+c1081 format(3H M=, I3, 6H NCFG=, I3)
+      A=0.D0
+C      PROD=1.D0
+      PROD=0.5
+      ERAS=0.0084033613D0
+      DO 1084 II=1,NOSUBC
+        B=DFLOAT(NALSP(M,II))
+        A=A+PROD*B
+C       IF (II.GT.4) ERAS=0.1D0
+  109 PROD=PROD*ERAS
+ 1084 CONTINUE
+C     PC(M)=-(25.D0*PSCRS(M,NOSUBC)+PSCRL(M,NOSUBC))+ERAS*A
+      SK1=ERAS*A
+      if (SK1.LT.SK1MIN) SK1MIN=SK1
+      if (SK1.GT.SK1MAX) SK1MAX=SK1
+c      SK2=PSCRL(M,NOSUBC)
+      SK2=PSCRL(M,NOSUBC)+1
+      if (SK2.LT.SK2MIN) SK2MIN=SK2
+      if (SK2.GT.SK2MAX) SK2MAX=SK2
+c      SK3=50.D0*PSCRS(M,NOSUBC)
+      SK3=200.D0*(PSCRS(M,NOSUBC)+1)
+      if (SK3.LT.SK3MIN) SK3MIN=SK3
+      if (SK3.GT.SK3MAX) SK3MAX=SK3
+      PC(M)=-(SK3+SK2)+SK1
+  110 CONTINUE
+ 1085 CONTINUE
+ 1086 CONTINUE
+ 1087 CONTINUE
+ 1088 CONTINUE
+ 1089 CONTINUE
+ 1090 CONTINUE
+ 1091 CONTINUE
+ 1092 CONTINUE
+ 1093 CONTINUE
+ 1094 CONTINUE
+ 1095 CONTINUE
+ 1096 CONTINUE
+ 1097 CONTINUE
+      if (SK2MAX.GE.SK3MIN.OR.SK2MIN+SK3MIN.LE.SK1MAX) then
+        write(IW,1082) SK1MIN,SK1MAX,SK2MIN,SK2MAX,SK3MIN,SK3MAX
+        write(6,*) ' WARNING: INSUFFICIENT RANGE OF TERM SORTING KEY!'
+      endif
+1082  format(39H INSUFFICIENT TERM SORTING KEY: SK1MIN=, E15.5,
+     +  8H SK!MAX=, E15.5,
+     +  8H SK2MIN=, E15.5, 8H SK2MAX=, E15.5,
+     +  8H SK3MIN=, E15.5, 8H SK3MAX=, E15.5)
+      RETURN
+      END
+C     OVERLAY(G9,4,0)
+      SUBROUTINE PFGD
+C
+C          CALC PRELIMINARY SINGLE-CONFIGURATION MATRIX ELEMENTS
+C
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+      DIMENSION VFG(20,15)
+      CHARACTER IDFG(15)*11
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,AA,COUPL
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+C
+      CHARACTER*8 ABG(3),ZE(8)
+c      DATA (ABG(I),I=1,3) /'1000 ALP','BETA    ','GAMMA   '/
+      DATA (ABG(I),I=1,3) /'ALPHA   ','BETA    ','GAMMA   '/
+      DATA (ZE(I),I=1,8) /'ZETA 1','ZETA 2','ZETA 3','ZETA 4',
+     1  'ZETA 5','ZETA 6','ZETA 7','ZETA 8'/
+C
+C
+C      KS=8
+c      write (*,*) 'Starting PFGD...'
+      J1X=NSCONF(2,KK)
+c       Dimension check added by Alex K 10/28/02
+      IF (J1X.GE.KNT)
+     1  STOP ' PFGD ERROR 1: INSUFFICIENT NTOTTJ DIMENSION'
+      IF (KC.GT.KMX) THEN
+        STOP ' PFGD ERROR 0: DIMENSION KC CANNOT BE GREATER THAN KMX'
+      ENDIF
+c       END ALEX K 10/28/02
+      LX=NTOTTJ(J1X+1)
+      DO L=1,LX
+        MULS1(L)=2.D0*PSCRS(L,1)+1.D0
+        MULS4(L)=2.D0*PSCRS(L,NOSUBC)+1.D0
+        I=PSCRL(L,1)+1.D0
+        LHS1(L)=LSYMB(I)
+        I=PSCRL(L,NOSUBC)+1.D0
+        LHS4(L)=LSYMB(I)
+      ENDDO
+C
+      NPAR=0
+      NFG=0
+      NPARJO=0
+      REWIND 20
+C
+c      write (*,*) 'PFGD starting cycle 499...'
+      DO 499 J1=1,J1X
+        LL(NOSUBC)=LLIJK(NOSUBC,J1,KK)
+        FLL(NOSUBC)=FLLIJK(NOSUBC,J1,KK)
+        NPAR=NPAR+1
+c         Dimension check added by Alex K 10/28/02
+        IF (NPAR.GT.KPR)
+     1    STOP ' PFGD ERROR 2: INSUFFICIENT KPR DIMENSION'
+c       END ALEX K 10/28/02
+        PARNAM(NPAR,KK)=PARNAM(1,1)
+        DO I=1,KS
+          NI(I)=NIJK(I,J1,KK)
+        ENDDO
+C
+C            OBTAIN FK(I,I) FROM DISK 14 AND TERMS OF LI(NI) FROM DISK 12
+C
+c        write (*,*) 'starting cycle 199, J1=',J1
+  100   DO 199 I=1,NOSUBC
+          IF (NI(I).LE.1) GO TO 199
+          N=4.D0*FLL(I)
+          IF (NI(I).GT.N) GO TO 199
+          CALL LOCDSK(ID2,FLL(I),NI(I))
+          READ (ID2) (MULSI(M),LBCDI(M),IA,A,A, M=1,NLT)
+          CALL LOCDSK(ID4,FLL(I),NI(I))
+          IF (NSCONF(1,KK).GT.1) GO TO 115
+          IF (SJN.GT.0.D0.OR.SJX.LT.99.D0) GO TO 115
+          READ (ID4)
+          GO TO 170
+C
+  115     READ (ID4) NDIFFI,(NTI(K),K=1,NDIFFI)
+C
+C              FIND CORRELATION BETWEEN TERMS OF CONF J1 AND TERMS OF LI(NI)
+C
+          NOPC=0
+          MX=0
+          DO 169 K=1,NDIFFT
+            MN=MX+1
+            MX=MX+NTRMK(K)
+            IF (MX.LE.NTOTTJ(J1)) GO TO 169
+            IF (MX.GT.NTOTTJ(J1+1)) GO TO 170
+            DO 159 M=MN,MX
+              J=NALSP(M,I)
+              NPI0=0
+              MXI=0
+              DO 1098 K1=1,NDIFFI
+                MNI=MXI+1
+                MXI=MXI+NTI(K1)
+                IF (MULT(J,I).EQ.MULSI(MNI)) THEN
+                  IF (LBCD(J,I).EQ.LBCDI(MNI)) GO TO 130
+                ENDIF
+  125         NPI0=NPI0+(NTI(K1)*(NTI(K1)+1))/2
+ 1098         CONTINUE
+  130         DO 149 MP=MN,M
+                JP=NALSP(MP,I)
+                NOPC=NOPC+1
+c                 Alex K 10/28/02: Check dimension of PC and ISER
+c                IF (NOPC.GT.KPC) then
+                IF (NOPC.GT.i_PC_size) then
+                  int4max=2147483647-1
+                  if (i_PC_size.eq.int4max) then
+                    STOP 'PFGD FATAL ERROR: PC size reached int4 limit'
+                  else
+                    i_old_size=i_PC_size
+C     A. Kramida 2026: 2*i_PC_size overflows INTEGER*4 once the size
+C     passes int4max/2, making new_size negative.  Saturate instead.
+                    new_size=int4max
+                    if (i_PC_size.lt.int4max/2) new_size=2*i_PC_size
+                    CALL RALLOC(PC_PTR,i_old_size,new_size,8)
+                    i_PC_size=new_size
+                  endif
+                endif
+c                IF (NOPC.GT.KISER) then
+                IF (NOPC.GT.ISER_size) then
+                  int4max=2147483647-1
+                  if (ISER_size.eq.int4max) then
+                    STOP 'PFGD FATAL ERROR: PCI size reached int4 limit'
+                  else
+                    i_old_size=ISER_size
+                    new_size=int4max
+                    if (ISER_size.lt.int4max/2) new_size=2*ISER_size
+                    CALL RALLOC(ISER_PTR,i_old_size,new_size,4)
+                    CALL RALLOC(PCI_PTR,i_old_size,new_size,8)
+                    ISER_size=new_size
+                  endif
+                endif
+c                 END ALEX K 10/28/02
+                PC(NOPC)=0.D0
+                ISER(NOPC)=-7
+                IF (MULT(J,I).NE.MULT(JP,I)) GO TO 149
+                IF (LBCD(J,I).NE.LBCD(JP,I)) GO TO 149
+                DO 133 L=1,NOSUBC
+                  IF (PSCRL(M,L).NE.PSCRL(MP,L)) GO TO 149
+                  IF (PSCRS(M,L).NE.PSCRS(MP,L)) GO TO 149
+                  IF (L.NE.I) THEN
+                    IF (NALSP(M,L).NE.NALSP(MP,L)) GO TO 149
+                  ENDIF
+  133           CONTINUE
+                NPI=NPI0
+                DO 139 MI=MNI,MXI
+                  DO 135 MPI=MNI,MI
+                    NPI=NPI+1
+                    IF (J-NOTSJ1(I,J1).NE.MI) GO TO 135
+                    IF (JP-NOTSJ1(I,J1).NE.MPI) GO TO 135
+                    ISER(NOPC)=NPI
+                    GO TO 149
+  135             CONTINUE
+  139           CONTINUE
+  149         CONTINUE
+  159       CONTINUE
+  169     CONTINUE
+c          write (*,*) 'PFGD: NOPC,KPC=',NOPC,KPC
+C
+C              WRITE PC ON DISK 20
+C
+  170     NPARI=NORCD-2
+          IF (IABG.EQ.0) NPARI=FLL(I)
+          DO 198 N=1,NPARI
+            IF (NSCONF(1,KK).LE.1.AND.SJN.LE.0.D0.AND.SJX.GE.99.D0) THEN
+              READ (ID4) KPAR,K,AA,CAVE,NOPC, (PC(J),J=1,NOPC)
+              IF (KPAR.EQ.1) GO TO 198
+              GO TO 185
+            ENDIF
+  175       READ (ID4) KPAR,K,AA,CAVE,NPI, (PCI(J),J=1,NPI)
+            IF (KPAR.EQ.1) GO TO 198
+            DO 180 J=1,NOPC
+              IF (ISER(J).GT.0) THEN
+                L=ISER(J)
+                PC(J)=PCI(L)
+              ENDIF
+  180       CONTINUE
+C
+  185       NPAR=NPAR+1
+            NFG=NFG+1
+            IF (K.EQ.0) THEN
+              IF ((IABG).LE.0) GO TO 198
+              GO TO 188
+            ENDIF
+  186       WRITE (AA,14) K,I,I
+   14       FORMAT (1HF,I1,1H(,2I1,3H)  )
+  188       PARNAM(NPAR,KK)=AA
+            WRITE (20) NPAR,KPAR,K,I,I,AA,CAVE,J1,NOPC,
+     1        (PC(N1), N1=1,NOPC)
+c
+            IF (ICPC.GT.1 .AND. ICPC.NE.3) THEN
+              WRITE (IW,16) AA,CAVE
+   16         FORMAT (1H2,A10,5X,5HCAVE=,F12.7//)
+              NOPC=0
+              LFG=0
+              MX=0
+              DO 191 L=1,NDIFFT
+                MN=MX+1
+                MX=MX+NTRMK(L)
+                IF (MX.GT.NTOTTJ(J1)) THEN
+                  IF (MX.GT.NTOTTJ(J1+1)) GO TO 197
+                  DO 190 M=MN,MX
+                    J=NALSP(M,I)
+                    N2=NOPC+1
+                    NOPC=N2+M-MN
+                    WRITE (IW,17) NCFGP(J),NOPC,MULT(J,I),LBCD(J,I),
+     1                MULS4(M),LHS4(M), (PC(N1), N1=N2,NOPC)
+   17               FORMAT (2I5,5H    (,I1,A1,1H),I4,A1,
+     1                10F10.5/(25X, 10F10.5))
+                    IF (ICPC.GE.5) THEN
+                      LFG=LFG+1
+                      VFG(LFG,NFG)=PC(NOPC)
+                      WRITE (IDFG(NFG),19)
+     1                  K,I,LLIJK(I,1,1),I,LLIJK(I,1,1)
+   19                 FORMAT (1HF,I1,1H(,I2,A1,1H,,I2,A1,1H))
+                    ENDIF
+  190             CONTINUE
+                ENDIF
+  191         CONTINUE
+c              IF (NOPC.GT.KISER) THEN     ! ZZZ
+c                WRITE (6,4501) NOPC,KISER
+c 4501           FORMAT(6H NOPC=,I10,11H     KISER=,I10)
+c                STOP '***** KISER DIMENSION ERROR *****'
+c              ENDIF
+            ENDIF
+c
+  197       IF (ICPC.NE.0) THEN
+              CALL CLOCK(TIME)
+              DELT=TIME-TIME0
+              WRITE (IW,18) AA,NOPC,CAVE,DELT, (LL(L),NI(L), L=1,NOSUBC)
+   18         FORMAT (/1H ,A10,5X,3HPC(,I5,1H),5X,5HCAVE=,F12.7,
+     1          17X,5HDELT=,F6.3,4H MIN,7X, 8(A1,I2,3X))
+            ENDIF
+  198     CONTINUE
+  199   CONTINUE
+c        write (*,*) 'finished cycle 199, J1=',J1
+C
+C            OBTAIN ZETA(I) FROM DISK 14
+C
+  200   DO 299 I=1,NOSUBC
+          IF (NI(I).LE.0) GO TO 299
+          IF (FLL(I).LE.0.D0) GO TO 299
+          NN=4.D0*FLL(I)+2.D0
+          IF (NI(I).GE.NN) GO TO 299
+          IF (NI(I).LE.1.OR.NI(I).GE.NN-1) THEN
+            NORCD=2
+            M=1
+            NTI(1)=1
+            N1=2
+            NALSJI(1)=1
+            NALSJI(2)=1
+            PJI(1)=FLL(I)+0.5D0
+            PJI(2)=FLL(I)-0.5D0
+            NDIFJI=2
+            NTI(1)=1
+            NTI(2)=1
+            GO TO 220
+          ENDIF
+  205     CALL LOCDSK(ID4,FLL(I),NI(I))
+          IF (NSCONF(1,KK).LE.1) THEN
+            READ (ID4)
+            GO TO 270
+          ENDIF
+C
+  215     READ (ID4) M,(NTI(K),K=1,M), N1,(NALSJI(K),PJI(K),K=1,N1),
+     2      NDIFJI,(NTI(K),K=1,NDIFJI)
+C
+C              FIND CORREL. BETWEEN LEVELS IN CONF J1 AND LEVELS OF LI(NI)
+C
+  220     NOPC=0
+          MX=0
+          KX=NDIFFJ(I)
+          DO 269 K=1,KX
+            MN=MX+1
+            MX=MX+NJK(K,I)
+            IF (MX.LE.NTOTJJ(I,J1)) GO TO 269
+            IF (MX.GT.NTOTJJ(I,J1+1)) GO TO 270
+            DO 259 M=MN,MX
+              J=NALSJP(M,I)-NOTSJ1(I,J1)
+              NPI0=0
+              MXI=0
+              DO 1099 KI=1,NDIFJI
+                MNI=MXI+1
+                MXI=MXI+NTI(KI)
+                IF (PJ(M,I).EQ.PJI(MNI)) GO TO 230
+  225         NPI0=NPI0+(NTI(KI)*(NTI(KI)+1))/2
+ 1099         CONTINUE
+  230         DO 249 MP=MN,M
+                JP=NALSJP(MP,I)-NOTSJ1(I,J1)
+                NOPC=NOPC+1
+                PC(NOPC)=0.D0
+                ISER(NOPC)=-7
+                IF (PJ(M,I).NE.PJ(MP,I)) GO TO 249
+                NPI=NPI0
+                DO 239 MI=MNI,MXI
+                  DO 235 MPI=MNI,MI
+                    NPI=NPI+1
+                    IF (J.NE.NALSJI(MI)) GO TO 235
+                    IF (JP.NE.NALSJI(MPI)) GO TO 235
+                    ISER(NOPC)=NPI
+                    GO TO 249
+  235             CONTINUE
+  239           CONTINUE
+  249         CONTINUE
+  259       CONTINUE
+  269     CONTINUE
+C
+C              WRITE PC ON DISK 20
+C
+  270     NPARI=NORCD-1
+          DO 289 N=1,NPARI
+            IF (NI(I).GT.1.AND.NI(I).LT.NN-1) GO TO 271
+            A=-0.5D0
+            IF (NI(I).EQ.1) A=0.5D0
+            ERAS1=A*FLL(I)
+            ERAS2=-A*(FLL(I)+1.D0)
+            KPAR=1
+            K=0
+            CAVE=0.D0
+            IF (NSCONF(1,KK).LE.1) THEN
+              PC(1)=ERAS1
+              PC(2)=ERAS2
+              GO TO 285
+            ENDIF
+ 1270       PCI(1)=ERAS1
+            PCI(2)=ERAS2
+            GO TO 277
+  271       IF (N.NE.NPARI) THEN
+              READ (ID4)
+              GO TO 289
+            ENDIF
+  272       IF (NSCONF(1,KK).LE.1) THEN
+              READ (ID4) KPAR,K,AA,CAVE,NOPC, (PC(J),J=1,NOPC)
+              GO TO 285
+            ENDIF
+  275       READ (ID4) KPAR,K,AA,CAVE,NPI, (PCI(J),J=1,NPI)
+  277       DO 280 J=1,NOPC
+              IF (ISER(J).GT.0) THEN
+                L=ISER(J)
+                PC(J)=PCI(L)
+              ENDIF
+  280       CONTINUE
+  285       NPAR=NPAR+1
+            AA=ZE(I)
+            PARNAM(NPAR,KK)=AA
+            WRITE (20) NPAR,KPAR,K,I,I,AA,CAVE,J1,NOPC,
+     1        (PC(N1), N1=1,NOPC)
+            IF (ICPC.LE.1.OR.ICPC.EQ.3) GO TO 288
+            WRITE (IW,16) AA,CAVE
+            NOPC=0
+            MX=0
+            KX=NDIFFJ(I)
+            DO 287 K=1,KX
+              MN=MX+1
+              MX=MX+NJK(K,I)
+              IF (MX.LE.NTOTJJ(I,J1)) GO TO 287
+              IF (MX.GT.NTOTJJ(I,J1+1)) GO TO 288
+              DO 1100 M=MN,MX
+                J=NALSJP(M,I)
+                N2=NOPC+1
+                NOPC=N2+M-MN
+  286         WRITE (IW,28) NCFGJP(M,I),NOPC,MULT(J,I),LBCD(J,I),
+     1          PJ(M,I),(PC(N1),N1=N2,NOPC)
+ 1100         CONTINUE
+   28         FORMAT (3I5,A1,F4.1,10F11.6/(22X,10F11.6))
+  287       CONTINUE
+  288       IF (ICPC.NE.0) THEN
+              CALL CLOCK(TIME)
+              DELT=TIME-TIME0
+              WRITE (IW,18) AA,NOPC,CAVE,DELT, (LL(L),NI(L), L=1,NOSUBC)
+            ENDIF
+  289     CONTINUE
+  299   CONTINUE
+c        write (*,*) 'finished cycle 299, J1=',J1
+C
+C            CALC FK(I,J)
+C
+        NOSCM1=NOSUBC-1
+        IF (NOSCM1.LE.0) GO TO 498
+        IRHO=0
+C             READ   U,V FROM DISK 13
+c        write (*,*) 'starting cycle 7304, J1=',J1
+        DO 7304 I=1,NOSUBC
+          IF (NI(I).LE.1) GO TO 7304
+          N=4.D0*FLL(I)+2.D0
+          IF (NI(I).EQ.N) GO TO 7304
+          CALL LOCDSK(ID3,FLL(I),NI(I))
+          NOR=NORCD/2
+          DO 303 K=1,NOR
+            GO TO (1303,2303,3303,4303,5303,6303), I
+ 1303       READ (ID3) N, ((U1(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            GO TO 303
+ 2303       READ (ID3) N, ((U2(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            GO TO 303
+ 3303       READ (ID3) N, ((U3(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            GO TO 303
+ 4303       READ (ID3) N, ((U4(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            IF (NLT.GT.KLSU) GO TO 3031
+            GO TO 303
+ 5303       READ (ID3) N, ((U5(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            IF (NLT.GT.KLSU) GO TO 3031
+            GO TO 303
+ 6303       READ (ID3) N, ((U6(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            IF (NLT.GT.KLSU) GO TO 3031
+  303     CONTINUE
+          GO TO 3032
+ 3031     WRITE (6,3033) KLSU, NLT
+ 3033     FORMAT (' KLSU=',I5,' NLT=',I5)
+          STOP '( KLSU DIMENSION ERROR)'   ! ZZZ
+ 3032     DO 304 K=1,NOR
+            GO TO (1304,2304,3304,4304,5304,6304), I
+ 1304       READ (ID3) N, ((V1(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            GO TO 304
+ 2304       READ (ID3) N, ((V2(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            GO TO 304
+ 3304       READ (ID3) N, ((V3(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            GO TO 304
+ 4304       READ (ID3) N, ((V4(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            IF (NLT.GT.KLSU) GO TO 3031
+            GO TO 304
+ 5304       READ (ID3) N, ((V5(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            IF (NLT.GT.KLSU) GO TO 3031
+            GO TO 304
+ 6304       READ (ID3) N, ((V6(II,JJ,K),II=1,NLT),JJ=1,NLT)
+            IF (NLT.GT.KLSU) GO TO 3031
+  304     CONTINUE
+ 7304   CONTINUE
+c        write (*,*) 'finished cycle 7304, J1=',J1
+C
+        DO 399 I=1,NOSCM1
+          NII=NI(I)
+          IF ((NI(I)).LE.0) GO TO 399
+  306     IF ((FLL(I)).LE.0) GO TO 399
+  307     N=4.D0*FLL(I)+2.D0
+          IF ((NI(I)-N).GE.0) GO TO 399
+  308     I1=I+1
+          DO 389 J=I1,NOSUBC
+            NIJ=NI(J)
+            IF ((NI(J)).LE.0) GO TO 389
+  310       IF ((FLL(J)).LE.0) GO TO 389
+  311       N=4.D0*FLL(J)+2.D0
+            IF ((NI(J)-N).GE.0) GO TO 389
+  312       IF ((FLL(I)-FLL(J)).GE.0) GO TO 314
+  313       KMAX=2.D0*FLL(I)
+            GO TO 315
+  314       KMAX=2.D0*FLL(J)
+  315       DO 385 K=1,KMAX
+              IF (IABG.NE.2.AND.IABG.NE.4.AND.MOD(K,2).NE.0) GO TO 385
+              IF (ICPC.LE.1.OR.ICPC.EQ.3) GO TO 320
+              WRITE (IW,31)
+   31         FORMAT (1H2)
+              WRITE (IW,32) K,I,J
+   32         FORMAT (2H F,I1,1H(,I1,1H,,I1,1H)//)
+  320         FK=K
+              CIJ=CIJKF(FLL(I),FLL(I),FK)*CIJKF(FLL(J),FLL(J),FK)
+              IF (MOD(K,2).NE.0) CIJ=1.D0
+C
+  330         NOPC=0
+              NFG=NFG+1
+              LFG=0
+              MMAX=0
+              DO 383 L=1,NDIFFT
+                MMIN=MMAX+1
+                MMAX=MMAX+NTRMK(L)
+                IF (NCFGP(MMAX).NE.J1) GO TO 383
+                NOTSI=NOTSJ1(I,J1)
+                NOTSJ=NOTSJ1(J,J1)
+                DO 382 M=MMIN,MMAX
+                  JI=NALSP(M,I)
+                  JJ=NALSP(M,J)
+                  KI=JI-NOTSI
+                  KJ=JJ-NOTSJ
+                  DO 381 MP=MMIN,M
+                    JPI=NALSP(MP,I)
+                    JPJ=NALSP(MP,J)
+                    KPI=JPI-NOTSI
+                    KPJ=JPJ-NOTSJ
+                    NOPC=NOPC+1
+                    PC(NOPC)=0.D0
+                    DO 341 IP=1,NOSUBC
+                      IF ((PSCRS(M,IP)-PSCRS(MP,IP)).NE.0) GO TO 381
+  331                 IF ((IP-I).LT.0) GO TO 339
+                      IF ((IP-I).GT.0) GO TO 335
+  332                 IF ((S(JI,I)-S(JPI,I)).NE.0) GO TO 381
+                      GO TO 341
+  335                 IF ((IP-J).LT.0) GO TO 340
+                      IF ((IP-J).GT.0) GO TO 339
+  336                 IF ((PSCRL(M,IP)-PSCRL(MP,IP)).NE.0) GO TO 381
+  337                 IF ((S(JJ,J)-S(JPJ,J)).NE.0) GO TO 381
+                      GO TO 341
+  339                 IF ((PSCRL(M,IP)-PSCRL(MP,IP)).NE.0) GO TO 381
+  340                 IF ((NALSP(M,IP)-NALSP(MP,IP)).NE.0) GO TO 381
+  341               CONTINUE
+                    DO 1101 IP=1,NOSUBC
+                      II=NALSP(M,IP)
+                      TL(1,IP)=FL(II,IP)
+                      TS(1,IP)=S(II,IP)
+                      TSCL(1,IP)=PSCRL(M,IP)
+  350               TSCS(1,IP)=PSCRS(M,IP)
+ 1101               CONTINUE
+                    DO 1102 IP=1,NOSUBC
+                      II=NALSP(MP,IP)
+                      TL(2,IP)=FL(II,IP)
+                      TS(2,IP)=S(II,IP)
+                      TSCL(2,IP)=PSCRL(MP,IP)
+ 3501               TSCS(2,IP)=PSCRS(MP,IP)
+ 1102               CONTINUE
+                    TK=FK
+c                   if (npar.eq.10.and.nopc.eq.204) then
+c                     tk=tk
+c                   endif
+                    CALL RDIJ(I,J)
+C
+                    PC(NOPC)=A*CIJ
+  381             CONTINUE
+                  IF (ICPC.LE.1.OR.ICPC.EQ.3) GO TO 382
+                  N2=NOPC-M+MMIN
+                  WRITE (IW,17) NCFGP(M),NOPC,MULS1(M),LHS1(M),MULS4(M),
+     1              LHS4(M), (PC(N1), N1=N2,NOPC)
+                  IF (ICPC.LT.5) GO TO 382
+                  LFG=LFG+1
+                  VFG(LFG,NFG)=PC(NOPC)
+                  WRITE (IDFG(NFG),19) K,I,LLIJK(I,1,1),J,LLIJK(J,1,1)
+  382           CONTINUE
+  383         CONTINUE
+              NPAR=NPAR+1
+              KPAR=-1
+              CAVE=0.D0
+              WRITE (AA,14) K,I,J
+              PARNAM(NPAR,KK)=AA
+              WRITE (20) NPAR,KPAR,K,I,J,AA,CAVE,J1,NOPC,
+     1          (PC(N1), N1=1,NOPC)
+              IF (ICPC.EQ.0) GO TO 385
+              CALL CLOCK(TIME)
+              DELT=TIME-TIME0
+              WRITE (IW,18) AA,NOPC,CAVE,DELT, (LL(L),NI(L), L=1,NOSUBC)
+  385       CONTINUE
+  389     CONTINUE
+  399   CONTINUE
+c        write (*,*) 'finished cycle 399, J1=',J1
+C
+C            CALC GK(I,J)
+C
+  400   DO 497 I=1,NOSCM1
+          NII=NI(I)
+          IF ((NI(I)).LE.0) GO TO 497
+  401     N=4.D0*FLL(I)+2.D0
+          IF ((NI(I)-N).GE.0) GO TO 497
+  403     I1=I+1
+          DO 489 J=I1,NOSUBC
+            NIJ=NI(J)
+            IF ((NI(J)).LE.0) GO TO 489
+  405       N=4.D0*FLL(J)+2.D0
+            IF ((NI(J)-N).GE.0) GO TO 489
+  406       KMAX=FLL(I)+FLL(J)
+            KMIN=DABS(FLL(I)-FLL(J))
+            KDMIN=0
+            IRP1MX=KMAX-KMIN+1
+            MN=I+1
+            MX=J-1
+            DO 485 K=KMIN,KMAX
+              IF (IABG.NE.2.AND.IABG.NE.4.AND.MOD(K-KMIN,2).NE.0)
+     1          GO TO 485
+              FK=K
+              CIJ=(CIJKF(FLL(I),FLL(J),FK))**2
+              A=NI(I)*NI(J)
+              CAVE=A*S3J0SQ(FLL(I),FK,FLL(J))/2.D0
+              LPL=FLL(I)+FLL(J)+FK
+              IF (MOD(LPL,2).EQ.0) GO TO 407
+              CIJ=0.5D0*((-1.D0)**K)
+              CAVE=-CIJ*A/((2.D0*FLL(I)+1.D0)*(2.D0*FLL(J)+1.D0))
+              CIJ=2.D0*CIJ
+  407         IF (ICPC.LE.1.OR.ICPC.EQ.3) GO TO 410
+              WRITE (IW,31)
+              WRITE (IW,40) K,I,J,CAVE
+   40         FORMAT (2H G,I1,1H(,I1,1H,,I1,1H),6X,5HCAVE=,F12.7//)
+C
+  410         NOPC=0
+              NFG=NFG+1
+              LFG=0
+              MMAX=0
+              DO 483 L=1,NDIFFT
+                MMIN=MMAX+1
+                MMAX=MMAX+NTRMK(L)
+                IF (NCFGP(MMAX).NE.J1) GO TO 483
+                NOTSI=NOTSJ1(I,J1)
+                NOTSJ=NOTSJ1(J,J1)
+                DO 482 M=MMIN,MMAX
+                  JI=NALSP(M,I)
+                  JJ=NALSP(M,J)
+                  KI=JI-NOTSI
+                  KJ=JJ-NOTSJ
+                  DO 481 MP=MMIN,M
+                    JPI=NALSP(MP,I)
+                    JPJ=NALSP(MP,J)
+                    KPI=JPI-NOTSI
+                    KPJ=JPJ-NOTSJ
+                    NOPC=NOPC+1
+                    PC(NOPC)=0.D0
+                    DO 417 IP=1,NOSUBC
+                      IF ((IP-I).LT.0) GO TO 414
+                      IF ((IP-I).EQ.0) GO TO 417
+                      GO TO 413
+  412                 IF ((NALSP(M,IP)-NALSP(MP,IP)).NE.0) GO TO 481
+                      GO TO 417
+  413                 IF ((IP-J).LT.0) GO TO 412
+                      IF ((IP-J).EQ.0) GO TO 415
+  414                 IF ((NALSP(M,IP)-NALSP(MP,IP)).NE.0) GO TO 481
+  415                 IF ((PSCRL(M,IP)-PSCRL(MP,IP)).NE.0) GO TO 481
+  416                 IF ((PSCRS(M,IP)-PSCRS(MP,IP)).NE.0) GO TO 481
+  417               CONTINUE
+C
+                    DO 1103 III=1,2
+                      MM=M
+                      IF (III.EQ.2) MM=MP
+                      DO 450 IP=1,NOSUBC
+                        II=NALSP(MM,IP)
+                        TL(III,IP)=FL(II,IP)
+                        TS(III,IP)=S(II,IP)
+                        TSCL(III,IP)=PSCRL(MM,IP)
+                        TSCS(III,IP)=PSCRS(MM,IP)
+  450               CONTINUE
+ 1103               CONTINUE
+                    FLLRHO=FLL(I)
+                    FLLRHOP=FLL(I)
+                    FLLSIG=FLL(J)
+                    FLLSIGP=FLL(J)
+                    TK=FK
+                    CALL REIJ(I,J)
+C
+                    PC(NOPC)=CIJ*RSUM
+                    IF (M.NE.MP) GO TO 481
+                    PC(NOPC)=PC(NOPC)+CAVE
+  481             CONTINUE
+C
+                  IF (ICPC.LE.1.OR.ICPC.EQ.3) GO TO 482
+                  N2=NOPC-M+MMIN
+                  WRITE (IW,17) NCFGP(M),NOPC,MULS1(M),LHS1(M),MULS4(M),
+     1              LHS4(M), (PC(N1), N1=N2,NOPC)
+                  IF (ICPC.LT.5) GO TO 482
+                  LFG=LFG+1
+                  VFG(LFG,NFG)=PC(NOPC)
+                  WRITE (IDFG(NFG),47) K,I,LLIJK(I,1,1),J,LLIJK(J,1,1)
+   47             FORMAT (1HG,I1,1H(,I2,A1,1H,,I2,A1,1H))
+  482           CONTINUE
+  483         CONTINUE
+              NPAR=NPAR+1
+              KPAR=0
+              WRITE (AA,48) K,I,J
+   48         FORMAT (1HG,I1,1H(,2I1,3H)  )
+              PARNAM(NPAR,KK)=AA
+              WRITE (20) NPAR,KPAR,K,I,J,AA,CAVE,J1,NOPC,
+     1          (PC(N1), N1=1,NOPC)
+              IF (ICPC.EQ.0) GO TO 485
+              CALL CLOCK(TIME)
+              DELT=TIME-TIME0
+              WRITE (IW,18) AA,NOPC,CAVE,DELT, (LL(L),NI(L), L=1,NOSUBC)
+  485       CONTINUE
+  489     CONTINUE
+  497   CONTINUE
+c        write (*,*) 'finished cycle 497, J1=',J1
+C
+  498   NPARJ(J1,J1)=NPAR-NPARJO
+        NPARJO=NPAR
+  499 CONTINUE
+c      write (*,*) 'PFGD done cycle 499'
+      IF (ICPC.LT.5) GO TO 900
+C
+C          WRITE RCN INPUT COEFFICIENTS FOR LS-DEPENDENT HF CALCNS.
+C
+      DO 1104 K=1,LFG
+        M1=2.D0*PSCRS(K,1)+1.D0
+        L1=PSCRL(K,1)
+        L1=LSYMB(L1+1)
+        M=2.D0*PSCRS(K,NOSUBC)+1.D0
+        L=PSCRL(K,NOSUBC)
+        L=LSYMB(L+1)
+  510 WRITE (11,51) LLIJK(1,1,1),NIJK(1,1,1),M1,L1,LLIJK(2,1,1),
+     1  M,L,NFG,(VFG(K,J),IDFG(J),J=1,NFG)
+ 1104 CONTINUE
+   51 FORMAT (A1,I1,1H(,I1,A1,1H),A1,I2,A1,I5,5X,3(F9.5,A11)/
+     1  (4(F9.5,A11)))
+      WRITE (11,28)
+C
+c  900 write (*,*) 'Finished PFGD'
+  900 RETURN
+      END
+      SUBROUTINE RDIJ(I,J)
+C
+C          CALCULATE RD(I,J)
+C
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+      N=TK+1.D0
+      A=ZERO
+      DO 200 II=I,J
+      IF (TS(1,II).NE.TS(2,II)) GO TO 399
+      IF (TSCS(1,II).NE.TSCS(2,II)) GO TO 399
+  200 CONTINUE
+  300 IXX=TL(1,J)+TSCL(2,J-1)+TSCL(1,J)
+      A=(-ONE)**IXX
+      A=A*S6J(TSCL(1,J-1),TSCL(2,J-1),TK, TL(2,J),TL(1,J),TSCL(1,J))
+      MN=I+1
+      MX=J-1
+      IF ((MN-MX).GT.0) GO TO 352
+  350 DO 1105 M1=MN,MX
+  351 A=A*UNCPLA(TSCL(1,M1-1),TL(1,M1),TSCL(1,M1),
+     1    TK,TSCL(2,M1-1),TSCL(2,M1))
+ 1105 CONTINUE
+  352 IF ((I-1).LE.0) GO TO 366
+  355 A=A*UNCPLB(TSCL(1,I-1),TL(1,I),TSCL(1,I), TK,TL(2,I),TSCL(2,I))
+  366 IF (NII.EQ.1) GO TO 380
+      IF (IRHO.NE.0) GO TO 371
+      GO  TO (371,372,373,374,375,376) I
+  371 A=A*U1(KI,KPI,N)
+      GO TO 380
+  372 A=A*U2(KI,KPI,N)
+      GO TO 380
+  373 A=A*U3(KI,KPI,N)
+      GO TO 380
+  374 A=A*U4(KI,KPI,N)
+      GO TO 380
+  375 A=A*U5(KI,KPI,N)
+      GO TO 380
+  376 A=A*U6(KI,KPI,N)
+  380 IF (NIJ.EQ.1) GO TO 399
+      IF (IRHO.NE.0) GO TO 381
+      GO TO (381,382,383,384,385,386) J
+  381 A=A*U1(KJ,KPJ,N)
+      GO TO 399
+  382 A=A*U2(KJ,KPJ,N)
+      GO TO 399
+  383 A=A*U3(KJ,KPJ,N)
+      GO TO 399
+  384 A=A*U4(KJ,KPJ,N)
+      GO TO 399
+  385 A=A*U5(KJ,KPJ,N)
+      GO TO 399
+  386 A=A*U6(KJ,KPJ,N)
+  399 CONTINUE
+C
+      RETURN
+      END
+      SUBROUTINE REIJ(I,J)
+C
+C          CALCULATE RE(I,J)
+C
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+      DATA SQRT3H/1.224744871D0/
+C
+  400 IXX=TL(1,J)+TSCL(2,J-1)+TSCL(1,J)
+      AR=(-ONE)**IXX
+      IXX=TS(1,J)+TSCS(2,J-1)+TSCS(1,J)
+      A1R=(-ONE)**IXX
+      A1R=A1R*S6J(TSCS(1,J-1),TS(1,J),TSCS(1,J),TS(2,J),TSCS(2,J-1),
+     1  ONE)
+      MN=I+1
+      MX=J-1
+      IF ((MN-MX).GT.0) GO TO 422
+  420 DO 1106 M1=MN,MX
+      IXX=TSCL(1,M1-1)+TL(1,M1)+TSCL(2,M1)
+      IF (MOD(IXX,2).GT.0) AR=-AR
+      AR=AR*DSQRT((2.D0*TSCL(1,M1)+1.D0)*(2.D0*TSCL(2,M1)+1.D0))
+  421 A1R=A1R*UNCPLA(TSCS(1,M1-1),TS(1,M1),TSCS(1,M1),
+     1      ONE,TSCS(2,M1-1),TSCS(2,M1))
+ 1106 CONTINUE
+  422 IF ((I-1).LE.0) GO TO 430
+  425 IXX=TSCL(1,I-1)+TSCL(1,I)+TL(2,I)
+      IF (MOD(IXX,2).GT.0) AR=-AR
+      AR=AR*DSQRT((2.D0*TSCL(1,I)+1.D0)*(2.D0*TSCL(2,I)+1.D0))
+      A1R=A1R*UNCPLB(TSCS(1,I-1),TS(1,I),TSCS(1,I),
+     1      ONE,TS(2,I),TSCS(2,I))
+  430 A1R=A1R*AR
+      DO 431 M1=I,MX
+      IF ((TSCS(1,M1)-TSCS(2,M1)).NE.0) GO TO 433
+  431 CONTINUE
+      IF ((TS(1,I)-TS(2,I)).NE.0) GO TO 433
+  432 IF ((TS(1,J)-TS(2,J)).EQ.0) GO TO 440
+  433 AR=ZERO
+C
+  440 RSUM=ZERO
+      R=KDMIN-1
+      DO 469 IRP1=1,IRP1MX
+      R=R+1.D0
+      N=R+1.D0
+      PR=S6J(TSCL(1,J-1),TSCL(2,J-1),R, TL(2,J),TL(1,J),TSCL(1,J))
+      P1R=4.0D0
+      IF ((MN-MX).GT.0) GO TO 445
+  443 DO 1107 M1=MN,MX
+      IF (DMOD(R,TWO).GT.ZERO) PR=-PR
+  444 PR=PR*S6J(TSCL(1,M1-1),TSCL(2,M1-1),R,
+     1    TSCL(2,M1),TSCL(1,M1),TL(1,M1))
+ 1107 CONTINUE
+  445 IF (I.LE.1) GO TO 447
+      IF (DMOD(R,TWO).GT.ZERO) PR=-PR
+      PR=PR*S6J(TL(1,I),TL(2,I),R,
+     1          TSCL(2,I),TSCL(1,I),TSCL(1,I-1))
+  447 P1R=P1R*PR*A1R
+      PR=PR*AR
+      IF (NII.GT.1) GO TO 450
+      P1R=P1R*SQRT3H
+      GO TO 459
+  450 IF (IRHO.NE.0) GO TO 451
+      GO TO(451,452,453,454,455,456) I
+  451 PR=PR*U1(KI,KPI,N)
+      P1R=P1R*V1(KI,KPI,N)
+      GO TO 459
+  452 PR=PR*U2(KI,KPI,N)
+      P1R=P1R*V2(KI,KPI,N)
+      GO TO 459
+  453 PR=PR*U3(KI,KPI,N)
+      P1R=P1R*V3(KI,KPI,N)
+      GO TO 459
+  454 PR=PR*U4(KI,KPI,N)
+      P1R=P1R*V4(KI,KPI,N)
+      GO TO 459
+  455 PR=PR*U5(KI,KPI,N)
+      P1R=P1R*V5(KI,KPI,N)
+      GO TO 459
+  456 PR=PR*U6(KI,KPI,N)
+      P1R=P1R*V6(KI,KPI,N)
+  459 IF (NIJ.GT.1) GO TO 460
+      P1R=P1R*SQRT3H
+      GO TO 468
+  460 IF (IRHO.NE.0) GO TO 461
+      GO TO (461,462,463,464,465,466) J
+  461 PR=PR*U1(KJ,KPJ,N)
+      P1R=P1R*V1(KJ,KPJ,N)
+      GO TO 468
+  462 PR=PR*U2(KJ,KPJ,N)
+      P1R=P1R*V2(KJ,KPJ,N)
+      GO TO 468
+  463 PR=PR*U3(KJ,KPJ,N)
+      P1R=P1R*V3(KJ,KPJ,N)
+      GO TO 468
+  464 PR=PR*U4(KJ,KPJ,N)
+      P1R=P1R*V4(KJ,KPJ,N)
+      GO TO 468
+  465 PR=PR*U5(KJ,KPJ,N)
+      P1R=P1R*V5(KJ,KPJ,N)
+      GO TO 468
+  466 PR=PR*U6(KJ,KPJ,N)
+      P1R=P1R*V6(KJ,KPJ,N)
+  468 B=(2.D0*R+1.D0)*S6J(FLLRHO,FLLRHOP,R, FLLSIG,FLLSIGP,TK)
+      IF (DMOD(R,TWO).GT.ZERO) B=-B
+      RSUM=RSUM+B*(PR+P1R)
+  469 CONTINUE
+      RSUM=-0.5D0*RSUM
+C
+      RETURN
+      END
+C     OVERLAY(G9,5,0)
+      SUBROUTINE PRK
+C
+C          CALC PRELIMINARY CONFIGURATION-INTERACTION MATRIX ELEMENTS
+C
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+C     A. Kramida 2026: INTEGER alias for the REAL*8 scratch buffer PC,
+C     used only to hand SORT2 its permutation table T with the right
+C     type.  IPC(2*K-1) is the same address as PC(K).
+      INTEGER IPC(2*KPC)
+      pointer (PC_PTR,IPC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+C     A. Kramida 2026: CC used to be declared CC(KCC,8), but it is
+C     reallocated at run time (label 755 below), and a compiled-in
+C     leading dimension cannot follow that.  It is now stored flat,
+C     element (row,col) being CC(row+(col-1)*i_CC_size).
+      DIMENSION CC(KCC*8)
+      integer*8 CC_PTR
+      pointer (CC_PTR,CC)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/SORTDUM/DUM(2),IDUM(2)
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,AA,COUPL
+      CHARACTER*4 LSYMB
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      INTEGER*1 J1A1,J1B1
+      DIMENSION CFP1(KLS1,KLS1),NOPCCC(KLC1)
+      pointer (CFGP1_PTR,CFP1)
+      integer*8 NOPCCC_PTR
+      pointer (NOPCCC_PTR,NOPCCC)
+      DIMENSION INTEST(20000)
+C
+      NCCX=KLC1
+      CALL ALLOC(NOPCCC_PTR,NCCX,4)
+      i_CC_size=KCC
+      CALL ALLOC(CC_PTR,i_CC_size*8,8)
+C
+C     KS=8
+C     KCC=2500
+C     KLC1=78**2-(17**2)*9
+C     KPC=20000
+C     NKTOTX=LOCF(CCC(1))-LOCF(CIJR(1))
+C          NKTOTX=DIMENSION OF CIJR AND CCC
+      NKTOTX=8
+c      NPCX=KPC
+C
+      NPARJO=NPAR
+      J1X=NSCONF(2,KK)
+      IF (J1X.LE.1) GO TO 900
+      DO I=1,80
+        INTEST(I)=0
+      ENDDO
+      IF (NSCONF(3,KK).NE.0) GO TO 500
+      READ (IR,50) (INTEST(I),I=1,80)
+   50 FORMAT (80I1)
+C
+C
+C
+C
+C          CALCULATE RK(I,J)
+C
+  500 J1XM1=J1X-1
+      NOCCX=0
+      JTEST=0
+      DO 1123 J1A=1,J1XM1
+      J1AP1=J1A+1
+      DO 799 J1B=J1AP1,J1X
+      JTEST=JTEST+1
+      NPARJ(J1A,J1B)=0
+      IF (NSCONF(3,KK).EQ.0.AND.INTEST(JTEST).EQ.0) GO TO 799
+      IF (NSCONF(3,KK).GT.0.AND.J1B.GT.J1A+NSCONF(3,KK)) GO TO 799
+      IF (NSCONF(3,KK).EQ.-9.AND.(J1A.EQ.1.OR.J1B.EQ.J1A+1)) GO TO 501
+      IF (NSCONF(3,KK).EQ.-9) GO TO 799
+      IF (NSCONF(3,KK).EQ.-8) GO TO 501
+      IF (NSCONF(3,KK).LT.0.AND.J1A.GT.MAX0(-NSCONF(3,KK),IPCT))
+     1  GO TO 799
+  501 DO 1122 IRHO=1,NOSUBC
+      IRS(1)=IRHO
+      DO 1121 ISIG=IRHO,NOSUBC
+      IRS(2)=ISIG
+      DO 798 IRHOP=1,NOSUBC
+      IRS(3)=IRHOP
+      DO 797 ISIGP=IRHOP,NOSUBC
+      IRS(4)=ISIGP
+      FLLSIG=FLLIJK(ISIG,J1A,KK)     ! L quantum number of subshell Isig of config J1A
+      FLLSIGP=FLLIJK(ISIGP,J1B,KK)
+C              CHECK WHETHER IRHO...ISIGP IS A POSSIBLE SET OF ELECTRONS
+      IF (ISIG.EQ.NOSUBC.OR.ISIGP.EQ.NOSUBC) GO TO 1501
+      IF (NIJK(NOSUBC,J1A,KK).EQ.1.AND.NIJK(NOSUBC,J1B,KK).EQ.1.AND.
+     1  FLLIJK(NOSUBC,J1A,KK).NE.FLLIJK(NOSUBC,J1B,KK)) GO TO 797
+ 1501 IF (IRHO.NE.IRHOP.OR.ISIG.NE.ISIGP) GO TO 503
+      NN=0
+c     DO 502 I=ISIG,NOSUBC
+c 502 NN=NN+NIJK(I,J1A,KK)+NIJK(I,J1B,KK)
+      DO I=ISIG,NOSUBC
+        NN=NN+NIJK(I,J1A,KK)+NIJK(I,J1B,KK)
+      END DO
+      IF (NN.GT.2) GO TO 797
+c 503 DO 504 I=1,NOSUBC
+c     NIJKP(I,1)=NIJK(I,J1A,KK)     ! Occupation number of subshell I in config J1A
+c 504 NIJKP(I,2)=NIJK(I,J1B,KK)     ! Occupation number of subshell I in config J1B
+  503 DO I=1,NOSUBC
+        NIJKP(I,1)=NIJK(I,J1A,KK)     ! Occupation number of subshell I in config J1A
+        NIJKP(I,2)=NIJK(I,J1B,KK)     ! Occupation number of subshell I in config J1B
+      END DO
+      NIJKP(IRHO,1)=NIJKP(IRHO,1)-1
+      NIJKP(ISIG,1)=NIJKP(ISIG,1)-1
+      NIJKP(IRHOP,2)=NIJKP(IRHOP,2)-1
+      NIJKP(ISIGP,2)=NIJKP(ISIGP,2)-1
+c     DO 505 I=1,NOSUBC
+c     IF (NIJKP(I,1).NE.NIJKP(I,2)) GO TO 797
+c 505 IF (NIJKP(I,1).LT.0) GO TO 797
+      DO I=1,NOSUBC
+        IF (NIJKP(I,1).NE.NIJKP(I,2)) GO TO 797
+        IF (NIJKP(I,1).LT.0) GO TO 797
+      END DO
+C
+      KDMIN=DMAX1(DABS(FLL(IRHO)-FLL(IRHOP)),DABS(FLLSIG-FLLSIGP))
+      KDMAX=DMIN1(DABS(FLL(IRHO)+FLL(IRHOP)),DABS(FLLSIG+FLLSIGP))
+      NKD=(KDMAX-KDMIN)/2+1
+      KEMIN=DMAX1(DABS(FLL(IRHO)-FLLSIGP),DABS(FLLSIG-FLL(IRHOP)))
+      NKE=NKD
+      IF (IRHO.EQ.ISIG.OR.IRHOP.EQ.ISIGP) NKE=0
+      IF (NKD.LE.0) GO TO 797
+      IRP1MX=KDMAX-KDMIN+1
+      NKTOT=NKD+NKE
+      IF (NKTOT.LE.NKTOTX) GO TO 506
+      WRITE (IW,51) NKTOT,NKTOTX
+   51 FORMAT (///12H0*****NKTOT=,I5,29H IS GREATER THAN DIM OF CIJR=,I5,
+     1  6H *****///)
+      STOP '(PRK 51)'
+  506 FK=KDMIN-2
+c     DO 507 NN=1,NKD
+c     FK=FK+2.D0
+c 507 CIJR(NN)=CIJKF(FLL(IRHO),FLL(IRHOP),FK)
+c    1  *CIJKF(FLLSIG,FLLSIGP,FK)
+      DO NN=1,NKD
+        FK=FK+2.D0
+        CIJR(NN)=CIJKF(FLL(IRHO),FLL(IRHOP),FK)
+     1  *CIJKF(FLLSIG,FLLSIGP,FK)
+      END DO
+      IF (NKE.LE.0) GO TO 509
+      FK=KEMIN-2
+      N1=NKD+1
+c     DO 508 NN=N1,NKTOT
+c     FK=FK+2.D0
+c 508 CIJR(NN)=CIJKF(FLL(IRHO),FLLSIGP,FK)
+c    1  *CIJKF(FLL(IRHOP),FLLSIG,FK)
+      DO NN=N1,NKTOT
+        FK=FK+2.D0
+        CIJR(NN)=CIJKF(FLL(IRHO),FLLSIGP,FK)
+     1  *CIJKF(FLL(IRHOP),FLLSIG,FK)
+      END DO
+  509 CONTINUE
+C
+c     DO 511 I=1,4
+c 511 PC(I)=IRS(I)
+      DO I=1,4
+        PC(I)=IRS(I)
+      END DO
+      CALL SORT2(4,0,PC,IPC(9),IDUM,DUM,IDUM,IDUM,DUM,DUM,DUM,DUM,DUM,
+     1  DUM,DUM,DUM)
+      IN=PC(1)
+      IX=PC(2)
+      JN=PC(3)
+      JX=PC(4)
+C
+C          DETERMINE CLASS OF CONFIGURATION INTERACTION
+C
+      I=1
+      J=3
+c     IF (IRHO.LE.IRHOP) GO TO 521
+      IF (IRHO.GT.IRHOP) THEN
+        I=3
+        J=1
+      ENDIF
+  521 NEQP1=1
+      DO K=1,3
+        KP1=K+1
+        DO L=KP1,4
+          IF (IRS(K).EQ.IRS(L)) NEQP1=NEQP1+1
+        end do
+      end do
+      ICLASS=0
+      GO TO (526,525,524,523), NEQP1
+  523 ICLASS=1
+      GO TO 527
+  524 ICLASS=2
+      IF (IRHO.EQ.IRHOP) ICLASS=11
+      IF (ICLASS.EQ.11.AND.FLLSIG.NE.FLLSIGP) ICLASS=6
+      GO TO 527
+  525 IF (IRS(I).EQ.IRS(I+1).AND.IRS(I).LT.IRS(J)) ICLASS=3
+      IF (IRS(J).EQ.IRS(J+1).AND.IRS(J).LT.IRS(I+1)) ICLASS=4
+      IF (IRS(J).EQ.IRS(J+1).AND.IRS(J).GT.IRS(I+1)) ICLASS=5
+      IF (IRS(I).EQ.IRS(J)) ICLASS=6
+      IF (IRS(I+1).EQ.IRS(J)) ICLASS=7
+      IF (IRS(I+1).EQ.IRS(J+1)) ICLASS=8
+      IF (ICLASS.EQ.8.AND.FLLSIG.NE.FLLSIGP) ICLASS=10
+      GO TO 527
+  526 IF (IRS(I+1).LT.IRS(J)) ICLASS=9
+      IF (IRS(J).LT.IRS(I+1)) ICLASS=10
+C
+C          DETERMINE WHETHER CONFIGS ARE TO BE TRANSPOSED (ITRNSP=2)
+C
+  527 ITRNSP=1
+c     IF (ICLASS.EQ.2.AND.IRHO.LT.IRHOP) GO TO 530
+c     IF (IRHOP.EQ.ISIGP) GO TO 528
+c     IF (IRHO.EQ.ISIG) GO TO 530
+c     IF (IRHO.LT.IRHOP) GO TO 530
+c     IF (IRHO.EQ.IRHOP.AND.ISIG.LE.ISIGP) GO TO 530
+c 528 ITRNSP=2
+      if ( (ICLASS.NE.2 .or. IRHO.GE.IRHOP) .and.
+     1     (IRHOP .eq. ISIGP .or.
+     2    (IRHO .NE. ISIG .AND. IRHO .GE. IRHOP
+     3      .and. (IRHO .ne. IRHOP .or. ISIG .GT. ISIGP) ) ) )
+     4        ITRNSP = 2
+c
+C          READ U,V FROM DISK 13
+C
+  530 J=0
+      IF (ISIG.EQ.IRHOP.OR.ISIG.EQ.ISIGP) J=ISIG
+      IF (IRHO.EQ.IRHOP.OR.IRHO.EQ.ISIGP) J=IRHO
+      IF (J.EQ.0) GO TO 540
+      NJ=MIN0(NIJK(J,J1A,KK),NIJK(J,J1B,KK))
+      NII=NJ
+      NIJ=NJ
+      IF (NJ.LE.1) GO TO 540
+      NFULL=4.D0*FLL(J)+2.D0
+      IF (NJ.EQ.NFULL) GO TO 797
+      CALL LOCDSK(ID3,FLL(J),NJ)
+      NOR=NORCD/2
+      DO 1108 K=1,NOR
+  533 READ (ID3) N, ((U1(II,JJ,K),II=1,NLT), JJ=1,NLT)
+ 1108 CONTINUE
+      DO 1109 K=1,NOR
+  534 READ (ID3) N, ((V1(II,JJ,K),II=1,NLT), JJ=1,NLT)
+ 1109 CONTINUE
+C
+C          READ CFP OR CFGP FROM DISK 12
+C
+  540 DO 565 I=1,NOSUBC
+        NDEL(I)=IABS(NIJK(I,J1A,KK)-NIJK(I,J1B,KK))
+        IF (NDEL(I).EQ.0.OR.NDEL(I).GT.2) GO TO 565
+        IFL(I)=MAX0(NIJK(I,J1A,KK),NIJK(I,J1B,KK))
+        IF (NDEL(I).EQ.1.AND.IFL(I).LE.2) GO TO 565
+        CALL LOCDSK(ID2,FLL(I),IFL(I))
+        READ (ID2) (IA,IA,IA,A,A, M=1,NLT), NLP,NLGP,NOCFP,NOCFGP
+        IF (NOCFP.EQ.0) GO TO 555
+        IF (IFL(I).GT.2.AND.NDEL(I).EQ.1) GO TO 545
+        READ (ID2)
+        GO TO 554
+  545   IF (I.GT.1) GO TO 550
+        READ (ID2) ((CFP1(M,N), M=1,NLT), N=1,NLP)
+        GO TO 554
+  550   READ (ID2) ((CFP2(M,N,I-1), M=1,NLT), N=1,NLP)
+  554   READ (ID2)
+  555   IF (NDEL(I).NE.2) GO TO 565
+        READ (ID2)
+        N=1.D0+DMIN1(FLL(IRHO)+FLLSIG, FLL(IRHOP)+FLLSIGP)
+        IF (I.GT.IN) GO TO 561
+        DO 1110 K=1,N
+  560   READ (ID2) ((CFGP1(M,L,K), M=1,NLT), L=1,NLGP)
+ 1110   CONTINUE
+        GO TO 565
+  561   DO 1111 K=1,N
+  562   READ (ID2) ((CFGP2(M,L,K), M=1,NLT), L=1,NLGP)
+ 1111   CONTINUE
+  565 CONTINUE
+C
+      TC0=1.D0
+      IXX=0
+      DO 1112 I=IRHO,ISIG
+  570 IF (I.GT.IRHO) IXX=IXX+NIJK(I,J1A,KK)
+ 1112 CONTINUE
+      DO 1113 I=IRHOP,ISIGP
+  571 IF (I.GT.IRHOP) IXX=IXX+NIJK(I,J1B,KK)
+ 1113 CONTINUE
+      IF (IRHO.EQ.ISIG) IXX=IXX+1
+      IF (IRHOP.EQ.ISIGP) IXX=IXX+1
+      IXX=MOD(IXX,2)
+      IF (IXX.GT.0) TC0=-TC0
+      N=NIJK(IRHO,J1A,KK)
+      N1=N*NIJK(ISIG,J1A,KK)
+      IF (IRHO.EQ.ISIG) N1=(N1*(N-1))/N
+      N=NIJK(IRHOP,J1B,KK)
+      N1=N1*N*NIJK(ISIGP,J1B,KK)
+      IF (IRHOP.EQ.ISIGP) N1=(N1*(N-1))/N
+      IF (J.GT.0) N1=N1/(NJ*NJ)
+      ERAS=N1
+      TC0=TC0*DSQRT(ERAS)
+      IF (IRHO.EQ.ISIG.AND.IRHOP.EQ.ISIGP) TC0=0.5D0*TC0
+C
+C          CALC MATRIX ELEMENTS
+C
+
+c           Dimension check added by Alex K 10/28/02
+  600 IF (J1A.GE.KNT.OR.J1B.GE.KNT) THEN
+        STOP ' PRK ERROR 1: INSUFFICIENT NTOTTJ DIMENSION'
+      ENDIF
+c           END ALEX K 10/28/02
+      LN=NTOTTJ(J1A)+1
+      LX=NTOTTJ(J1A+1)
+      LPN=NTOTTJ(J1B)+1
+      LPX=NTOTTJ(J1B+1)
+      NOPC=0
+      DO 1115 LP=LPN,LPX
+      DO 700 L=LN,LX
+      IF (PSCRL(L,NOSUBC).NE.PSCRL(LP,NOSUBC)) GO TO 700
+      IF (PSCRS(L,NOSUBC).NE.PSCRS(LP,NOSUBC)) GO TO 700
+      NOPC=NOPC+1
+      TC=0.D0
+      DO 610 I=1,NOSUBC
+      IF (I.LT.IN) GO TO 605
+      IF (I.LT.JX) GO TO 606
+  605 IF (PSCRL(L,I).NE.PSCRL(LP,I)) GO TO 690
+      IF (PSCRS(L,I).NE.PSCRS(LP,I)) GO TO 690
+  606 DO 1114 J=1,4
+  607 IF (I.EQ.IRS(J)) GO TO 610
+ 1114 CONTINUE
+      IF (NALSP(L,I)-NOTSJ1(I,J1A).NE.NALSP(LP,I)-NOTSJ1(I,J1B))GOTO 690
+  610 CONTINUE
+C        MULT BY CFP
+      TC=TC0
+      DO 630 I=1,NOSUBC
+        IF (NDEL(I).NE.1) GO TO 630
+        IF (IFL(I).LE.2) GO TO 630
+        IF (ICLASS.EQ.1.AND.I.EQ.IX) GO TO 630
+        L1=L
+        L2=LP
+        J11=J1A
+        J12=J1B
+c       IF (NIJK(I,J1A,KK).GT.NIJK(I,J1B,KK)) GO TO 622
+        IF (NIJK(I,J1A,KK).LE.NIJK(I,J1B,KK)) THEN
+          L1=LP
+          L2=L
+          J11=J1B
+          J12=J1A
+        ENDIF
+  622   N1=NALSP(L1,I)-NOTSJ1(I,J11)
+        N2=NALSP(L2,I)-NOTSJ1(I,J12)
+c       IF (I.GT.1) GO TO 627
+        IF (I.LE.1) THEN
+          TC=TC*CFP1(N1,N2)
+c         GO TO 630
+        ELSE
+  627     TC=TC*CFP2(N1,N2,I-1)
+        ENDIF
+  630 CONTINUE
+C
+      IF (TC.EQ.0.D0) GO TO 690
+C
+      L1=L
+      L2=LP
+      J11=J1A
+      J12=J1B
+c     IF (IRHO.LT.IRHOP) GO TO 635
+      if (IRHO.GE.IRHOP) then
+        L1=LP
+        L2=L
+        J11=J1B
+        J12=J1A
+      endif
+c 635 IF (IN.EQ.1.OR.IN.EQ.IX) GO TO 640
+c     IF (NIJK(IN,J11,KK).LE.1) GO TO 640
+      if (IN.NE.1 .AND. IN.NE.IX .AND. NIJK(IN,J11,KK).GT.1) then
+        M=IN
+        N1=NALSP(L1,M)
+        N2=NALSP(L2,M)
+        TC=TC*RECPSH(PSCRL(L1,M-1),FL(N2,M),PSCRL(L2,M),FLL(M),
+     1    PSCRL(L1,M),FL(N1,M)) *RECPSH(PSCRS(L1,M-1),S(N2,M),
+     2    PSCRS(L2,M),HALF,PSCRS(L1,M),S(N1,M))
+        IF (TC.EQ.0.D0) GO TO 690
+      endif
+C
+  640 MN=IN+1
+      MX=IX-1
+c     IF (MN.GT.MX) GO TO 650
+      if (MN.LE.MX) then
+        DO 645 M=MN,MX
+          N1=NALSP(L1,M)
+          N2=NALSP(L2,M)
+          TC=TC*RECPEX(PSCRL(L2,M-1),FLL(IN),PSCRL(L1,M-1),FL(N1,M),
+     1      PSCRL(L1,M),PSCRL(L2,M)) *RECPEX(PSCRS(L2,M-1),HALF,
+     2      PSCRS(L1,M-1),S(N1,M),PSCRS(L1,M),PSCRS(L2,M))
+  645   CONTINUE
+        IF (TC.EQ.0.D0) GO TO 690
+      endif
+C
+  650 L1=L
+      L2=LP
+      J11=J1A
+      J12=J1B
+      FLLJX=FLLSIG
+c     IF (ISIG.GT.ISIGP) GO TO 655
+      if (ISIG.LE.ISIGP) THEN
+        L1=LP
+        L2=L
+        J11=J1B
+        J12=J1A
+        FLLJX=FLLSIGP
+      endif
+c 655 IF (JN.GE.JX) GO TO 660
+c     IF (NIJK(JX,J11,KK).LE.1) GO TO 660
+      if (JN.LT.JX .AND. NIJK(JX,J11,KK).GT.1) THEN
+        M=JX
+        N1=NALSP(L1,M)
+        N2=NALSP(L2,M)
+        TC=TC*RECPJP(PSCRL(L1,M-1),FLLJX,PSCRL(L2,M-1),FL(N2,M),
+     1    PSCRL(L1,M),FL(N1,M)) *RECPJP(PSCRS(L1,M-1),HALF,
+     2    PSCRS(L2,M-1),S(N2,M),PSCRS(L1,M),S(N1,M))
+        IF (TC.EQ.0.D0) GO TO 690
+      endif
+C
+  660 MN=JN+1
+      MX=JX-1
+c     IF (MN.GT.MX) GO TO 670
+      IF (MN.LE.MX) THEN
+        FLLJX=FLLIJK(JX,J11,KK)
+        DO 665 M=MN,MX
+          N1=NALSP(L1,M)
+          N2=NALSP(L2,M)
+          TC=TC*RECPEX(PSCRL(L1,M-1),FL(N1,M),PSCRL(L1,M),FLLJX,
+     1      PSCRL(L2,M),PSCRL(L2,M-1)) *RECPEX(PSCRS(L1,M-1),S(N1,M),
+     2      PSCRS(L1,M),HALF,PSCRS(L2,M),PSCRS(L2,M-1))
+  665   CONTINUE
+      ENDIF
+  670 CONTINUE
+C
+c  690 PC(NOPC)=TC
+  690 IF (NOPC.GT.i_PC_size) then
+        int4max=2147483647-1
+        if (i_PC_size.eq.int4max) then
+          STOP 'PRK FATAL ERROR: PC size reached int4 limit'
+        else
+          i_old_size=i_PC_size
+          new_size=int4max
+          if (i_PC_size.lt.int4max/2) new_size=2*i_PC_size
+          CALL RALLOC(PC_PTR,i_old_size,new_size,8)
+          i_PC_size=new_size
+        endif
+      endif
+      PC(NOPC)=TC
+
+  700 CONTINUE
+ 1115 CONTINUE
+c      IF (NOPC.LE.NPCX) GO TO 701
+c      WRITE (IW,70) NOPC,NPCX
+c   70 FORMAT (///11H0*****NOPC=,I5,27H IS GREATER THAN DIM OF PC=,I5,
+c     1  6H *****///)
+c      STOP '(PRK 70)'
+
+C
+  701 FLLRHO=FLL(IRHO)
+      FLLRHOP=FLL(IRHOP)
+c     IF (ITRNSP.NE.2) GO TO 702
+      IF (ITRNSP.EQ.2) THEN
+        ! Switch places of the first and second pairs of subshells
+        ERAS=FLLRHO
+        FLLRHO=FLLRHOP
+        FLLRHOP=ERAS
+        ERAS=FLLSIG
+        FLLSIG=FLLSIGP
+        FLLSIGP=ERAS
+      ENDIF
+c 702 IF (ICLASS.NE.7) GO TO 705
+  702 IF (ICLASS.EQ.7) THEN
+        ! Exchange the D- and E-type parameters
+        KKK=KDMIN
+        KDMIN=KEMIN
+        KEMIN=KKK
+        ERAS=FLLRHO
+        FLLRHO=FLLSIG
+        FLLSIG=ERAS
+c       IF (DMOD(FLL(IRHOP)-FLL(IRHO),TWO).EQ.ZERO) GO TO 705
+        IF (DMOD(FLL(IRHOP)-FLL(IRHO),TWO).NE.ZERO) THEN
+          ! change sign of new E-type parameters if L(Irhop) .ne. L(Irho)
+          DO 1116 NN=1,NKD
+  703     CIJR(NN)=-CIJR(NN)
+ 1116     CONTINUE
+        ENDIF
+      ENDIF
+  705 NOPC=0
+      NOCC=0
+      DO 1119 LP=LPN,LPX
+      DO 780 L=LN,LX
+      IF (PSCRL(L,NOSUBC).NE.PSCRL(LP,NOSUBC)) GO TO 780
+      IF (PSCRS(L,NOSUBC).NE.PSCRS(LP,NOSUBC)) GO TO 780
+      NOPC=NOPC+1
+      IF (PC(NOPC).EQ.0.D0) GO TO 780
+      DO 1117 NN=1,NKTOT
+  710 CCC(NN)=0.D0
+ 1117 CONTINUE
+      LCI=L
+      LCIP=LP
+c     IF (ITRNSP.EQ.2) GO TO 722
+      if (ITRNSP.ne.2) THEN
+        L1=L
+        L2=LP
+        J11=J1A
+        J12=J1B
+c       GO TO 730
+      else
+  722   L1=LP
+        L2=L
+        J11=J1B
+        J12=J1A
+      endif
+  730 GO TO (731,732,733,734,735,736,737,738,739,740,741), ICLASS
+  731 CALL CLASS1
+      GO TO 750
+  732 CALL CLASS2
+      GO TO 750
+  733 CALL CLASS3
+      GO TO 750
+  734 CALL CLASS4
+      GO TO 750
+  735 CALL CLASS5
+      GO TO 750
+  736 CALL CLASS6
+      GO TO 750
+  737 CALL CLASS7
+      GO TO 750
+  738 CALL CLASS8
+      GO TO 750
+  739 CALL CLASS9
+      GO TO 750
+  740 CALL CLAS10
+      GO TO 750
+  741 CALL CLAS11
+  750 CONTINUE
+C
+      NOCC=NOCC+1
+      int4max=2147483647-1
+      IF (NOCC.GT.NCCX) THEN
+c        WRITE (IW,75) NOCC,NCCX,J1A,J1B,IRHO,ISIG,IRHOP,ISIGP,LN,L,LX,
+c     1    LPN,LP,LPX
+c   75   FORMAT (///11H0*****NOCC=,I8,31H IS GREATER THAN DIM OF NOPCCC=,
+c     1    I8,6H *****,10X,2I1,I2,3I1,5X,3I5,5X,3I5///)
+c        STOP 'DIMENSION ERROR (PRK 75). SEE DETAILS IN OUTG11.'
+        if (NCCX.EQ.int4max)
+     1    STOP 'FATAL ERROR (PRK 75). Int4 limit reached'
+        new_size=int4max
+        if (NCCX.lt.int4max/2) new_size=2*NCCX
+        CALL RALLOC(NOPCCC_PTR,NCCX,new_size,4)
+        NCCX=new_size
+      ENDIF
+c      IF (NOCC.GT.KCC) THEN
+c        WRITE (IW,76) NOCC,KCC,J1A,J1B,IRHO,ISIG,IRHOP,ISIGP,LN,L,LX,
+c     1    LPN,LP,LPX
+c   76   FORMAT (///11H0*****NOCC=,I8,27H IS GREATER THAN DIM OF CC=,
+c     1    I8,6H *****,10X,2I1,I2,3I1,5X,3I5,5X,3I5///)
+c        STOP 'DIMENSION ERROR (PRK 76). SEE DETAILS IN OUTG11.'
+c      ENDIF
+      if (NOCC.GT.i_CC_size) then
+C     A. Kramida 2026: i_CC_size is the number of ROWS of CC; the
+C     element count is 8*i_CC_size.  The old code mixed the two (it
+C     assigned the element count back into the row count), which let
+C     NOCC run 8x past the real capacity and corrupt the heap.  Since
+C     the row count is also the column stride, the columns already in
+C     use have to be re-spread after the array grows.
+        if (i_CC_size.GE.int4max/8)
+     1    STOP 'FATAL ERROR (PRK 75). Int4 limit reached'
+        new_size=2*i_CC_size
+        if (new_size.GT.int4max/8) new_size=int4max/8
+        CALL RALLOC(CC_PTR,i_CC_size*8,new_size*8,8)
+        DO NNC=8,2,-1
+          DO MC=i_CC_size,1,-1
+            CC(MC+(NNC-1)*new_size)=CC(MC+(NNC-1)*i_CC_size)
+          ENDDO
+        ENDDO
+        i_CC_size=new_size
+c        write (*,*) 'NOCC,KCC=',NOCC,KCC
+      endif
+  755 NOPCCC(NOCC)=NOPC
+      DO 1118 NN=1,NKTOT
+  760 CC(NOCC+(NN-1)*i_CC_size)=PC(NOPC)*CIJR(NN)*CCC(NN)
+ 1118 CONTINUE
+  780 CONTINUE
+ 1119 CONTINUE
+      NOCCX=MAX0(NOCCX,NOCC)
+C
+c     IF (ICLASS.NE.7) GO TO 781
+      IF (ICLASS.EQ.7) THEN
+        ! Exchange the D- and E- type CI parameters
+        KKK=KDMIN
+        KDMIN=KEMIN
+        KEMIN=KKK
+      ENDIF
+  781 DO 790 NN=1,NKTOT
+      CAVE=0.D0
+c     IF (ICLASS.NE.11) GO TO 782
+c     IF (NN.LE.NKD) GO TO 782
+      IF (ICLASS.EQ.11.AND.NN.GT.NKD) THEN
+        A=NIJK(IRHO,J1A,KK)
+        CAVE=0.5D0*A*CIJR(NN)/((2.D0*FLL(IRHO)+1.D0)*(2.D0*FLLSIG+1.D0))
+      ENDIF
+  782 NOPC=0
+      M=1
+      DO 784 LP=LPN,LPX
+      DO 783 L=LN,LX
+      IF (PSCRL(L,NOSUBC).NE.PSCRL(LP,NOSUBC)) GO TO 783
+      IF (PSCRS(L,NOSUBC).NE.PSCRS(LP,NOSUBC)) GO TO 783
+      NOPC=NOPC+1
+      PC(NOPC)=0.D0
+      IF (M.GT.NOCC) GO TO 783
+      IF (NOPCCC(M).NE.NOPC) GO TO 783
+      PC(NOPC)=CC(M+(NN-1)*i_CC_size)
+      IF ((L-LN).EQ.(LP-LPN)) PC(NOPC)=PC(NOPC)+CAVE
+      M=M+1
+  783 CONTINUE
+  784 CONTINUE
+      NPAR=NPAR+1
+c        A. Kramida: encode two-digit config. numbers as printable characters
+      J1A1 = J1A
+      J1B1 = J1B
+      IF (J1A.GT.188) THEN
+        J1A1=42                    ! USE '*' SIGN FOR J1A >= 188
+      ELSE
+        J1A1=J1A+48
+        IF (J1A.GT.9) J1A1=J1A+55  ! USE 'A'..'Z' FOR J1A=10..35
+        IF (J1A.GT.35) J1A1=J1A+61 ! USE 'a'..'z' FOR J1A=36..61 and extended printable chars for J1A .LE. 188
+      ENDIF
+      IF (J1B.GT.188) THEN
+        J1B1=42                    ! USE '*' SIGN FOR J1B >= 62
+      ELSE
+        J1B1=J1B+48
+        IF (J1B.GT.9) J1B1=J1B+55  ! USE 'A'..'Z' FOR J1B=10..35
+        IF (J1B.GT.35) J1B1=J1B+61 ! USE 'a'..'z' FOR J1B=36..61 and extended printable chars for J1B .LE. 188
+      ENDIF
+      IF ((NN-NKD).GT.0) GO TO 786
+  785 K=KDMIN+2*(NN-1)
+      WRITE (AA,77) J1A1,J1B1,K,IRHO,ISIG,IRHOP,ISIGP
+   77 FORMAT (2A1,I1,1HD,4I1)
+      GO TO 787
+  786 K=KEMIN+2*(NN-NKD-1)
+      WRITE (AA,78) J1A1,J1B1,K,IRHO,ISIG,IRHOP,ISIGP
+   78 FORMAT (2A1,I1,1HE,4I1)
+  787 PARNAM(NPAR,KK)=AA
+      IF (ICPC.LE.2) GO TO 789
+      WRITE (IW,80) AA,CAVE,ICLASS
+   80 FORMAT (1H0,A10,5X,5HCAVE=,F12.7,15X,16HCONF INTER CLASS,I3/)
+      WRITE (IW,81) (MULS1(LP),LHS1(LP),MULS4(LP),LHS4(LP),
+     1  LP=LPN,LPX)
+   81 FORMAT (10X,12(3X,1H(,I1,A1,1H),I2,A1)/
+     1        12X,12(3X,1H(,I1,A1,1H),I2,A1)/
+     2        12X,12(3X,1H(,I1,A1,1H),I2,A1)/
+     3        12X,12(3X,1H(,I1,A1,1H),I2,A1))
+      NT=0
+      K1=1
+      DO 1788 K=1,NDIFFT
+      NT=NT+NTRMK(K)
+      IF (NT.EQ.LN-1) K1=K+1
+      IF (NT.EQ.LX) K2=K
+      IF (NT.EQ.LPN-1) K1P=K+1
+      IF (NT.EQ.LPX) K2P=K
+ 1788 CONTINUE
+      NPC2=0
+      L2=LN-1
+      DO 4788 K=K1,K2
+        LXN=NTRMK(K)
+        L1=L2+1
+        L2=L2+LXN
+        L2P=LPN-1
+        DO 2788 KPX=K1P,K2P
+          L2P=L2P+NTRMK(KPX)
+C         IF (PSCRL(L2,NOSUBC).NE.PSCRL(L2P,NOSUBC)) GO TO 2788
+C         IF (PSCRS(L2,NOSUBC).NE.PSCRS(L2P,NOSUBC)) GO TO 2788
+          IF (PSCRL(L2,NOSUBC).EQ.PSCRL(L2P,NOSUBC) .AND.
+     1        PSCRS(L2,NOSUBC).EQ.PSCRS(L2P,NOSUBC)) THEN
+            GO TO 3788
+          ENDIF
+ 2788   CONTINUE
+        GO TO 4788
+ 3788   NPC1=NPC2
+        NPC2=NPC2+NTRMK(K)*NTRMK(KPX)
+        DO 1120 L=L1,L2
+          NPC1=NPC1+1
+  788   WRITE (IW,82) MULS1(L),LHS1(L),MULS4(L),LHS4(L),
+     1    (PC(I), I=NPC1,NPC2,LXN)
+ 1120   CONTINUE
+   82   FORMAT (2H (,I1,A1,1H),I2,A1,2X,12F10.5/(12X,12F10.5))
+ 4788 CONTINUE
+      IF (NPC2.NE.NOPC) WRITE (IW,83) NPC2,NOPC
+   83 FORMAT (///16H0*****NPC2,NOPC=,2I8,6H *****///)
+  789 IF (ICPC.EQ.0) GO TO 1789
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      WRITE(IW,84) AA,NOPC,CAVE,ICLASS,DELT,(LLIJK(L,J1A,KK),
+     1  NIJK(L,J1A,KK),L=1,KS), (LLIJK(L,J1B,KK),NIJK(L,J1B,KK),L=1,KS)
+   84 FORMAT (/1H ,A10,4X,3HPC(,I5,1H),4X,5HCAVE=,F12.7,5X,7HICLASS=,I2,
+     1  6X,5HDELT=,F6.3,4H MIN,7X, 8(A1,I2,3X)/87X,8(A1,I2,3X))
+ 1789 KPAR=-2
+      WRITE (20) NPAR,KPAR,K,J1A,J1B,AA,CAVE,J,NOPC, (PC(I), I=1,NOPC)
+  790 CONTINUE
+C
+  797 CONTINUE
+  798 CONTINUE
+ 1121 CONTINUE
+ 1122 CONTINUE
+      NPARJ(J1A,J1B)=NPAR-NPARJO
+      NPARJO=NPAR
+  799 CONTINUE
+ 1123 CONTINUE
+C
+      WRITE (IW,86) NOCCX
+   86 FORMAT (//7H0NOCCX=,I8)
+      WRITE (IW,87) NPAR
+   87 FORMAT (///1H0,8X,5HNPAR=,I4//9X,16HNPARJ-----------/)
+      DO 1124 I=1,J1X
+  890 WRITE (IW,89) I, (NPARJ(I,J), J=I,J1X)
+ 1124 CONTINUE
+c  89 FORMAT (4H J1=,I2,2X,40I3/(8X,40I3))
+   89 FORMAT (4H J1=,I3,1X,40I3/(8X,40I3))
+C
+  900 CONTINUE
+      CALL DALLOC(NOPCCC_PTR)
+      CALL DALLOC(CC_PTR)
+      RETURN
+      END
+      SUBROUTINE CLASS1
+C
+C          CALC FOR IRHO=ISIG=IRHOP.LT.ISIGP
+C            OR FOR IRHOP.LT.IRHO=ISIG=ISIGP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+      N1=NALSP(L1,IX)
+      N2=NALSP(L2,IX)
+      A1=PSCRL(L1,IX-1)
+      A2=PSCRL(L2,IX-1)
+      A3=PSCRS(L1,IX-1)
+      A4=PSCRS(L2,IX-1)
+      A5=PSCRL(L1,IX)
+      A6=PSCRL(L2,IX)
+      A7=PSCRS(L1,IX)
+      A8=PSCRS(L2,IX)
+      B1=FL(N1,IX)
+      B2=FL(N2,IX)
+      B3=S(N1,IX)
+      B4=S(N2,IX)
+C
+      E1=1.D0
+      IF (IN.LT.IX) GO TO 130
+      FLLI=FLLSIGP
+      IF (IRHO.EQ.1) GO TO 141
+      E1=RECPSH(A1,B2,A6,FLLI,A5,B1)*RECPSH(A3,B4,A8,HALF,A7,B3)
+      GO TO 140
+  130 FLLI=FLL(IN)
+      E1=-RECPJP(A1,FLLI,A2,B2,A5,B1)*RECPJP(A3,HALF,A4,B4,A7,B3)
+  140 IF (E1.EQ.0.D0) GO TO 900
+C
+  141 I=1
+      J=2
+      NII=MIN0(NIJK(IX,J11,KK),NIJK(IX,J12,KK))
+      NIJ=1
+      TL(2,1)=B2
+      TS(2,1)=B4
+      TSCL(2,1)=B2
+      TSCS(2,1)=B4
+      TL(1,2)=FLL(IX)
+      TS(1,2)=0.5D0
+      TL(2,2)=FLLI
+      TS(2,2)=0.5D0
+      TSCL(1,2)=B1
+      TSCL(2,2)=B1
+      TSCS(1,2)=B3
+      TSCS(2,2)=B3
+C
+      IF ((NII-1).LT.0) GO TO 900
+      IF ((NII-1).EQ.0) GO TO 144
+  143 NLP=NOTSJ1(IX,J12+1)-NOTSJ1(IX,J12)
+      KPI=N2-NOTSJ1(IX,J12)
+      GO TO 145
+  144 NLP=1
+      TL(1,1)=FLL(IX)
+      TS(1,1)=0.5D0
+      TSCL(1,1)=FLL(IX)
+      TSCS(1,1)=0.5D0
+      E2=E1
+  145 DO 200 M=1,NLP
+      IF (NII.LE.1) GO TO 152
+      KI=M
+      N=N1-NOTSJ1(IX,J11)
+      IF (IX.GT.1) GO TO 150
+      E2=E1*CFP1(N,M)
+      GO TO 151
+  150 E2=E1*CFP2(N,M,IX-1)
+  151 IF (E2.EQ.0.D0) GO TO 200
+      N=M+NOTSJ1(IX,J12)
+      TL(1,1)=FL(N,IX)
+      TS(1,1)=S(N,IX)
+      TSCL(1,1)=FL(N,IX)
+      TSCS(1,1)=S(N,IX)
+  152 TK=KDMIN-2
+      DO 160 NN=1,NKD
+      TK=TK+2.D0
+      CALL RDIJ(I,J)
+      CCC(NN)=CCC(NN)+E2*A
+  160 CONTINUE
+  200 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLASS2
+C
+C          CALC FOR IRHO=ISIG.LT.IRHOP=ISIGP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+      N1=NALSP(L1,JX)
+      N2=NALSP(L2,JX)
+      N3=NALSP(L1,IN)
+      N4=NALSP(L2,IN)
+      A1=PSCRL(L1,JX)
+      A2=PSCRS(L1,JX)
+      A3=PSCRL(L1,JX-1)
+      A4=PSCRL(L2,JX-1)
+      A5=PSCRS(L1,JX-1)
+      A6=PSCRS(L2,JX-1)
+      B1=FL(N1,JX)
+      B2=FL(N2,JX)
+      B3=S(N1,JX)
+      B4=S(N2,JX)
+      B5=FL(N3,IN)
+      B6=FL(N4,IN)
+      B7=S(N3,IN)
+      B8=S(N4,IN)
+C
+      TFL=DABS(A3-A4)-1.D0
+      NMIN=TFL+2.D0
+      NMAX=DMIN1(2.D0*FLL(IN),2.D0*FLLSIGP,A3+A4)+1.D0
+      IF (NMIN.GT.NMAX) GO TO 900
+      TFSN=DABS(A5-A6)
+      TFSX=A5+A6
+C
+      E1=DSQRT((2.D0*B2+1.D0)*(2.D0*B4+1.D0)*(2.D0*A3+1.D0)*
+     1  (2.D0*A5+1.D0))
+      XX=A4+A6+B2+B4+A1+A2+FLL(IN)+FLLSIGP
+      IF (DMOD(XX,TWO).GT.ZERO) E1=-E1
+      MN=IN+1
+      MX=JX-1
+      IF (MN.GT.MX) GO TO 170
+      DO 150 M=MN,MX
+      E1=E1*DSQRT((2.D0*PSCRL(L2,M)+1.D0)*(2.D0*PSCRS(L2,M)+1.D0)
+     1  *(2.D0*PSCRL(L1,M-1)+1.D0)*(2.D0*PSCRS(L1,M-1)+1.D0))
+      I=NALSP(L2,M)
+      XX=FL(I,M)+S(I,M)+PSCRL(L2,M)+PSCRS(L2,M)+PSCRL(L1,M-1)
+     1  +PSCRS(L1,M-1)
+      IF (DMOD(XX,TWO).GT.ZERO) E1=-E1
+  150 CONTINUE
+  170 IF (IN.EQ.1) GO TO 200
+      A7=PSCRL(L1,IN)
+      A8=PSCRL(L2,IN)
+      A9=PSCRS(L1,IN)
+      A10=PSCRS(L2,IN)
+      A11=PSCRL(L1,IN-1)
+      A12=PSCRS(L1,IN-1)
+      E1=E1*DSQRT((2.D0*A8+1.D0)*(2.D0*A10+1.D0)*(2.D0*B5+1.D0)*
+     1  (2.D0*B7+1.D0))
+      XX=A11+A12+B6+B8+A7+A9
+      IF (DMOD(XX,TWO).GT.ZERO) E1=-E1
+C
+  200 I1=N1-NOTSJ1(JX,J11)
+      I2=N2-NOTSJ1(JX,J12)
+      I3=N3-NOTSJ1(IN,J11)
+      I4=N4-NOTSJ1(IN,J12)
+      DO 300 N=NMIN,NMAX
+      TFL=TFL+1.D0
+      TFS=(1+(-1)**N)/2
+      IF (TFS.LT.TFSN.OR.TFS.GT.TFSX) GO TO 300
+      E2=CFGP1(I3,I4,N)*CFGP2(I2,I1,N)
+      IF (E2.EQ.0.D0) GO TO 300
+      IF (TFS.EQ.1.D0) E2=-E2
+      E2=E1*E2*S6J(B1,TFL,B2, A4,A1,A3)*S6J(B3,TFS,B4, A6,A2,A5)
+      IF (MN.GT.MX) GO TO 270
+      DO 1125 M=MN,MX
+      I=NALSP(L2,M)
+      E2=E2*S6J(FL(I,M),PSCRL(L2,M-1),PSCRL(L2,M),
+     1          TFL,PSCRL(L1,M),PSCRL(L1,M-1))
+  250 E2=E2*S6J(S(I,M),PSCRS(L2,M-1),PSCRS(L2,M),
+     1          TFS,PSCRS(L1,M),PSCRS(L1,M-1))
+ 1125 CONTINUE
+  270 IF (IN.EQ.1) GO TO 280
+      E2=E2*S6J(A11,B6,A8, TFL,A7,B5)
+      E2=E2*S6J(A12,B8,A10, TFS,A9,B7)
+  280 FK=KDMIN-2
+      DO 1126 NN=1,NKD
+      FK=FK+2.D0
+  290 CCC(NN)=CCC(NN)
+     1  +E2*S6J(FLL(IN),FLL(IN),TFL, FLLSIGP,FLLSIGP,FK)
+ 1126 CONTINUE
+  300 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLASS3
+C
+C          CALC FOR IRHO=ISIG.LT.IRHOP.LT.ISIGP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+      I=IN
+      J=JN
+      N1=NALSP(L1,I)
+      N2=NALSP(L2,I)
+      TFLN=DMAX1(DABS(FLL(J)-FLLSIGP),DABS(FL(N1,I)-FL(N2,I)))
+      TFSN=DABS(S(N1,I)-S(N2,I))
+      TFLX=DMIN1(FLL(J)+FLLSIGP,2.D0*FLL(I),FL(N1,I)+FL(N2,I))
+      TFSX=DMIN1(S(N1,I)+S(N2,I),ONE)
+      JM1=J-1
+      DO 1127 M=I,JM1
+      TFLN=DMAX1(DABS(PSCRL(L1,M)-PSCRL(L2,M)),TFLN)
+      TFSN=DMAX1(DABS(PSCRS(L1,M)-PSCRS(L2,M)),TFSN)
+      TFLX=DMIN1(PSCRL(L1,M)+PSCRL(L2,M),TFLX)
+  120 TFSX=DMIN1(PSCRS(L1,M)+PSCRS(L2,M),TFSX)
+ 1127 CONTINUE
+      IF (TFLN.GT.TFLX) GO TO 900
+      IF (TFSN.GT.TFSX) GO TO 900
+C
+      N3=NALSP(L1,J)
+      N4=NALSP(L2,J)
+      A1=PSCRL(L1,J-1)
+      A2=PSCRL(L2,J-1)
+      A3=PSCRS(L1,J-1)
+      A4=PSCRS(L2,J-1)
+      A5=PSCRL(L1,J)
+      A6=PSCRL(L2,J)
+      A7=PSCRS(L1,J)
+      A8=PSCRS(L2,J)
+      B1=FL(N3,J)
+      B2=FL(N4,J)
+      B3=S(N3,J)
+      B4=S(N4,J)
+C
+      E1=DSQRT((2.D0*B2+1.D0)*(2.D0*B4+1.D0)*(2.D0*A1+1.D0)*
+     1  (2.D0*A3+1.D0)*(2.D0*A6+1.D0)*(2.D0*A8+1.D0))
+      XX=FLL(I)+FLL(J)+FLLSIGP+0.5D0+A1+A3-A2-A4+A5+A7-A6-A8
+      IF (DMOD(XX,TWO).NE.ZERO) E1=-E1
+      TFL=TFLN-1.D0
+      NMIN=TFLN+1.D0
+      NMAX=TFLX+1.D0
+      I1=N1-NOTSJ1(I,J11)
+      I2=N2-NOTSJ1(I,J12)
+      DO 200 N=NMIN,NMAX
+      TFL=TFL+1.D0
+      TFS=(1+(-1)**N)/2
+      IF (TFS.LT.TFSN.OR.TFS.GT.TFSX) GO TO 200
+      E2=E1
+      IF (NIJK(I,J12,KK).EQ.0) GO TO 130
+      E2=E1*CFGP1(I1,I2,N)
+      IF (E2.EQ.0.D0) GO TO 200
+  130 IF (I.EQ.1) GO TO 140
+      A9=PSCRL(L1,I-1)
+      A10=PSCRS(L1,I-1)
+      A11=PSCRL(L1,I)
+      A12=PSCRL(L2,I)
+      A13=PSCRS(L1,I)
+      A14=PSCRS(L2,I)
+      B5=FL(N1,I)
+      B6=FL(N2,I)
+      B7=S(N1,I)
+      B8=S(N2,I)
+      XX=A9+A10+B6+B8+A11+A13
+      IF (DMOD(XX,TWO).GT.ZERO) E2=-E2
+      E2=E2*DSQRT((2.D0*A12+1.D0)*(2.D0*A14+1.D0)*(2.D0*B5+1.D0)*
+     1  (2.D0*B7+1.D0))
+      E2=E2*S6J(A9,B6,A12, TFL,A11,B5)*S6J(A10,B8,A14, TFS,A13,B7)
+  140 MN=I+1
+      MX=J-1
+      IF (MN.GT.MX) GO TO 160
+      DO 1128 M=MN,MX
+      N5=NALSP(L1,M)
+      A9=PSCRL(L1,M-1)
+      A10=PSCRS(L1,M-1)
+      A11=PSCRL(L2,M)
+      A12=PSCRS(L2,M)
+      B5=FL(N5,M)
+      B6=S(N5,M)
+      XX=B5+B6+A9+A10+A11+A12
+      IF (DMOD(XX,TWO).GT.ZERO) E2=-E2
+      E2=E2*DSQRT((2.D0*A9+1.D0)*(2.D0*A10+1.D0)*(2.D0*A11+1.D0)*
+     1  (2.D0*A12+1.D0))
+  150 E2=E2*S6J(TFL,PSCRL(L2,M-1),A9, B5,PSCRL(L1,M),A11)
+     1     *S6J(TFS,PSCRS(L2,M-1),A10, B6,PSCRS(L1,M),A12)
+ 1128 CONTINUE
+  160 E3=E2*DSQRT((2.D0*TFL+1.D0)*(2.D0*TFS+1.D0))
+      IF (TFS.EQ.1.D0) E3=-E3
+      E3=E3*S9J(TFL,FLL(J),FLLSIGP, A2,B2,A6, A1,B1,A5)
+     1     *S9J(TFS,HALF,HALF, A4,B4,A8, A3,B3,A7)
+      FK=KDMIN-2
+      DO 1129 NN=1,NKD
+      FK=FK+2.D0
+  170 CCC(NN)=CCC(NN)+E3*S6J(FLL(I),FLL(I),TFL, FLLSIGP,FLL(J),FK)
+ 1129 CONTINUE
+  200 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLASS4
+C
+C          CALC FOR IRHOP.LT.IRHO=ISIG.LT.ISIGP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+c      DIMENSION C(KMX,KMX)
+c      integer*8 C_PTR
+c      COMMON/CC/C_PTR
+c      pointer (C_PTR,C)
+c
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+  110 M=JN
+      N1=NALSP(L1,M)
+      N2=NALSP(L2,M)
+      A1=PSCRL(L1,M-1)
+      A2=PSCRL(L2,M-1)
+      A3=PSCRS(L1,M-1)
+      A4=PSCRS(L2,M-1)
+      A5=PSCRL(L1,M)
+      A6=PSCRL(L2,M)
+      A7=PSCRS(L1,M)
+      A8=PSCRS(L2,M)
+      B1=FL(N1,M)
+      B2=FL(N2,M)
+      B3=S(N1,M)
+      B4=S(N2,M)
+      IF (DABS(A1-A2).GT.FLL(IN)) GO TO 900
+      IF (DABS(A5-A6).GT.FLLSIGP) GO TO 900
+      IF (A1+A2.LT.FLL(IN)) GO TO 900
+      IF (A5+A6.LT.FLLSIGP) GO TO 900
+      IF (DABS(A3-A4).GT.0.5D0) GO TO 900
+      IF (DABS(A7-A8).GT.0.5D0) GO TO 900
+C
+      E1=DSQRT((2.D0*B1+1.D0)*(2.D0*B3+1.D0)*(2.D0*A2+1.D0)*
+     1  (2.D0*A4+1.D0)*(2.D0*A6+1.D0)*(2.D0*A8+1.D0))
+      E2=FLL(IN)+FLLSIGP
+      FXX=DMOD(E2+FLL(M)+THRHAL+A2+A4+A1-A3,TWO)
+      IF (FXX.NE.0.D0) E1=-E1
+C
+      TFL=DMAX1(DABS(FLL(IN)-FLLSIGP),DABS(B1-B2))-1.D0
+      NMIN=TFL+2.D0
+      NMAX=DMIN1(2.D0*FLL(M),E2,B1+B2)+1.D0
+      IF (NMIN.GT.NMAX) GO TO 900
+      TFSX=B3+B4
+      I1=N1-NOTSJ1(M,J11)
+      I2=N2-NOTSJ1(M,J12)
+      DO 200 N=NMIN,NMAX
+      TFL=TFL+1.D0
+      E2=CFGP2(I1,I2,N)
+      IF (E2.EQ.0.D0) GO TO 200
+      TFS=(1+(-1)**N)/2
+      IF (TFS.GT.TFSX) GO TO 200
+      IF (TFS.EQ.1.D0) E2=-E2
+      E2=E1*E2*DSQRT((2.D0*TFL+1.D0)*(2.D0*TFS+1.D0))
+      E2=E2*S9J(A1,FLL(IN),A2, A5,FLLSIGP,A6, B1,TFL,B2)
+      E2=E2*S9J(A3,HALF,A4, A7,HALF,A8, B3,TFS,B4)
+      FK=KDMIN-2
+      DO 1130 NN=1,NKD
+      FK=FK+2.D0
+  150 CCC(NN)=CCC(NN)
+     1  +E2*S6J(FLL(M),FLL(M),TFL, FLL(IN),FLLSIGP,FK)
+ 1130 CONTINUE
+  200 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLASS5
+C
+C          CALC FOR IRHOP.LT.ISIGP.LT.IRHO=ISIG
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+      I=IX
+      J=JX
+      N1=NALSP(L1,J)
+      N2=NALSP(L2,J)
+      B1=FL(N1,J)
+      B2=FL(N2,J)
+      B3=S(N1,J)
+      B4=S(N2,J)
+      TFLN=DMAX1(DABS(FLL(I)-FLL(IN)),DABS(B1-B2))
+      TFSN=DABS(B3-B4)
+      TFLX=DMIN1(FLL(I)+FLL(IN),2.D0*FLLSIG,B1+B2)
+      TFSX=DMIN1(B3+B4,ONE)
+      DO 120 M=I,J
+      A1=PSCRL(L1,M)
+      A2=PSCRL(L2,M)
+      A3=PSCRS(L1,M)
+      A4=PSCRS(L2,M)
+      IF (M.EQ.J) GO TO 120
+      TFLN=DMAX1(DABS(A1-A2),TFLN)
+      TFSN=DMAX1(DABS(A3-A4),TFSN)
+      TFLX=DMIN1(A1+A2,TFLX)
+      TFSX=DMIN1(A3+A4,TFSX)
+  120 CONTINUE
+      IF (TFLN.GT.TFLX) GO TO 900
+      IF (TFSN.GT.TFSX) GO TO 900
+C
+      N3=NALSP(L1,I)
+      N4=NALSP(L2,I)
+      A5=PSCRL(L1,J-1)
+      A6=PSCRL(L2,J-1)
+      A7=PSCRS(L1,J-1)
+      A8=PSCRS(L2,J-1)
+      A9=PSCRL(L1,I-1)
+      A10=PSCRL(L2,I-1)
+      A11=PSCRS(L1,I-1)
+      A12=PSCRS(L2,I-1)
+      A13=PSCRL(L1,I)
+      A14=PSCRL(L2,I)
+      A15=PSCRS(L1,I)
+      A16=PSCRS(L2,I)
+      B5=FL(N3,I)
+      B6=FL(N4,I)
+      B7=S(N3,I)
+      B8=S(N4,I)
+C
+c     E1=DSQRT((2.D0*B6 +1.D0)*(2.D0*B8 +1.D0)*(2.D0*A10+1.D0)*
+c    1         (2.D0*A12+1.D0)*(2.D0*A13+1.D0)*(2.D0*A15+1.D0)*
+c    2         (2.D0*B1 +1.D0)*(2.D0*B3 +1.D0)*(2.D0*A6 +1.D0)*
+c    3         (2.D0*A8 +1.D0))
+      E11=(2.D0*B6 +1.D0)*(2.D0*B8 +1.D0)*(2.D0*A10+1.D0)
+      E12=(2.D0*A12+1.D0)*(2.D0*A13+1.D0)*(2.D0*A15+1.D0)
+      E13=(2.D0*B1 +1.D0)*(2.D0*B3 +1.D0)*(2.D0*A6+1.D0)*(2.D0*A8 +1.D0)
+      E1 = DSQRT(E11*E12*E13)
+      XX=FLL(IN)+FLLSIG+A5+A7+B1+B3+A1+A3
+      IF (DMOD(XX,TWO).GT.ZERO) E1=-E1
+      TFL=TFLN-1.D0
+      NMIN=TFLN+1.D0
+      NMAX=TFLX+1.D0
+      I1=N1-NOTSJ1(J,J11)
+      I2=N2-NOTSJ1(J,J12)
+      DO 200 N=NMIN,NMAX
+      TFL=TFL+1.D0
+      TFS=DFLOAT((1+(-1)**N)/2)
+      IF (TFS.LT.TFSN.OR.TFS.GT.TFSX) GO TO 200
+      E2=E1
+      IF (NIJK(J,J12,KK).EQ.0) GO TO 130
+      E2=E1*CFGP2(I1,I2,N)
+      IF (E2.EQ.0.D0) GO TO 200
+  130 E3=E2*S6J(B2,TFL,B1, A5,A1,A6)*S6J(B4,TFS,B3, A7,A3,A8)
+      MN=I+1
+      MX=J-1
+      IF (MN.GT.MX) GO TO 160
+      DO 1131 M=MN,MX
+      N5=NALSP(L1,M)
+      A17=PSCRL(L2,M-1)
+      A18=PSCRS(L2,M-1)
+      A19=PSCRL(L1,M)
+      A20=PSCRL(L2,M)
+      A21=PSCRS(L1,M)
+      A22=PSCRS(L2,M)
+      B9=FL(N5,M)
+      B10=S(N5,M)
+      XX=B9+B10+A19+A21+A17+A18
+      IF (DMOD(XX,TWO).GT.ZERO) E3=-E3
+      E3=E3*DSQRT((2.D0*A19+1.D0)*(2.D0*A21+1.D0)*(2.D0*A17+1.D0)
+     1  *(2.D0*A18+1.D0))
+  150 E3=E3*S6J(B9,PSCRL(L1,M-1),A19, TFL,A20,A17)
+     1    *S6J(B10,PSCRS(L1,M-1),A21, TFS,A22,A18)
+ 1131 CONTINUE
+  160 E4=E3*DSQRT((2.D0*TFL+1.D0)*(2.D0*TFS+1.D0))
+      IF (TFS.EQ.1.D0) E4=-E4
+      E4=E4*S9J(A9,FLL(IN),A10, B5,FLL(I),B6, A13,TFL,A14)
+     1     *S9J(A11,HALF,A12, B7,HALF,B8, A15,TFS,A16)
+      FK=KDMIN-2
+      DO 1132 NN=1,NKD
+      FK=FK+2.D0
+  170 CCC(NN)=CCC(NN)+E4*S6J(FLLSIG,FLLSIG,TFL, FLL(I),FLL(IN),FK)
+ 1132 CONTINUE
+  200 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLASS6
+C
+C          CALC FOR IRHO=IRHOP.LT.ISIG.LT.ISIGP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+  110 M=JN
+      N1=NALSP(L1,M)
+      N2=NALSP(L2,M)
+      A1=PSCRL(L1,M-1)
+      A2=PSCRL(L2,M-1)
+      A3=PSCRS(L1,M-1)
+      A4=PSCRS(L2,M-1)
+      A5=PSCRL(L1,M)
+      A6=PSCRL(L2,M)
+      A7=PSCRS(L1,M)
+      A8=PSCRS(L2,M)
+      B1=FL(N1,M)
+      B2=FL(N2,M)
+      B3=S(N1,M)
+      B4=S(N2,M)
+      IF (JN.LT.NOSUBC.OR.JX.LT.NOSUBC) GO TO 115
+      A6=A2
+      A8=A4
+      B1=FLLSIG
+      B2=0.D0
+      B3=0.5D0
+      B4=0.D0
+  115 TFL=DMAX1(DABS(A1-FLLSIG), DABS(A2-FLLSIGP), DABS(B2-A5))-1.D0
+      NFL=DMIN1(A1+FLLSIG, A2+FLLSIGP, B2+A5)-TFL
+      IF (NFL.LE.0) GO TO 300
+      TFS=DMAX1(DABS(A3-0.5D0), DABS(A4-0.5D0), DABS(B4-A7))-1.D0
+      NFS=DMIN1(A3+0.5D0, A4+0.5D0, B4+A7)-TFS
+      TFSN=TFS
+      IF (NFS.LE.0) GO TO 300
+      XX=A1+B1+A5+B2+FLLSIGP+A6+A3+B3+A7+B4+0.5D0+A8
+      E1=DSQRT((2.D0*B1+1.D0)*(2.D0*A6+1.D0)*(2.D0*B3+1.D0)*
+     1  (2.D0*A8+1.D0))
+C
+      DO 1135 NL=1,NFL
+      TFL=TFL+1.D0
+      E2=E1*(2.D0*TFL+1.D0)*S6J(B2,FLLSIG,B1, A1,A5,TFL)
+     1  *S6J(B2,A2,A6, FLLSIGP,A5,TFL)
+      TFS=TFSN
+      DO 200 NS=1,NFS
+      TFS=TFS+1.D0
+      E3=E2*(2.D0*TFS+1.D0)*S6J(B4,HALF,B3, A3,A7,TFS)
+     1  *S6J(B4,A4,A8, HALF,A7,TFS)
+      IF (DMOD(XX+TFL+TFS,TWO).GT.ZERO) E3=-E3
+      DO 1134 III=1,2
+      L3=L1
+      IF (III.EQ.2) L3=L2
+      MM1=M-1
+      DO 1133 IP=1,MM1
+      II=NALSP(L3,IP)
+      TL(III,IP)=FL(II,IP)
+      TS(III,IP)=S(II,IP)
+      TSCL(III,IP)=PSCRL(L3,IP)
+  130 TSCS(III,IP)=PSCRS(L3,IP)
+ 1133 CONTINUE
+ 1134 CONTINUE
+      TL(1,M)=FLLSIG
+      TS(1,M)=0.5D0
+      TL(2,M)=FLLSIGP
+      TS(2,M)=0.5D0
+      TSCL(1,M)=TFL
+      TSCS(1,M)=TFS
+      TSCL(2,M)=TFL
+      TSCS(2,M)=TFS
+      I=IRHO
+      J=M
+      NIJ=1
+      KI=NALSP(L1,I)-NOTSJ1(I,J11)
+      KPI=NALSP(L2,I)-NOTSJ1(I,J12)
+      TK=KDMIN-2
+      DO 150 NN=1,NKD
+      TK=TK+2.D0
+      CALL RDIJ(I,J)
+      CCC(NN)=CCC(NN)+E3*A
+  150 CONTINUE
+      N1=NKD+1
+      TK=KEMIN-2
+      DO 160 NN=N1,NKTOT
+      TK=TK+2.D0
+      CALL REIJ(I,J)
+      CCC(NN)=CCC(NN)+E3*RSUM
+  160 CONTINUE
+  200 CONTINUE
+ 1135 CONTINUE
+C
+  300 CONTINUE
+      RETURN
+      END
+      SUBROUTINE CLASS7
+C
+C          CALC FOR IRHO.LT.ISIG=IRHOP.LT.ISIGP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+      I=IX
+      N1=NALSP(L1,I)
+      A1=PSCRL(L1,I-1)
+      A2=PSCRL(L2,I-1)
+      A3=PSCRS(L1,I-1)
+      A4=PSCRS(L2,I-1)
+      A5=PSCRL(L1,I)
+      A6=PSCRL(L2,I)
+      A7=PSCRS(L1,I)
+      A8=PSCRS(L2,I)
+      B1=FL(N1,I)
+      B2=S(N1,I)
+      TFLN=DMAX1(DABS(FLL(IN)-A5),DABS(B1-A2))
+      TFSN=DMAX1(DABS(0.5D0-A7),DABS(B2-A4))
+      TFLX=DMIN1(FLL(IN)+A5,B1+A2)
+      TFSX=DMIN1(0.5D0+A7,B2+A4)
+      IF (TFLN.GT.TFLX) GO TO 900
+      IF (TFSN.GT.TFSX) GO TO 900
+C
+      J=I+1
+      NIJ=1
+      N2=NALSP(L2,I)
+      KI=N1-NOTSJ1(I,J11)
+      KPI=N2-NOTSJ1(I,J12)
+      TL(1,I)=B1
+      TL(2,I)=FL(N2,I)
+      TS(1,I)=B2
+      TS(2,I)=S(N2,I)
+      TL(1,J)=FLL(IN)
+      TL(2,J)=FLLSIGP
+      TS(1,J)=0.5D0
+      TS(2,J)=0.5D0
+      TSCL(1,I-1)=A2
+      TSCL(2,I-1)=A2
+      TSCS(1,I-1)=A4
+      TSCS(2,I-1)=A4
+      TSCL(2,I)=A6
+      TSCS(2,I)=A8
+      TSCL(1,J)=A5
+      TSCL(2,J)=A5
+      TSCS(1,J)=A7
+      TSCS(2,J)=A7
+C
+      E1=DSQRT((2.D0*A1+1.D0)*(2.D0*A3+1.D0))
+      XX1=FLL(IN)+0.5D0+B1+B2+A1+A3
+      TFL=TFLN-1.D0
+      NLX=TFLX-TFL
+      NSX=TFSX-TFSN+1.D0
+      DO 1136 NL=1,NLX
+      TFL=TFL+1.D0
+      TSCL(1,I)=TFL
+      E2=E1*S6J(FLL(IN),A2,A1, B1,A5,TFL)
+      TFS=TFSN-1.D0
+      DO 200 NS=1,NSX
+      TFS=TFS+1.D0
+      TSCS(1,I)=TFS
+      E3=E2*DSQRT((2.D0*TFL+1.D0)*(2.D0*TFS+1.D0))
+     1  *S6J(HALF,A4,A3, B2,A7,TFS)
+      IF (DMOD(XX1+TFL+TFS,TWO).GT.ZERO) E3=-E3
+      TK=KEMIN-2
+      DO 150 NN=1,NKD
+      TK=TK+2.D0
+      CALL REIJ(I,J)
+      CCC(NN)=CCC(NN)-E3*RSUM
+  150 CONTINUE
+      N1=NKD+1
+      TK=KDMIN-2
+      DO 160 NN=N1,NKTOT
+      TK=TK+2.D0
+      CALL RDIJ(I,J)
+      CCC(NN)=CCC(NN)-E3*A
+  160 CONTINUE
+  200 CONTINUE
+ 1136 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLASS8
+C
+C          CALC FOR IRHO.LT.IRHOP.LT.ISIG=ISIGP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+      I=IX
+      J=JX
+      N1=NALSP(L1,I)
+      N2=NALSP(L2,I)
+      A1=PSCRL(L1,I-1)
+      A2=PSCRL(L2,I-1)
+      A3=PSCRS(L1,I-1)
+      A4=PSCRS(L2,I-1)
+      A5=PSCRL(L1,I)
+      A6=PSCRL(L2,I)
+      A7=PSCRS(L1,I)
+      A8=PSCRS(L2,I)
+      B1=FL(N1,I)
+      B2=FL(N2,I)
+      B3=S(N1,I)
+      B4=S(N2,I)
+      TFLN=DMAX1(DABS(FLL(IN)-A5),DABS(A2-B1),DABS(FLL(I)-A6))
+      TFSN=DMAX1(DABS(0.5D0-A7),DABS(A4-B3),DABS(0.5D0-A8))
+      TFLX=DMIN1(FLL(IN)+A5,A2+B1,FLL(I)+A6)
+      TFSX=DMIN1(0.5D0+A7,A4+B3,0.5D0+A8)
+      IF (TFLN.GT.TFLX) GO TO 900
+      IF (TFSN.GT.TFSX) GO TO 900
+C
+      NII=1
+      KJ=NALSP(L1,J)-NOTSJ1(J,J11)
+      KPJ=NALSP(L2,J)-NOTSJ1(J,J12)
+      DO 1138 III=1,2
+      L3=L1
+      IF (III.EQ.2) L3=L2
+      DO 1137 IP=I,J
+      II=NALSP(L3,IP)
+      TL(III,IP)=FL(II,IP)
+      TS(III,IP)=S(II,IP)
+      TSCL(III,IP)=PSCRL(L3,IP)
+  120 TSCS(III,IP)=PSCRS(L3,IP)
+ 1137 CONTINUE
+ 1138 CONTINUE
+      TL(1,I)=FLL(IN)
+      TL(2,I)=FLL(I)
+      TS(1,I)=0.5D0
+      TS(2,I)=0.5D0
+C
+      E1=DSQRT((2.D0*A1+1.D0)*(2.D0*A3+1.D0)*(2.D0*B2+1.D0)*
+     1  (2.D0*B4+1.D0))
+      XX1=FLL(I)-FLL(IN)+A2+A4-A1-A3+A6+A8
+      TFL=TFLN-1.D0
+      NLX=TFLX-TFL
+      NSX=TFSX-TFSN+1.D0
+      DO 1139 NL=1,NLX
+      TFL=TFL+1.D0
+      TSCL(1,I-1)=TFL
+      TSCL(2,I-1)=TFL
+      E2=E1*(2.D0*TFL+1.D0)*S6J(FLL(IN),A2,A1, B1,A5,TFL)
+     1  *S6J(A2,B1,TFL, FLL(I),A6,B2)
+      TFS=TFSN-1.D0
+      DO 200 NS=1,NSX
+      TFS=TFS+1.D0
+      TSCS(1,I-1)=TFS
+      TSCS(2,I-1)=TFS
+      E3=E2*(2.D0*TFS+1.D0)*S6J(HALF,A4,A3, B3,A7,TFS)
+     1  *S6J(A4,B3,TFS, HALF,A8,B4)
+      IF (DMOD(XX1-TFL-TFS,TWO).NE.ZERO) E3=-E3
+      TK=KDMIN-2
+      DO 150 NN=1,NKD
+      TK=TK+2.D0
+      CALL RDIJ(I,J)
+      CCC(NN)=CCC(NN)+E3*A
+  150 CONTINUE
+      N1=NKD+1
+      TK=KEMIN-2
+      DO 160 NN=N1,NKTOT
+      TK=TK+2.D0
+      CALL REIJ(I,J)
+      CCC(NN)=CCC(NN)+E3*RSUM
+  160 CONTINUE
+  200 CONTINUE
+ 1139 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLASS9
+C
+C          CALC FOR IRHO.LT.ISIG.LT.IRHOP.LT.ISIGP
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+      A1=PSCRL(L1,IX-1)
+      A2=PSCRL(L2,IX-1)
+      A3=PSCRS(L1,IX-1)
+      A4=PSCRS(L2,IX-1)
+      A5=PSCRL(L1,IX)
+      A6=PSCRL(L2,IX)
+      A7=PSCRS(L1,IX)
+      A8=PSCRS(L2,IX)
+      A9=PSCRL(L1,JN-1)
+      A10=PSCRL(L2,JN-1)
+      A11=PSCRS(L1,JN-1)
+      A12=PSCRS(L2,JN-1)
+      A13=PSCRL(L1,JN)
+      A14=PSCRL(L2,JN)
+      A15=PSCRS(L1,JN)
+      A16=PSCRS(L2,JN)
+      TFLN=DMAX1(DABS(FLL(IN)-FLL(IX)),DABS(FLL(JN)-FLLSIGP),
+     1  DABS(A5-A6),DABS(A9-A10))
+      TFLX=DMIN1(FLL(IN)+FLL(IX),FLL(JN)+FLLSIGP,A5+A6,A9+A10)
+      IF (TFLN.GT.TFLX) GO TO 900
+      TFSN=DMAX1(DABS(A7-A8),DABS(A11-A12))
+      TFSX=DMIN1(ONE,A7+A8,A11+A12)
+      IF (TFSN.GT.TFSX) GO TO 900
+      N1=NALSP(L1,IX)
+      N2=NALSP(L2,IX)
+      N3=NALSP(L1,JN)
+      N4=NALSP(L2,JN)
+      B1=FL(N1,IX)
+      B2=FL(N2,IX)
+      B3=S(N1,IX)
+      B4=S(N2,IX)
+      B5=FL(N3,JN)
+      B6=FL(N4,JN)
+      B7=S(N3,JN)
+      B8=S(N4,JN)
+c     E6=(2.D0*A1+1.D0)*(2.D0*B1 +1.D0)*(2.D0*A6+1.D0)*(2.D0*A9 +1.D0)
+c    1  *(2.D0*B6+1.D0)*(2.D0*A14+1.D0)*(2.D0*A3+1.D0)*(2.D0*B3 +1.D0)
+c    2  *(2.D0*A8+1.D0)*(2.D0*A11+1.D0)*(2.D0*B8+1.D0)*(2.D0*A16+1.D0)
+c     E6=DSQRT(E6)
+      E61=(2.D0*A1+1.D0)*(2.D0*B1 +1.D0)*(2.D0*A6+1.D0)*(2.D0*A9 +1.D0)
+      E62=(2.D0*B6+1.D0)*(2.D0*A14+1.D0)*(2.D0*A3+1.D0)*(2.D0*B3 +1.D0)
+      E63=(2.D0*A8+1.D0)*(2.D0*A11+1.D0)*(2.D0*B8+1.D0)*(2.D0*A16+1.D0)
+      E6=DSQRT(E61*E62*E63)
+      XX=FLLSIGP+A9+A13-A10-A14+0.5D0+A11+A15-A12-A16
+      IF (DMOD(XX,TWO).NE.ZERO) E6=-E6
+      MN=IX+1
+      MX=JN-1
+C
+      TFL=TFLN-1.D0
+      NLX=TFLX-TFL
+      NSX=TFSX-TFSN+1.D0
+      DO 300 NL=1,NLX
+      TFL=TFL+1.D0
+      E1=E6*S9J(A2,B2,A6,FLL(IN),FLL(IX),TFL,A1,B1,A5)
+     1  *S9J(TFL,A10,A9,FLL(JN),B6,B5,FLLSIGP,A14,A13)*(2.D0*TFL+1.D0)
+      IF (E1.EQ.0.D0) GO TO 300
+      IF (TFL.EQ.0.D0) GO TO 140
+      IF (DMOD(TFL,TWO).NE.ZERO) E1=-E1
+      IF (MN.GT.MX) GO TO 140
+      DO 130 M=MN,MX
+      N5=NALSP(L1,M)
+      IF (FL(N5,M).EQ.0.D0) GO TO 130
+      E1=E1*RECPEX(PSCRL(L2,M-1),TFL,PSCRL(L1,M-1),FL(N5,M),
+     1  PSCRL(L1,M),PSCRL(L2,M))
+  130 CONTINUE
+      IF (E1.EQ.0.D0) GO TO 300
+  140 TFS=TFSN-1.D0
+      DO 200 NS=1,NSX
+      TFS=TFS+1.D0
+      E2=E1*S9J(A4,B4,A8,HALF,HALF,TFS,A3,B3,A7)
+     1     *S9J(TFS,A12,A11,HALF,B8,B7,HALF,A16,A15)*(2.D0*TFS+1.D0)
+      IF (E2.EQ.0.D0) GO TO 200
+      IF (TFS.EQ.0.D0) GO TO 155
+      IF (DMOD(TFS,TWO).NE.ZERO) E2=-E2
+      IF (MN.GT.MX) GO TO 155
+      DO 150 M=MN,MX
+      N5=NALSP(L1,M)
+      IF (S(N5,M).EQ.0.D0) GO TO 150
+      E2=E2*RECPEX(PSCRS(L2,M-1),TFS,PSCRS(L1,M-1),S(N5,M),
+     1  PSCRS(L1,M),PSCRS(L2,M))
+  150 CONTINUE
+      IF (E2.EQ.0.D0) GO TO 200
+  155 TK=KDMIN-2
+      DO 1140 NN=1,NKD
+      TK=TK+2.D0
+      E3=E2*S6J(FLL(IN),FLL(IX),TFL,FLLSIGP,FLL(JN),TK)
+      IF (DMOD(FLL(IX)+FLL(JN)+TFL,TWO).NE.ZERO) E3=-E3
+  160 CCC(NN)=CCC(NN)+E3
+ 1140 CONTINUE
+      N1=NKD+1
+      TK=KEMIN-2
+      DO 1141 NN=N1,NKTOT
+      TK=TK+2.D0
+      E3=E2*S6J(FLL(IN),FLL(IX),TFL,FLL(JN),FLLSIGP,TK)
+      IF (DMOD(TFS,TWO).NE.ZERO) E3=-E3
+  170 CCC(NN)=CCC(NN)+E3
+ 1141 CONTINUE
+  200 CONTINUE
+  300 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLAS10
+C
+C          CALC FOR IRHO.LT.IRHOP.LT.ISIG.LT.ISIGP
+C            OR FOR IRHO.LT.IRHOP.LT.ISIGP.LT.ISIG
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+C
+      FLLJN=FLLSIG
+      FLLJX=FLLSIGP
+      IF (IRHO.LT.IRHOP.AND.ISIG.LE.ISIGP) GO TO 110
+      IF (IRHO.GE.IRHOP.AND.ISIG.GE.ISIGP) GO TO 110
+      FLLJN=FLLSIGP
+      FLLJX=FLLSIG
+  110 LA=L1
+      LB=L2
+      JA=J11
+      JB=J12
+      TL(1,JN)=FLLJN
+      TL(2,JN)=FLLJX
+      TS(1,JN)=0.5D0
+      TS(2,JN)=0.5D0
+      IF (L1.EQ.LCI.AND.ISIG.LE.ISIGP) GO TO 120
+      IF (L1.EQ.LCIP.AND.ISIGP.LE.ISIG) GO TO 120
+      LA=L2
+      LB=L1
+      JA=J12
+      JB=J11
+      TL(1,JN)=FLLJX
+      TL(2,JN)=FLLJN
+C
+  120 I=IX
+      J=JN
+      NII=1
+      NIJ=1
+      N1=NALSP(L1,I)
+      N2=NALSP(L2,I)
+      N3=NALSP(LA,J)
+      N4=NALSP(LB,J)
+      A1=PSCRL(L1,I-1)
+      A2=PSCRL(L2,I-1)
+      A3=PSCRS(L1,I-1)
+      A4=PSCRS(L2,I-1)
+      A5=PSCRL(L1,I)
+      A6=PSCRL(L2,I)
+      A7=PSCRS(L1,I)
+      A8=PSCRS(L2,I)
+      A9=PSCRL(LA,J-1)
+      A10=PSCRL(LB,J-1)
+      A11=PSCRS(LA,J-1)
+      A12=PSCRS(LB,J-1)
+      A13=PSCRL(LA,J)
+      A14=PSCRL(LB,J)
+      A15=PSCRS(LA,J)
+      A16=PSCRS(LB,J)
+      B1=FL(N1,I)
+      B2=FL(N2,I)
+      B3=S(N1,I)
+      B4=S(N2,I)
+      B5=FL(N3,J)
+      B6=FL(N4,J)
+      B7=S(N3,J)
+      B8=S(N4,J)
+      IF (JN.LT.NOSUBC.OR.JX.LT.NOSUBC) GO TO 130
+      A14=A10
+      A16=A12
+      B5=FLLJN
+      B6=0.D0
+      B7=0.5D0
+      B8=0.D0
+C
+  130 TLI=DMAX1(DABS(FLL(IN)-A5),DABS(A2-B1),DABS(FLL(I)-A6))-1.D0
+      NTLI=DMIN1(FLL(IN)+A5,A2+B1,FLL(I)+A6)-TLI
+      IF (NTLI.LE.0) GO TO 900
+      TLJN=DMAX1(DABS(FLLJN-A9),DABS(A13-B6),DABS(FLLJX-A10))-1.D0
+      NTLJ=DMIN1(FLLJN+A9,A13+B6,FLLJX+A10)-TLJN
+      IF (NTLJ.LE.0) GO TO 900
+      TSIN=DMAX1(DABS(0.5D0-A7),DABS(A4-B3),DABS(0.5D0-A8))-1.D0
+      NTSI=DMIN1(0.5D0+A7,A4+B3,0.5D0+A8)-TSIN
+      IF (NTSI.LE.0) GO TO 900
+      TSJN=DMAX1(DABS(0.5D0-A11),DABS(A15-B8),DABS(0.5D0-A12))-1.D0
+      NTSJ=DMIN1(0.5D0+A11,A15+B8,0.5D0+A12)-TSJN
+      IF (NTSJ.LE.0) GO TO 900
+C
+      JM1=J-1
+      DO 1144 III=1,2
+      M=L1
+      IF (III.EQ.2) M=L2
+      DO 1143 IP=I,JM1
+      II=NALSP(M,IP)
+      TL(III,IP)=FL(II,IP)
+      TS(III,IP)=S(II,IP)
+      TSCL(III,IP)=PSCRL(M,IP)
+  150 TSCS(III,IP)=PSCRS(M,IP)
+ 1143 CONTINUE
+ 1144 CONTINUE
+      TL(1,I)=FLL(IN)
+      TL(2,I)=FLL(IX)
+      TS(1,I)=0.5D0
+      TS(2,I)=0.5D0
+C
+c     E1=DSQRT((2.D0*A1+1.D0)*(2.D0*A3+1.D0)*(2.D0*B2+1.D0)*
+c    1  (2.D0*B4+1.D0)*(2.D0*B5+1.D0)*(2.D0*B7+1.D0)*
+c    2  (2.D0*A14+1.D0)*(2.D0*A16+1.D0))
+      E11=(2.D0*A1+1.D0)*(2.D0*A3+1.D0)*(2.D0*B2+1.D0)
+      E12=(2.D0*B4+1.D0)*(2.D0*B5+1.D0)*(2.D0*B7+1.D0)
+      E13=(2.D0*A14+1.D0)*(2.D0*A16+1.D0)
+      E1=DSQRT(E11*E12*E13)
+c     XX1=FLL(IN)+FLL(I)+FLLJX+B1+B1+A1+A2+A6+B5+B6+A9+A13+A14
+c    1  +1.5D0+B3+B3+A3+A4+A8+B7+B8+A11+A15+A16
+      XX11=FLL(IN)+FLL(I)+FLLJX+B1+B1+A1+A2+A6
+      XX12=B5+B6+A9+A13+A14+1.5D0+B3+B3
+      XX13=A3+A4+A8+B7+B8+A11+A15+A16
+      XX1=XX11+XX12+XX13
+      DO 1147 NLI=1,NTLI
+      TLI=TLI+1.D0
+      E2=E1*(2.D0*TLI+1.D0)*S6J(FLL(IN),A2,A1, B1,A5,TLI)
+      E2=E2*S6J(A2,B1,TLI, FLL(I),A6,B2)
+      TSCL(1,I-1)=TLI
+      TSCL(2,I-1)=TLI
+      TLJ=TLJN
+      DO 1146 NLJ=1,NTLJ
+      TLJ=TLJ+1.D0
+      E3=E2*(2.D0*TLJ+1.D0)*S6J(B6,FLLJN,B5, A9,A13,TLJ)
+      E3=E3*S6J(B6,A10,A14, FLLJX,A13,TLJ)
+      TSCL(1,J)=TLJ
+      TSCL(2,J)=TLJ
+      TSI=TSIN
+      DO 1145 NSI=1,NTSI
+      TSI=TSI+1.D0
+      E4=E3*(2.D0*TSI+1.D0)*S6J(HALF,A4,A3, B3,A7,TSI)
+      E4=E4*S6J(A4,B3,TSI, HALF,A8,B4)
+      TSCS(1,I-1)=TSI
+      TSCS(2,I-1)=TSI
+      TSJ=TSJN
+      DO 200 NSJ=1,NTSJ
+      TSJ=TSJ+1.D0
+      E5=E4*(2.D0*TSJ+1.D0)*S6J(B8,HALF,B7, A11,A15,TSJ)
+      E5=E5*S6J(B8,A12,A16, HALF,A15,TSJ)
+      XX=XX1+TLI+TLJ+TSI+TSJ
+      IF (DMOD(XX,TWO).GT.ZERO) E5=-E5
+      TSCS(1,J)=TSJ
+      TSCS(2,J)=TSJ
+      TK=DFLOAT(KDMIN-2)
+      DO 160 NN=1,NKD
+      TK=TK+2.D0
+      CALL RDIJ(I,J)
+      CCC(NN)=CCC(NN)+E5*A
+  160 CONTINUE
+      N1=NKD+1
+      TK=DFLOAT(KEMIN-2)
+      DO 170 NN=N1,NKTOT
+      TK=TK+2.D0
+      CALL REIJ(I,J)
+      CCC(NN)=CCC(NN)+E5*RSUM
+  170 CONTINUE
+  200 CONTINUE
+ 1145 CONTINUE
+ 1146 CONTINUE
+ 1147 CONTINUE
+C
+  900 RETURN
+      END
+      SUBROUTINE CLAS11
+C
+C          CALC FOR IRHO=IRHOP, ISIG=ISIGP=NOSUBC, NI(ISIG)=1
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      DIMENSION CFP2(KLS1,KLS1,7),U2(KLSI,KLSI,7),V2(KLSI,KLSI,7),
+     1  V3(KLSI,KLSI,7)
+      integer*8 CFP2_PTR,U2_PTR,V2_PTR,V3_PTR
+      pointer (CFP2_PTR,CFP2),(U2_PTR,U2),(V2_PTR,V2),(V3_PTR,V3)
+      COMMON/C3/    CFP2_PTR,CIJK(10,6),
+     1  U2_PTR,U3(KLSU,KLSU,9),U4(KLSU,KLSU,9),U5(KLSU,KLSU,7),
+     2  U6(KLSU,KLSU,7),V2_PTR,V3_PTR,V4(KLSU,KLSU,7),
+     *  V5(KLSU,KLSU,5),V6(KLSU,KLSU,5),
+     3  NTI(41),IRP1MX,NALSJI(KJP),TFLN,TFLX,TFSN,TFSX,
+     4  PJI(KJP),MULSI(KLSI),LBCDI(KLSI),IRHO,IRHOP,ISIG,ISIGP,FLLRHO,
+     5  FLLSIG,IN,JN,JX,NII,NIJ,KI,KJ,KPI,KPJ,KDMIN,KEMIN,NKD,NKE,NKTOT,
+     6  TR,TK,TC,RSUM,  J11,J12,L1,L2,TL(2,KS),TS(2,KS),
+     7  TSCL(2,KS),TSCS(2,KS),NIJKP(KS,2),IRS(KS),IFL(KS),NDEL(KS),
+     8    CIJR(8),CCC(8),N1,N2,N3,N4,E1,E2,E3,
+     9  E4,E5,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,B1,B2,B3,B4,B5,B6,
+     A  CFGP2(17,8,7),NALSJP(KJP,KS),PJ(KJP,KS)
+      DIMENSION U1(KLSI,KLSI,9)
+      integer*8 U1_PTR
+      COMMON/CC1/U1_PTR
+      pointer (U1_PTR,U1)
+c
+      DIMENSION CFGP1(KLSI,KLSI,7),PC(KPC)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,CFGP1),(PC_PTR,PC)
+c
+      DIMENSION V1(KLSI,KLSI,9)
+      integer*8 V1_PTR
+      COMMON/C3LC3/V1_PTR
+      pointer (V1_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION CFP1(KLS1,KLS1)
+      pointer (CFGP1_PTR,CFP1)
+C
+  100 I=IRHO
+      J=ISIG
+      NIJ=1
+      KI=NALSP(LCI,I)-NOTSJ1(I,J1A)
+      KPI=NALSP(LCIP,I)-NOTSJ1(I,J1B)
+      DO 1149 III=1,2
+      MM=LCI
+      IF (III.EQ.2) MM=LCIP
+      DO 1148 IP=1,NOSUBC
+      II=NALSP(MM,IP)
+      TL(III,IP)=FL(II,IP)
+      TS(III,IP)=S(II,IP)
+      TSCL(III,IP)=PSCRL(MM,IP)
+  110 TSCS(III,IP)=PSCRS(MM,IP)
+ 1148 CONTINUE
+ 1149 CONTINUE
+      TK=DFLOAT(KDMIN-2)
+      DO 150 NN=1,NKD
+      TK=TK+2.D0
+      CALL RDIJ(I,J)
+      CCC(NN)=A
+  150 CONTINUE
+      N1=NKD+1
+      TK=DFLOAT(KEMIN-2)
+      DO 160 NN=N1,NKTOT
+      TK=TK+2.D0
+      CALL REIJ(I,J)
+      CCC(NN)=RSUM
+  160 CONTINUE
+C
+      RETURN
+      END
+C
+      SUBROUTINE PK1(LD,IM1,IM2,A,IA1,IA2,IMSQ,MLINIT)
+C         PACKS 2-DIMENSIONAL MATRIX A(IM1,IM2) INTO THE NEWLY ALLOCATED BUFFER B.
+C         IF IMSQ<IM1*IM2 AND IM1=IM2, MATRIX A IS TREATED AS SYMMETRIC;
+C           ONLY UPPER TRIANGLE IS SAVED.
+C         DIMENSION OF A MATRIX IS (IA1,IA2)
+C         THE PACKED MATRIX IS WRITTEN TO THE DATA FILE (UNIT=LD)
+C         THE OFFSET IN THE BUFFER B IS IOFFS
+C         MLINIT is initial buffer size to allocate.
+c         The buffer is de-allocated in the end.
+c         MLINIT is assigned a new value if it exceeds the initial value.
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      CHARACTER*12 B,BB
+      INTEGER*2 I,J,I1,BB1
+      REAL*8 R8
+      DIMENSION A(IA1,IA2),BB1(6)
+      EQUIVALENCE (R8,BB1(1)),(BB,BB1(1)),(I,BB1(5)),(J,BB1(6))
+      INTEGER*8 B_PTR
+      POINTER (B_PTR,B(1))
+C
+      if (IM1.LT.1 .OR. IM2.LT.1) then
+        write (*,*) 'Wrong PK1 call: IM1,IM2=',IM1,IM2
+        STOP '(FATAL ERROR)'
+      endif
+      MAXLEN=MLINIT
+      CALL ALLOC(B_PTR,MAXLEN,12)
+      IMSQ2=IM1*IM2
+    1 IOFFS=0
+      IFILL=0
+      DO J=1,IM2
+        I1=J
+        IF (IMSQ.GE.IMSQ2) I1=1
+        DO I=I1,IM1
+c          if (I.LT.1 .OR. I.LT.1) then
+c            write (*,*) 'PK1 error: I,J=',I,J
+c            STOP '(FATAL ERROR)'
+c          endif
+          R8=A(I,J)
+c          IF (DABS(R8).GT.1.D-30) THEN
+          IF (R8.NE.0.D0) THEN
+            IOFFS=IOFFS+1
+            IF (IOFFS.GT.MAXLEN) THEN
+*             Double the allocation of storage for the buffer array
+*
+              NEWSIZ = 2*MAXLEN
+              CALL RALLOC(B_PTR,MAXLEN,NEWSIZ,12)
+              MAXLEN = NEWSIZ
+            ENDIF
+            B(IOFFS)=BB
+            IFILL=1
+          ENDIF
+        ENDDO
+      ENDDO
+      IF (IFILL.EQ.0) THEN
+        IOFFS=IOFFS+1
+        IF (IOFFS.GT.MAXLEN) THEN
+          NEWSIZ = 2*MAXLEN
+          CALL RALLOC(B_PTR,MAXLEN,NEWSIZ,12)
+          MAXLEN = NEWSIZ
+        ENDIF
+        I=1
+        J=1
+        R8=0.D0
+        B(IOFFS)=BB
+      ENDIF
+      WRITE (LD) IOFFS,(B(K),K=1,IOFFS)
+C     FCOM=DFLOAT(IOFFS)/DFLOAT(IMSQ)
+C     WRITE (IW,110) K1,FCOM,IOFFS
+C 110 FORMAT(' PK1 CALL NO',I3,': COMPRESSION FACTOR ',F5.3,
+C    1  ', SIZE=',I10)
+      if (MAXLEN.GT.MLINIT) THEN
+        MLINIT = MAXLEN
+      ENDIF
+      CALL DALLOC(B_PTR)
+      RETURN
+      END
+C
+      SUBROUTINE UNPK1(LD,IM1,IM2,A,IA1,IA2,IMSQ,MLINIT)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      CHARACTER*12 BB,B
+      INTEGER*2 BB1
+      REAL*8 R8
+      DIMENSION A(IA1,IA2),BB1(6)
+      EQUIVALENCE (R8,BB1(1)),(BB,BB1(1))
+      INTEGER*8 B_PTR
+      POINTER (B_PTR, B(1))
+c
+      MAXLEN=MLINIT
+      CALL ALLOC(B_PTR,MAXLEN,12)
+C
+      READ (LD) IOFFS2,(B(K),K=1,IOFFS2)   ! AK: Rely on memory size previously set by PK1()
+C
+      DO J=1,IM2
+        DO I=1,IM1
+          A(I,J)=0.D0
+        ENDDO
+      ENDDO
+C
+      IMSQ2=IM1*IM2
+      DO K=1,IOFFS2
+        BB=B(K)
+        if (BB1(5) .LE. 0 .OR. BB1(5) .GT. IM1 .OR. BB1(6) .LE. 0
+     1    .OR. BB1(6) .GT. IM2) THEN
+          write (*,*) 'UNPK1 error: wrong record in file',LD
+          write (*,*) 'BB1(5),BB1(6),IM1,IM2,IA1,IA2,IMSQ=',BB1(5),
+     1      BB1(6),IM1,IM2,IA1,IA2,IMSQ
+          STOP
+        endif
+        A(BB1(5),BB1(6))=R8
+        IF (IMSQ.LT.IMSQ2) A(BB1(6),BB1(5))=R8
+      ENDDO
+  300 CALL DALLOC(B_PTR)
+      RETURN
+      END
+C
+      SUBROUTINE UNPK1_dbg(LD,IM1,IM2,A,IA1,IA2,IMSQ,MLINIT)
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      CHARACTER*12 BB,B
+      INTEGER*2 BB1
+      REAL*8 R8
+      DIMENSION A(IA1,IA2),BB1(6)
+      EQUIVALENCE (R8,BB1(1)),(BB,BB1(1))
+      INTEGER*8 B_PTR
+      POINTER (B_PTR, B(1))
+c
+      MAXLEN=MLINIT
+      CALL ALLOC(B_PTR,MAXLEN,12)
+C
+      write (*,*) 'Reading file ',LD
+      READ (LD) IOFFS2,(B(K),K=1,IOFFS2)   ! AK: Rely on memory size previously set by PK1()
+      write (*,*) 'File read OK, IOFFS2=',IOFFS2
+C
+      DO J=1,IM2
+        DO I=1,IM1
+          A(I,J)=0.D0
+        ENDDO
+      ENDDO
+C
+      IMSQ2=IM1*IM2
+      write (*,*) 'Assigning A, IM1,IM2=',IM1,IM2
+      DO K=1,IOFFS2
+        write (*,*) 'K=',K
+        BB=B(K)
+        write (*,*) 'BB1(5)=',BB1(5)
+        write (*,*) 'BB1(6)=',BB1(6)
+        write (*,*) 'R8=',R8
+        if (BB1(5) .LE. 0 .OR. BB1(5) .GT. IM1 .OR. BB1(6) .LE. 0
+     1    .OR. BB1(6) .GT. IM2) THEN
+          write (*,*) 'UNPK1 error: wrong record, file', LD
+          STOP
+        endif
+        A(BB1(5),BB1(6))=R8
+        IF (IMSQ.LT.IMSQ2) A(BB1(6),BB1(5))=R8
+      ENDDO
+      write (*,*) 'A assigned Ok'
+  300 CALL DALLOC(B_PTR)
+      RETURN
+      END
+C
+C     OVERLAY(G9,6,0)
+      SUBROUTINE CALCFC
+C
+C          SET UP FINAL COEF MATRICES, AND CALC LS-JJ TRANSF MATRIX
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS),MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX),V1(KLSI,KLSI,9)
+      pointer (CT4_PTR,CT4),(CT4_PTR,V1)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI),
+     1  (PCI_PTR,P5),(PCI_PTR,R5)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/C3LCM/MN1,MX1,MN2,MX2,MN3,MX3,MN4,MX4,MN5,MX5,
+     1  MN6,MX6,MN7,MX7,MN8,MX8,SJ2,SJ3,SJ4,SJ5,SJ6,SJ7,SJ8
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+      COMMON/LSJJBK/IJJROT,IJJU,IBSJJ(KNSJK),NBKJJ(KS,KNSJK)
+C     A. Kramida 2026: jj labels of the rotated columns, filled by LSJJRT
+C     and written out beside the rotated matrix on IJJU.
+      INCLUDE 'LSJJID.F'
+      CHARACTER*8 FIERAS,EAV,R5,PR5(3)
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,AA,COUPL,TMXH,A1,A2
+      character*95 encoding
+      CHARACTER*4 LSYMB,A11,A22,LHS,LI,LH,LBCD
+      INTEGER*2 IMAP(4)
+      REAL*8 RMAP
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+c
+      DIMENSION PC(KISER),P5(KISER),R5(KISER),IIIALF(KS)
+c      
+      EQUIVALENCE (RMAP,IMAP)
+      CHARACTER*1 IBLANK,CHH,CH1,CH2
+      INTEGER*1 KK1,KK2
+      DIMENSION ISUB1(KC)
+      DATA TMXH/'TMX'/
+      DATA EAV/'EAV     '/
+      DATA IBLANK/' '/
+C
+c       AK 2026: Assign the character encoding string for duplicate terms
+      encoding='a-&$`#*" >@=?:,~123456789);<[''](.BCDEFGHIJKLMNO' //
+     1  'PQRSTUVWXYZ0{|}%+_bcdefghijklmnopqrstuvwxyzA/!\^'
+c
+c      write (*,*) 'CALCFC0: C_PTR,i_PC_size=',C_PTR,i_PC_size
+C
+C          CALC FINAL LEVELS AND COEF MATRICES
+C
+C     KS=8
+C     KC=200
+      J1X=NSCONF(2,KK)
+      REWIND IL
+      READ (IL) NOTSJ1,NSCRJ8,SJ8MN,SJ8MX,NPAR,NPARJ,PARNAM,
+     1  NOTSX, ((FL(L,I),S(L,I), L=1,NOTSX), I=1,NOSUBC),NALSJP,PJ
+C          WRITE ON TAPE5 INPUT FOR LEAST-SQUARES PROGRAM KONFIT
+      IF (ICTBCD.GT.0) WRITE (19,14)
+   14 FORMAT (5X,1H )
+      IF (ICTBCD.LT.0) THEN
+C       ENCODE (80,15,P5)
+        WRITE (11,15)
+   15   FORMAT (45H MATRIX COEFFICIENTS WRITTEN BY PROGRAM RCG11,35X)
+        BACKSPACE 11
+        READ (11,11) (P5(I),I=1,10)
+   11   FORMAT (10A8)
+        DO I=1,NPAR
+          R5(I+12)=PARNAM(I,KK)
+        ENDDO
+        J=NPAR+12
+        J1=J
+        DO I=1,J1X
+          J=J+1
+          DO JJ=1,3
+            IF (JJ.GE.3.OR.NIJK(JJ,I,KK).LT.10) THEN
+              WRITE (PR5(JJ),1601) NIJK(JJ,I,KK)
+ 1601         FORMAT (I1)
+            ELSE
+              WRITE (PR5(JJ),1602) NIJK(JJ,I,KK)
+ 1602         FORMAT (I2)
+            ENDIF
+          ENDDO
+          WRITE(R5(J),16) (LLIJK(JJ,I,KK),PR5(JJ),JJ=1,3)
+        ENDDO
+   16   FORMAT (2(A1,A2),A1,A1)
+        IP512=2-KCPL
+        WRITE (IW,17) (P5(I),I=1,8),NSCRJ8,NPAR,J1X,IP512,
+     1    (P5(I),I=13,J1)
+   17   FORMAT (8(A8)/4I10/(8(2X,A8)))
+        J1=J1+1
+        WRITE (IW,18) (R5(I),I=J1,J)
+   18   FORMAT (8(2X,A8))
+C       BUFFER OUT (5,1) (P5(1),P5(J))
+C       ITEST5=UNIT(5)
+C
+      ENDIF
+      SCRJ8=SJ8MN-1.D0
+      DO 900 N=1,NSCRJ8           ! CYCLE THROUGH J VALUES
+c        write (*,*) 'CALCFC1: N,C_PTR=',N,C_PTR
+        SCRJ8=SCRJ8+1.D0          ! SCRJ8 is the J quantum number
+C                                 ! (total angular momentum)
+        REWIND 20
+C
+C            SET UP LS LEVELS
+C
+        L=0
+        MX=0
+        DO 229 K=1,NDIFFT
+          LF(K)=0
+          MN=MX+1
+          MX=MX+NTRMK(K)
+          SJMN=DABS(PSCRL(MN,NOSUBC)-PSCRS(MN,NOSUBC))
+          SJMX=PSCRL(MN,NOSUBC)+PSCRS(MN,NOSUBC)
+          IF (SCRJ8.LT.SJMN) GO TO 229
+          IF (SCRJ8.GT.SJMX) GO TO 229
+          DO 219 M=MN,MX
+            L=L+1
+            IF (L.GT.KMX) GO TO 219
+            NCFG(L)=NCFGP(M)
+            DO 1150 I=1,NOSUBC
+              NALS(L,I)=NALSP(M,I)
+              SCRL(L,I)=PSCRL(M,I)
+  215       SCRS(L,I)=PSCRS(M,I)
+ 1150       CONTINUE
+  219     CONTINUE
+          LF(K)=1
+  229   CONTINUE
+        NLS=L
+C
+C            SET UP JJ LEVELS
+C
+  300   IF (NOLSKP.NE.0) GO TO 3491
+        L=0
+        K=0
+        KMAX=0
+        J1=1
+        MX1=0
+        K1MX=NDIFFJ(1)
+        DO 349 K1=1,K1MX
+          MN1=MX1+1
+          MX1=MX1+NJK(K1,1)
+          IF (NALSJP(MX1,1).GT.NOTSJ1(1,J1+1)) J1=J1+1
+          MX2=0
+          K2MX=NDIFFJ(2)
+          DO 348 K2=1,K2MX
+            MN2=MX2+1
+            MX2=MX2+NJK(K2,2)
+            J=NALSJP(MX2,2)
+            IF (J.LE.NOTSJ1(2,J1).OR.J.GT.NOTSJ1(2,J1+1)) GO TO 348
+            MX3=0
+            K3MX=NDIFFJ(3)
+            DO 347 K3=1,K3MX
+              MN3=MX3+1
+              MX3=MX3+NJK(K3,3)
+              J=NALSJP(MX3,3)
+              IF (J.LE.NOTSJ1(3,J1).OR.J.GT.NOTSJ1(3,J1+1)) GO TO 347
+              MX4=0
+              K4MX=NDIFFJ(4)
+              DO 346 K4=1,K4MX
+                MN4=MX4+1
+                MX4=MX4+NJK(K4,4)
+                J=NALSJP(MX4,4)
+                IF (J.LE.NOTSJ1(4,J1).OR.J.GT.NOTSJ1(4,J1+1)) GO TO 346
+                MX5=0
+                K5MX=NDIFFJ(5)
+                DO 345 K5=1,K5MX
+                  MN5=MX5+1
+                  MX5=MX5+NJK(K5,5)
+                  J=NALSJP(MX5,5)
+                  IF (J.LE.NOTSJ1(5,J1).OR.J.GT.NOTSJ1(5,J1+1))
+     1              GO TO 345
+                  MX6=0
+                  K6MX=NDIFFJ(6)
+                  DO 344 K6=1,K6MX
+                    MN6=MX6+1
+                    MX6=MX6+NJK(K6,6)
+                    J=NALSJP(MX6,6)
+                    IF (J.LE.NOTSJ1(6,J1).OR.J.GT.NOTSJ1(6,J1+1))
+     1                GO TO 344
+                    MX7=0
+                    K7MX=NDIFFJ(7)
+                    DO 343 K7=1,K7MX
+                      MN7=MX7+1
+                      MX7=MX7+NJK(K7,7)
+                      J=NALSJP(MX7,7)
+                      IF (J.LE.NOTSJ1(7,J1).OR.J.GT.NOTSJ1(7,J1+1))
+     1                  GO TO 343
+                      MX8=0
+                      K8MX=NDIFFJ(8)
+                      DO 342 K8=1,K8MX
+                        MN8=MX8+1
+                        MX8=MX8+NJK(K8,8)
+                        J=NALSJP(MX8,8)
+                        IF (J.LE.NOTSJ1(8,J1).OR.J.GT.NOTSJ1(8,J1+1))
+     1                    GO TO 342
+                        SJ2=DABS(PJ(MN1,1)-PJ(MN2,2))-1.D0
+                        NJ2=PJ(MN1,1)+PJ(MN2,2)-SJ2
+                        DO 1156 IJ2=1,NJ2
+                          SJ2=SJ2+1.D0
+                          SJ3=DABS(SJ2-PJ(MN3,3))-1.D0
+                          NJ3=SJ2+PJ(MN3,3)-SJ3
+                          DO 1155 IJ3=1,NJ3
+                            SJ3=SJ3+1.D0
+                            SJ4=DABS(SJ3-PJ(MN4,4))-1.D0
+                            NJ4=SJ3+PJ(MN4,4)-SJ4
+                            DO 1154 IJ4=1,NJ4
+                              SJ4=SJ4+1.D0
+                              SJ5=DABS(SJ4-PJ(MN5,5))-1.D0
+                              NJ5=SJ4+PJ(MN5,5)-SJ5
+                              DO 1153 IJ5=1,NJ5
+                                SJ5=SJ5+1.D0
+                                SJ6=DABS(SJ5-PJ(MN6,6))-1.D0
+                                NJ6=SJ5+PJ(MN6,6)-SJ6
+                                DO 1152 IJ6=1,NJ6
+                                  SJ6=SJ6+1.D0
+                                  SJ7=DABS(SJ6-PJ(MN7,7))-1.D0
+                                  NJ7=SJ6+PJ(MN7,7)-SJ7
+                                  DO 1151 IJ7=1,NJ7
+                                    SJ7=SJ7+1.D0
+                                    SJ8=DABS(SJ7-PJ(MN8,8))-1.D0
+                                    NJ8=SJ7+PJ(MN8,8)-SJ8
+                                    DO 339 IJ8=1,NJ8
+                                      SJ8=SJ8+1.D0
+                                      IF (SJ8.NE.SCRJ8) GO TO 339
+C
+                                      K=K+1
+c                                      if (K.GT.110) GO TO 3491
+                                      if (K.GT.KMAX) KMAX=K
+                                      NSJK(K)=0
+C
+C                8-FOLD DO LOOP (37 LINES) MOVED TO SUBROUTINE CAFCDOLP
+C
+                                      CALL CAFCDOLP(L,K)
+C
+  339                   CONTINUE
+ 1151                             CONTINUE
+ 1152                           CONTINUE
+ 1153                         CONTINUE
+ 1154                       CONTINUE
+ 1155                     CONTINUE
+ 1156                   CONTINUE
+  342                 CONTINUE
+  343               CONTINUE
+  344             CONTINUE
+  345           CONTINUE
+  346         CONTINUE
+  347       CONTINUE
+  348     CONTINUE
+  349   CONTINUE
+        if (KMAX.GT.KNSJK) then
+          write(6,*) ' RECOMPILE WITH KNSJK >= ',KMAX
+          STOP '(INSUFFICIENT DIMENSION NSJK in CALCFC.)'
+        endif
+        NDIFSJ=K
+ 3491   NJJ=L
+c        write (*,*) 'CALCFC2: N,C_PTR=',N,C_PTR
+        IF (NJJ.NE.NLS) WRITE (IW,35) NLS,NJJ,SCRJ8
+   35   FORMAT (///5H0NLS=,I3,5X,5H NJJ=,I3,5X,11H FOR SCRJ8=,F4.1)
+        IF (NLS.LE.KMX .AND. NJJ.LE.KMX) GO TO 350
+        WRITE (IW,36) NLS,KMX,SCRJ8
+   36   FORMAT (///18H0*****MATRIX SIZE=,I5,
+     1    25H  GREATER THAN DIMENSION=,I5,'     FOR SCRJ8=',F4.1)
+c       NLS=KMX
+        WRITE (6,36) NLS,KMX,SCRJ8
+        STOP '(INSUFFICIENT DIMENSION KMX in CALCFC.)'
+C
+C            CALC SUBSHELL TO BE USED IN BASIS-STATE LABELS
+C
+  350   DO 390 J=1,J1X        ! Cycle through configs
+          ISUBJ(J)=0
+          ISUB=0
+          ISUB1(J)=0
+C
+C           As a result of the following cycle, ISUBJ(J) will hold an index
+C           of the subshell to be used in parent term label in the output.
+C           Negative number will mean the lowest multiply-but-not-fully occupied
+C           subshell (MBNFOS) in conf. J, and positive number will mean that there
+C           is no MBNFOS, and the number points to last singly occupied subshell
+C           prior to the very last subshell. In this context, "occupied" means
+C           "occupied by an electron or hole".
+C
+          DO 380 I=1,NOSUBC  ! Cycle through subshells
+            I1=NOSUBC-I+1
+C                           ! KK is parity (number of conf. set)
+            W=NIJK(I1,J,KK) ! Number of electrons in the subshell I1 of conf. J
+            WFM1=4.D0*FLLIJK(I1,J,KK)+1.D0    ! Max. possible occupation minus 1
+            IF (W.NE.0.D0.AND.I1.GT.ISUB1(J))
+     1        ISUB1(J)=I1        ! ISUB1(J) will mark the last occupied subshell
+C                                ! in conf. J. It is used in JJ coupling notation
+C
+            IF (W.EQ.0.D0.OR.W.GT.WFM1)
+     1        GO TO 380          ! Skip not occupied or completely filled subshell
+            IF (W.EQ.1.D0.OR.W.EQ.WFM1) THEN  ! One electron or one hole
+              IF (ISUBJ(J).EQ.0.AND.I1.LT.ISUB)
+C               Action of this condition is equivalent to:
+C               if  (ISUBJ(J).eq.0.AND.I1.ne.NOSUBC) then ...
+C               because if ISUB equals 0 and I1 is not NOSUBC,
+C               ISUBJ(J) would already hold some negative number.
+C
+     1          ISUBJ(J)=I1 ! ISUBJ(J) will mark the last singly occupied
+C                           ! (by electron or hole) subshell for conf. J,
+C                           ! that occurs either 1) prior to the lowest
+C                           ! multiply-but-not-fully occupied subshell,
+C                           ! or 2) prior to the very last subshell
+c
+                            ! I1 decreases from NOSUBC down to 1.
+              ISUB=I1       ! ISUB is just a temporary holder for the spotted subshell.
+                            ! It is needed to skip the very last shell if it's
+                            ! singly-occupied.
+            ELSE
+              ISUBJ(J)=-I1 ! ISUBJ(J) will mark the lowest multiply-but-not-fully
+C                          ! occupied (by electron or hole) subshell in conf. J
+            ENDIF
+  380     CONTINUE
+          IF (ISUBJ(J).EQ.0) ISUBJ(J)=1 ! if nothing marked, mark the first subshell
+  390   CONTINUE
+C
+C            WRITE COMPLETE QUANTUM NUMBERS
+C                 AND FORM BASIS-STATE LABELS
+C
+c        write (*,*) 'CALCFC3: N,C_PTR=',N,C_PTR
+        IPT=0
+        IF (ICFC.NE.0) THEN
+          IPT=1
+          IF (KCPLD(1)+KCPLD(2).GT.1) IPT=0
+          IF (KCPLD(9).GE.9.OR.ISPECC.GE.9) IPT=0
+          JJJ=MIN0(J1X,9)
+          IF (IPT.EQ.0) GO TO 400
+          IF (JJJ+NLS*((KS+3)/4).GT.55.OR.ICFC.GT.2) WRITE (IW,37)
+   37     FORMAT (1H1)
+  400     WRITE(IW,38) SCRJ8,(J,(LLIJK(I,J,KK),NIJK(I,J,KK),I=1,KS),
+     1      J=1,JJJ)
+   38     FORMAT (3H0J=,F4.1,10X,13HCONFIGURATION,I10,4X,8(A1,I2,3X)/
+     1      (30X,I10,4X,8(A1,I2,3X)))
+          IF (J1X.GT.9) WRITE (IW,39)  J1X, (LLIJK(I,J1X,KK),
+     1      NIJK(I,J1X,KK), I=1,KS)
+   39     FORMAT (30X,I10,4X,8(A1,I2,3X))
+          WRITE (IW,40)
+   40     FORMAT (7H ------/)
+        ENDIF
+c       WRITE (IW, 4001) NOSUBC
+c4001   FORMAT (8H NOSUBC=,I2)
+  405   DO 470 L=1,NLS   ! Cycle through levels (of total momentum J = SCRJ8)
+          DO 1157 I=1,NOSUBC   ! Cycle through subshells
+            M=NALS(L,I)        ! Term number
+            MUL(I)=MULT(M,I)   ! Term's multiplicity
+            LH(I)=LBCD(M,I)    ! Term's name ("S, P, D, ...")
+            IIIALF(I)=IALF(M,I)   ! Cowan's substitute for seniority
+            MULS(I)=2.D0*SCRS(L,I)+1.D0 ! Intermediate (sequentially summed) multilplicity
+            LP1=SCRL(L,I)+1.D0
+  410     LHS(I)=LSYMB(LP1)             ! Desig. of intermediate L ("S, P, D, ...")
+ 1157     CONTINUE
+          J=NCFG(L)                     ! Conf. number
+          I1=IABS(ISUBJ(J))             ! The spotted multiply occupied subshell to be used as parent in output
+          MI=MUL(I1)                    ! It's multiplicity for this parent term
+          LI=LH(I1)                     ! It's parent term name (S, P, D, F, ...)
+C ****  ************************************************** Yu.RALCHENKO v
+          WRITE (CHH,9877) IIIALF(I1)
+ 9877     FORMAT(A1)
+c         Modified by A. Kramida 06/23/04
+c         IF (CHH.NE.IBLANK) CALL SENIOR(KK,J,MI,LI,CHH)
+C         LLIJK(I1,J,KK) holds the spotted subshell's name
+C         NIJK(I1,J,KK)  holds the occupation number
+c         so there's no need to pass KK as parameter, but we need I1
+          IF (CHH.NE.IBLANK.AND.ISENIOR.NE.0)
+     1       CALL SENIOR(I1,J,MI,LI,CHH)
+c         End A. Kramida 06/23/04
+C ****  ************************************************** Yu.RALCHENKO ^
+          IF (ISUBJ(J).GE.0) THEN  ! No multiply-but-not-fully occupied subshells
+            MI=MULS(I1)            ! Then use the last singly-occupied subshell's
+            LI=LHS(I1)             ! intermediate (summed) momenta
+          ENDIF
+  420     WRITE (FIDLS(L,1),41) MI,LI,MULS(NOSUBC),LHS(NOSUBC),CHH
+   41     FORMAT (I1,A1,1H),I2,2A1)
+C ****  ************************************************** Yu.RALCHENKO v
+          IF (IQS.NE.0) THEN
+            WRITE(FIDLS(L,1),41) MUL(IQS),LH(IQS),MULS(NOSUBC),
+     1        LHS(NOSUBC),CHH
+          ELSE                       ! INWOL works only with zero IQS
+                                     ! and only if it is 1 or 9
+            IF (INWOL.EQ.1) THEN
+              JY=0
+ 9100         JY=JY+1
+              IF (JY.LT.NOSUBC) THEN
+                IF (MULS(NOSUBC-JY).EQ.MULS(NOSUBC).AND.LHS(NOSUBC-JY).
+     1            EQ.LHS(NOSUBC)) GO TO 9100
+                WRITE(FIDLS(L,1),41) MULS(NOSUBC-JY),
+     1            LHS(NOSUBC-JY),MULS(NOSUBC),LHS(NOSUBC),CHH
+              ENDIF
+            ELSE IF (INWOL.EQ.9) THEN
+              DO 3945 JKI=NOSUBC,2,-1
+                IF(LHS(JKI).EQ.LHS(JKI-1).AND.MULS(JKI).EQ.MULS(JKI-1))
+     *            GOTO 3945
+                JKIIKJ=JKI-1
+                GOTO 3946
+ 3945         CONTINUE
+ 3946         WRITE (FIDLS(L,1),41) MULS(JKIIKJ),LHS(JKIIKJ),
+     *          MULS(NOSUBC),LHS(NOSUBC),CHH
+            ENDIF
+          ENDIF
+C ****  ************************************************** Yu.RALCHENKO ^
+          IF (IPT.NE.0) THEN
+            IF (NOSUBC.GT.3) THEN
+              WRITE (IW,42) L, NCFG(L), (NALS(L,I),MUL(I),LH(I),
+     1          MULS(I),LHS(I), I=1,NOSUBC)
+C       Modified by A. Kramida 3/16/04
+C   42         FORMAT(1H ,I3,I3,2X,1H(,I3,I2,A1,1H),I2,A1,
+C     1          7(3H  (,I1,I3,A1,1H),I2,A1))
+   42         FORMAT(1H ,I3,I3,2X,1H(,I3,I2,A1,1H),I2,A1,
+     1          7(3H  (,I3,I2,A1,1H),I2,A1))
+              GO TO 440
+            ELSE
+  430         WRITE (IW,43) NCFG(L), (NALS(L,I),MUL(I),LH(I),
+     1          MULS(I),LHS(I), I=1,NOSUBC)
+   43         FORMAT (1H ,I2,4X,3(1H(,I3,I3,A1,1H),I3,A1,4X))
+            ENDIF
+          ENDIF
+  440     IF (NOLSKP.NE.0) GO TO 470
+          DO 445 I=1,NOSUBC
+            M=NALSJ(L,I)
+            MUL(I)=MULT(M,I)
+            LH(I)=LBCD(M,I)
+  445     CONTINUE
+          FJI=FJ(L,I1)
+          IF (ISUBJ(J).GT.0) FJI=SCRJ(L,I1)
+C         WRITE (FIDJJ(L,1),44) MUL(I1),LH(I1),FJI
+C  44     FORMAT (1H(,I1,A1,F4.1,1H))
+C         A.KRAMIDA
+          I2FJI1=2.D0*FJI
+          I2FJI=2.D0*FJ(L,ISUB1(J))
+          WRITE (FIDJJ(L,1),44) MUL(I1),LH(I1),I2FJI1,I2FJI
+   44     FORMAT (I1,A1,I2,1H),I2)
+C         A.KRAMIDA
+          IF (IPT.EQ.0) GO TO 470
+          IF (NOSUBC.GT.4) GO TO 470
+            IF (NOSUBC.LE.2) GO TO 460
+              WRITE (IW,45) L,
+     1          (NALSJ(L,I),MUL(I),LH(I),FJ(L,I),SCRJ(L,I), I=1,NOSUBC)
+   45         FORMAT (1H+,I60,4X,1H(,I3,I2,A1,F4.1,1H),F4.1,
+     1          3(3H  (,I2,I2,A1,F4.1,1H),F4.1))
+              GO TO 470
+  460       WRITE (IW,46) L,
+     1        (NALSJ(L,I),MUL(I),LH(I),FJ(L,I),SCRJ(L,I), I=1,NOSUBC)
+   46       FORMAT (1H+,I60,3X,3(4X,1H(,I3,I3,A1,F5.1,1H),F5.1))
+  470   CONTINUE
+c        write (*,*) 'CALCFC4: N,C_PTR=',N,C_PTR
+C ****  ************************************************  A.KRAMIDA  v
+C
+C         ELIMINATE DIPLICATE TERM NAMES
+C
+C       A. Kramida 2026: the double loop that used to stand here rescanned
+C       the whole NLS x NLS pair space after every single rename, which is
+C       about 0.4*NLS**3 comparisons.  SUBROUTINE CFCDUP reaches the same
+C       fixed point from a sort, and keeps the old loop as a fallback.
+        CALL CFCDUP (encoding)
+C ****  ************************************************  A.KRAMIDA  ^
+C     A. Kramida 2026: the genealogy of this block's basis states, if
+C     the main card asked for it.  Here and not earlier, because the
+C     de-duplication just above is what fixes the labels the table is
+C     keyed on.
+        IF (IPGEN.NE.0) CALL GENPRT(1,NLS,SCRJ8)
+c        write (*,*) 'CALCFC5: N,C_PTR=',N,C_PTR
+        IIX1 = 0
+        IF (NOLSKP.NE.0) THEN
+          IIX1 = 1
+          GO TO 555
+        ENDIF
+        IF (IPT.NE.0) THEN
+          WRITE (IW,43)
+          IF (NOSUBC.GT.4) THEN
+            DO L=1,NLS
+              DO 1158 I=1,NOSUBC
+                M=NALSJ(L,I)
+                MUL(I)=MULT(M,I)
+  471         LH(I)=LBCD(M,I)
+ 1158         CONTINUE
+C                PRINT quantum numbers for JJ basis states
+              WRITE (IW,47) L,
+     1          (NALSJ(L,I),MUL(I),LH(I),FJ(L,I),SCRJ(L,I), I=1,NOSUBC)
+   47         FORMAT (I5,1X,8(2H (,I2,I2,A1,F4.1,1H),F4.1))
+            ENDDO
+            WRITE (IW,43)
+          ENDIF ! (NOSUBC.GT.4)
+        ENDIF ! (IPT.NE.0)
+c        write (*,*) 'CALCFC6: N,C_PTR=',N,C_PTR
+C
+C            CALC TRANSFORMATION MATRIX
+C
+C       A. Kramida 2026: zero TMX down its columns.  The old
+C       TMX(LS,JJ)=0.D0 sat inside the JJ loop, which walks a
+C       column-major array across a row and so took one cache miss per
+C       element written -- NLS*NJJ of them per block per J.
+  505   DO JJ=1,NJJ
+          DO LS=1,NLS
+            TMX(LS,JJ)=0.D0
+          ENDDO
+        ENDDO
+        DO 1159 LS=1,NLS
+          ILSSL=SCRL(LS,NOSUBC)+SCRS(LS,NOSUBC)-SCRJ8
+          ILSSL=MOD(ILSSL,2)
+          DO 530 JJ=1,NJJ
+            DO 510 I=1,NOSUBC
+              IF (NALS(LS,I).NE.NALSJ(JJ,I)) GO TO 530
+  510       CONTINUE
+            TMX(LS,JJ)=1.D0
+            IF (IABG.GE.3.AND.ILSSL.NE.0) TMX(LS,JJ)=-1.D0
+            IF (NOSUBC.LE.1) GO TO 530
+              DO 521 I=2,NOSUBC
+                ML=NALS(LS,I)
+                IF (FL(ML,I).EQ.0.D0.AND.S(ML,I).EQ.0.D0) GO TO 521
+                IF (SCRL(LS,I-1).EQ.0.D0.AND.SCRS(LS,I-1).EQ.0.D0)
+     1            GO TO 521
+                A=DSQRT((2.D0*SCRL(LS,I)+1.D0)*(2.D0*SCRS(LS,I)+1.D0)
+     1            *(2.D0*FJ(JJ,I)+1.D0)*(2.D0*SCRJ(JJ,I-1)+1.D0))
+                B=S9J(SCRL(LS,I-1),FL(ML,I),SCRL(LS,I), SCRS(LS,I-1),
+     1            S(ML,I),SCRS(LS,I), SCRJ(JJ,I-1),FJ(JJ,I),SCRJ(JJ,I))
+                TMX(LS,JJ)=A*B*TMX(LS,JJ)
+  521         CONTINUE
+  530   CONTINUE
+ 1159   CONTINUE
+C
+C
+C     A. Kramida 2026: TMX above is Cowan's J1J2 matrix -- the columns
+C     are still labelled by an LS term of each subshell coupled to Ji,
+C     not by (j-**N1 v1 J1, j+**N2 v2 J2) Ji.  The rotation into TRUE jj
+C     is NOT done here: it happens after the orthonormality check and
+C     the ICFC print below, so that both of those go on describing
+C     Cowan's matrix, and it is undone again before the IL and IC
+C     writes.  See the IJJROT block further down.
+C
+C          CHECK ORTHONORMALITY
+        IF (ICFC.GT.1) WRITE (IW,53) COUPL(1)
+   53   FORMAT (  27H0TRANSFORMATION MATRIX FROM,A6,15H TO JJ COUPLING)
+C       A. Kramida 2026: the triple loop that used to stand here was
+C       NLS**3/2 multiply-adds, every one of them a cache miss, and was
+C       the largest single cost of a big run.  TMX is block diagonal in
+C       the subshell-term signature; SUBROUTINE CFCORT uses that and
+C       gets the same bits and the same messages.
+  540   CALL CFCORT (TMX,KMX)
+c        write (*,*) 'CALCFC7: N,C_PTR=',N,C_PTR
+C
+  555   IF (ICFC.GT.1 .OR. IIX1.NE.0) then
+          IF (IIX1.EQ.0) THEN
+            LPX=0
+  560       LPN=LPX+1
+              LPX=LPX+11
+              IF (LPX.GT.NJJ) LPX=NJJ
+              WRITE (IW,55) (FIDJJ(LP,1), LP=LPN,LPX)
+   55         FORMAT (//28X, 11(2H (,A7))
+              WRITE (IW,56) (LP, LP=LPN,LPX)
+   56         FORMAT (26X,11I9)
+              WRITE (IW,57)
+   57         FORMAT (1H )
+              DO 1162 L=1,NLS
+  580         WRITE (IW,58) NCFG(L),FIDLS(L,1),L,(TMX(L,LP),LP=LPN,LPX)
+ 1162         CONTINUE
+   58         FORMAT (I11,2X,2H (,A8,I4,2X,11F9.5)
+            IF (LPX.LT.NJJ) GO TO 560
+          ENDIF !  (IIX1.EQ.0)
+  595     CALL CLOCK(TIME)
+          DELT=TIME-TIME0
+          WRITE (IW,59) SCRJ8,DELT
+   59     FORMAT (///' CALCFC, J=',F4.1,5X,5HTIME=,F9.3,4H MIN)
+          IF (IW6.LT.0) WRITE (6,59) SCRJ8,DELT
+        endif
+C
+C     A. Kramida 2026: TRUE jj.  Everything above this point has already
+C     been done on, and printed from, Cowan's J1J2 matrix, so the
+C     rotation can neither disturb it nor be disturbed by it.  Here the
+C     matrix is rotated, named, parked on IJJU, and rotated straight
+C     back, so that everything BELOW -- the IL and IC writes, and CPL37
+C     at the foot of the block loop -- also sees exactly the matrix it
+C     saw before this code existed.  The readers that do want true jj
+C     (SPRIN, through ENERGY, and RCEINP) take it from IJJU.
+C
+C     Rotating in two steps -- MODE=0 to check the whole matrix, then
+C     MODE=+1 to do it -- makes the operation all or nothing, so the
+C     "MATRIX LEFT IN J1J2" message below is always true.
+C
+C     The rotation used to be followed by a second full orthonormality
+C     check of the rotated matrix.  The only thing that check could ever
+C     find is a bad U: the matrix going in has just been checked at
+C     label 540, and an orthonormal matrix times an orthogonal one is
+C     orthonormal identically, so the product test carries no
+C     information that the factor test does not.  It cost the same
+C     NLS**3/2 as the check at label 540, i.e. hours per block on a
+C     large run, to re-derive a property of a few hundred-by-hundred
+C     deck matrices.  U is now tested directly, inside LSJJRT, once per
+C     subshell l**N rather than once per J block -- see CFCUOR.  A U
+C     that fails comes back as IERJJ=8 below, before anything has been
+C     rotated, so the failure is reported and the matrix left in J1J2
+C     instead of the old behaviour of printing a warning about a matrix
+C     that had already been spoiled.
+C
+C     The matrix is put back by restoring the copy on unit 43, not by
+C     rotating back with MODE=-1.  MODE=-1 is exact only to roundoff --
+C     U is orthogonal, so it is U transposed, but the products are still
+C     floating point -- and that was enough to move the last bits of
+C     TAPE2E, which would have made the ordinary results of a run depend
+C     on whether the extra output had been asked for.  A saved copy
+C     restores them exactly.  MODE=-1 remains, and is still tested by
+C     LSJJ/README.txt's round trip; it is simply not used here.
+C
+C     One record per J block, written whether the rotation worked or
+C     not: IOK says which, and a block that failed carries the J1J2
+C     matrix and blank labels.  The readers are sequential and have no
+C     way back, so a skipped record would put every later block on the
+C     wrong matrix; writing an unusable one costs a little scratch space
+C     and keeps the two streams in step by construction.
+C
+        IF (IJJROT.NE.0) THEN
+          IOKJJ=0
+          IMSQ=NLS*NLS
+          REWIND 43
+          CALL PK1(43,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+          CALL LSJJRT(TMX,KMX,NDIFSJ,0,IERJJ)
+          IF (IERJJ.EQ.0) CALL LSJJRT(TMX,KMX,NDIFSJ,1,IERJJ)
+          IF (IERJJ.NE.0) THEN
+            WRITE (IW,531) IERJJ,SCRJ8
+            IF (IW6.LT.0) WRITE (6,531) IERJJ,SCRJ8
+  531       FORMAT (//' *****LSJJRT FAILED, IERR=',I2,'  J=',F5.1,
+     1        '.  MATRIX LEFT IN J1J2 COUPLING; NO TRUE jj OUTPUT',
+     2        ' FOR THIS J.'//)
+            DO L=1,NLS
+              FIDJ2(L)='        '
+            ENDDO
+          ELSE
+            IOKJJ=1
+            CALL LSJJID(NLS)
+            IF (IPGEN.NE.0) CALL GENPRT(2,NLS,SCRJ8)
+          ENDIF
+          WRITE (IJJU) IOKJJ,SCRJ8,NLS,NOSUBC, (((NJJST(K1,L,I),K1=1,4),
+     1      I=1,NOSUBC), FIDJ2(L), L=1,NLS)
+          CALL PK1(IJJU,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+          REWIND 43
+          CALL UNPK1(43,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+        ENDIF
+C
+C            FORM FINAL COEFFICIENT MATRICES
+C
+  600   ILC=IL
+C       DO 601 NN=1,2
+C         WRITE (ILC) SCRJ8,NLS, ((TMX(L,LP),L=1,NLS), LP=1,NLS),
+C    1      ((NALS(L,I),SCRL(L,I),SCRS(L,I),
+C    2      I=1,NOSUBC), NCFG(L),FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+C 601   ILC=IC
+C  ***  ******************************************************** A.KRAMIDA v
+c        write (*,*) 'CALCFC8: N,C_PTR=',N,C_PTR
+        DO NN=1,2
+          WRITE (ILC) SCRJ8,NLS, ((NALS(L,I),SCRL(L,I),SCRS(L,I),
+     1      I=1,NOSUBC), NCFG(L),FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+          IMSQ=NLS*NLS
+          CALL PK1(ILC,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)   !,2,IW)
+          ILC=IC
+        ENDDO
+C  ***  ******************************************************** A.KRAMIDA ^
+        ICPTR=ICPTR+2
+        NOICWR=NOICWR+2
+        NPAR=0
+        NC=0
+        IF (ICTBCD.GT.0) THEN
+          NX=MIN0(N,J1X)
+          WRITE (19,61) N,NLS,SCRJ8, COUPL(KCPL), (LLIJK(I,NX,KK),
+     1      NIJK(I,NX,KK), I=1,6)
+   61     FORMAT (2I6,6H     1,6X,F4.1, 3X,A6,5H CPLG,6X, 2(2X,A1,I2),
+     1      1X, 4(1X,A1,I1))
+        ENDIF
+C
+  604   NPARO=NPAR
+        IIX=0
+c        write (*,*) 'CALCFC8.1: N,C_PTR,=',N,C_PTR,i_PC_size
+        READ (20) NPAR,KPAR,K20,I,J,AA,CAVE,J1,NOPC,(PC(N1),N1=1,
+     1    min(NOPC,i_PC_size))
+c         PC Dimension check added by Alex K 10/28/02
+c        IF (NOPC.GT.KPC) STOP
+c     1      ' CALCFC ERROR 604: INSUFFICIENT KPC DIMENSION'
+c         END Alex K 10/28/02
+c        READ (20) NPAR,KPAR,K20,I,J,AA,CAVE,J1,NOPC
+c        write (*,*) 'CALCFC9: N,C_PTR,NOPC=',N,C_PTR,NOPC
+        IF (NOPC.GT.i_PC_size) THEN
+          new_size=max(NOPC,2*i_PC_size)
+          CALL RALLOC(PC_PTR,i_PC_size,new_size,8)
+          i_PC_size=new_size
+c          write (*,*) 'CALCFC9.1: N,C_PTR,i_PC_size=',N,C_PTR,i_PC_size
+          BACKSPACE 20
+          READ (20) NPAR,KPAR,K20,I,J,AA,CAVE,J1,NOPC,(PC(N1),N1=1,NOPC)
+        endif
+c        write (*,*) 'CALCFC10: N,C_PTR=',N,C_PTR
+        if (NOPC.GT.ISER_size) then
+          new_size=max(NOPC,2*ISER_size)
+          CALL RALLOC(PCI_PTR,ISER_size,new_size,8)
+          ISER_size=new_size
+        endif
+c        write (*,*) 'CALCFC11: N,C_PTR=',N,C_PTR
+C
+        IF (NPAR.EQ.-7) GO TO 890    ! NPAR.EQ.-7 signals end of parameters
+C
+ 6041   IF (ICTBCD.NE.0.OR.IIX.NE.0) THEN
+          IF (IIX.EQ.0) NPARX=NPAR
+          IF (NPAR.NE.NPARO+1 .OR. IIX.NE.0) THEN     ! This signals EAV
+            IF (IIX.EQ.0) THEN
+              NN=-N
+              NPAR20=NPAR
+              NPAR=NPARO+1
+            ENDIF
+  605       NC=NC+1
+            PARNAM(NPAR,KK)=EAV
+            DO LP=1,NLS
+              DO L=LP,NLS
+                C(L,LP)=0.D0
+              ENDDO
+              C(LP,LP)=0.D0
+              IF (NCFG(LP).EQ.NC) C(LP,LP)=1.D0
+            ENDDO
+            GO TO 805
+          ENDIF ! (NPAR.NE.NPARO+1)
+        ENDIF ! (ICTBCD.NE.0)
+  609   PARNAM(NPAR,KK)=AA
+        J1A=J1
+        J1B=J1
+  610   CONTINUE
+c        write (*,*) 'CALCFC12: N,C_PTR=',N,C_PTR
+        DO L=1,NLS
+          DO LP=1,L
+            C(L,LP)=0.D0
+          ENDDO
+        ENDDO
+c       IF (KPAR.GT.0) GO TO 630
+c       IF (KPAR.EQ.-2) GO TO 680
+  680   IF (KPAR.EQ.-2) THEN
+C
+C            RK MATRIX (LOWER TRIANGLE)   - Configuration interaction parameters
+C
+c           Dimension check added by Alex K 10/28/02
+          IF (I.GE.KNT.OR.J.GE.KNT) STOP
+     1       ' CALCFC ERROR 1: INSUFFICIENT NTOTTJ DIMENSION'
+c           END ALEX K 10/28/02
+          J1A=I
+          J1B=J
+          LAMN=0
+          LAMX=0
+          LBMX=0
+          DO 1163 L=1,NLS
+            IF (NCFG(L).LT.J1A) LAMN=L
+            IF (NCFG(L).EQ.J1A) LAMX=L
+            IF (NCFG(L).LT.J1B) LBMN=L
+  682     IF (NCFG(L).EQ.J1B) LBMX=L
+ 1163     CONTINUE
+          IF (LAMX.NE.0.AND.LBMX.NE.0) THEN
+            LJ=LAMN
+            LAMN=LAMN+1
+            LBMN=LBMN+1
+            LPJ=LBMN
+C
+            LN=NTOTTJ(J1A)+1
+            LX=NTOTTJ(J1A+1)
+            LPN=NTOTTJ(J1B)+1
+            LPX=NTOTTJ(J1B+1)
+            NOPC=0
+            DO 1164 LP=LPN,LPX
+            DO 688 L=LN,LX
+              ITEST=0
+              IF (PSCRL(L,NOSUBC).NE.PSCRL(LP,NOSUBC)) ITEST=1
+              IF (PSCRS(L,NOSUBC).NE.PSCRS(LP,NOSUBC)) ITEST=1
+              IF (ITEST.EQ.0) NOPC=NOPC+1
+              IF (DABS(PSCRL(L,NOSUBC)-PSCRS(L,NOSUBC)).GT.SCRJ8)
+     1          GO TO 688
+              IF (DABS(PSCRL(LP,NOSUBC)-PSCRS(LP,NOSUBC)).GT.SCRJ8)
+     1          GO TO 688
+              IF (PSCRL(L,NOSUBC)+PSCRS(L,NOSUBC).LT.SCRJ8) GO TO 688
+              IF (PSCRL(LP,NOSUBC)+PSCRS(LP,NOSUBC).LT.SCRJ8) GO TO 688
+                LJ=LJ+1
+                IF (LJ.LE.LAMX) GO TO 686
+                  LJ=LAMN
+                  LPJ=LPJ+1
+                  IF (LPJ.LE.LBMX) GO TO 686
+                    WRITE (IW,68) J1A,J1B,L,LP,LJ,LPJ,LAMN,LAMX,LBMN,
+     1                LBMX,NOPC, PC(NOPC),LN,LX,LPN,LPX
+   68               FORMAT (//17H0***LPJ.GT.LBMX  ,
+     1                2I5,3X,4I5,3X,4I5,I10,F15.7,5X,4I5)
+  686           IF (ITEST.EQ.0) C(LPJ,LJ)=PC(NOPC)
+  688       CONTINUE
+ 1164       CONTINUE
+          ENDIF ! (LAMX.NE.0.AND.LBMX.NE.0)
+        ELSE    ! (KPAR.NE.-2)
+  620     IF (KPAR.LE.0) THEN
+C
+C            FK,GK MATRIX (LOWER TRIANGLE)
+C
+            LX=0
+            LMX=0
+            M=0
+            DO K=1,NDIFFT
+              LMX=LMX+NTRMK(K)
+              IF (NCFGP(LMX).NE.J1) THEN
+                IF (LF(K).GT.0) LX=LX+NTRMK(K)
+              ELSE
+                IF (LF(K).LE.0) THEN
+                  M=M+(NTRMK(K)*(NTRMK(K)+1))/2
+                ELSE
+                  LN=LX+1
+                  LX=LX+NTRMK(K)
+                  DO L=LN,LX
+                    DO LP=LN,L
+                      M=M+1
+                      C(L,LP)=PC(M)
+                    ENDDO
+                  ENDDO
+                ENDIF
+              ENDIF
+            ENDDO
+C           GO TO 690
+          ELSE ! (KPAR.GT.0)
+  630       IF (KCPL.NE.2) THEN
+c 630         IF (KCPL.EQ.2) GO TO 640
+C
+C                ZETA MATRIX (LOWER TRIANGLE)
+C
+C                  LS COUPLING
+              J1V=0
+              THRHAF=1.5D0
+              SQRT3H=DSQRT(THRHAF)
+              DO 639 L=1,NLS
+                J=NCFG(L)
+C
+                IF (J.NE.J1) GO TO 639
+C
+                IF (J1V.NE.J) THEN
+                  J1V=J
+                  LIJ=NOTSJ1(I,J)
+                  V1(1,1,2)=SQRT3H
+                  EL=FLLIJK(I,J,KK)
+                  IF (NIJK(I,J,KK).NE.1) THEN
+                    CALL LOCDSK(ID3,EL,NIJK(I,J,KK))
+                    NOR=(NORCD/2)+2
+                    DO 1165 M=1,NOR
+  631               READ (ID3) K, ((V1(II,JJ,2),II=1,NLT), JJ=1,NLT)
+ 1165               CONTINUE
+                  ENDIF
+                ENDIF  ! (J1V.NE.J)
+  632           DO 638 LP=1,L
+                  IF (NCFG(LP).NE.J) GO TO 638
+                  K=NOSUBC
+                  DO 634 M=1,K
+                    IF (M.EQ.I) GO TO 633
+                    IF (NALS(L,M).NE.NALS(LP,M)) GO TO 638
+                    IF (M.GT.I) GO TO 633
+                    IF (SCRL(L,M).NE.SCRL(LP,M)) GO TO 638
+                    IF (SCRS(L,M).NE.SCRS(LP,M)) GO TO 638
+                    GO TO 634
+  633               IF (DABS(SCRL(L,M)-SCRL(LP,M)).GT.1.D0) GO TO 638
+                    IF (DABS(SCRS(L,M)-SCRS(LP,M)).GT.1.D0) GO TO 638
+  634             CONTINUE
+                  ERAS=1.D0
+                  II=SCRL(LP,K)+SCRS(L,K)+SCRJ8
+                  IF (IABG.GE.3) II=SCRL(L,K)+SCRS(LP,K)+SCRJ8
+                  IF (MOD(II,2).NE.0) ERAS=-1.D0
+                  ERAS=ERAS*S6J(SCRL(L,K),SCRS(L,K),SCRJ8,SCRS(LP,K),
+     1              SCRL(LP,K),ONE)
+                  IF (I.NE.K) THEN
+                    IP1=I+1
+                    DO 1166 M=IP1,K
+                      LT=NALS(L,M)
+  635               ERAS=ERAS*UNCPLA(SCRL(L,M-1),FL(LT,M),SCRL(L,M),
+     1                1.D0,SCRL(LP,M-1),SCRL(LP,M))*UNCPLA(SCRS(L,M-1),
+     2                S(LT,M),SCRS(L,M),ONE,SCRS(LP,M-1),SCRS(LP,M))
+ 1166               CONTINUE
+                  ENDIF
+  636             LT=NALS(L,I)
+                  LR=NALS(LP,I)
+                  IF (I.GT.1) ERAS=ERAS*UNCPLB(SCRL(L,I-1),FL(LT,I),
+     1              SCRL(L,I),ONE,FL(LR,I),SCRL(LP,I))*UNCPLB(SCRS(L,
+     2              I-1),S(LT,I),SCRS(L,I),ONE,S(LR,I),SCRS(LP,I))
+                  C(L,LP)=ERAS*DSQRT(EL*(EL+1.D0)*(2.D0*EL+1.D0))*
+     1              V1(LT-LIJ,LR-LIJ,2)
+  638           CONTINUE
+  639         CONTINUE
+              GO TO 690
+            ELSE  ! (KCPL.EQ.2)
+  640         KIX=NDIFFJ(I)
+              LX=0
+              DO 679 K=1,NDIFSJ
+                LN=LX+1
+                LX=LX+NSJK(K)
+                J=NALSJ(LX,I)
+C
+                IF (NCFG(LN).NE.J1) GO TO 679
+C
+                ML=1
+                MC=1
+                DO 1167 KI=1,KIX
+                  IF ((NCFGJP(ML,I)-J1).LT.0) GO TO 643
+                  IF ((NCFGJP(ML,I)-J1).GT.0) GO TO 644
+  641             IF ((PJ(ML,I)-FJ(LN,I)).LT.0) GO TO 644
+                  IF ((PJ(ML,I)-FJ(LN,I)).EQ.0) GO TO 645
+  642             MC=MC+(NJK(KI,I)*(NJK(KI,I)+1))/2
+  643           ML=ML+NJK(KI,I)
+ 1167           CONTINUE
+  644           WRITE (IW,64) LN,I,FJ(LN,I),ML,MC
+   64           FORMAT (//19H0CANNOT FIND PJ=FJ(,I2,1H,,I1,2H)=,F4.1,
+     1            5X,3HML=,I4,5X,3HMC=,I4//)
+  645           M1=NJK(KI,I)-1
+                IF (M1.LE.0) THEN
+C                        (1 X 1  SUBMATRIX)
+                  DO LP=LN,LX
+                    C(LP,LP)=PC(MC)
+                  ENDDO
+                ELSE  ! (M1.GT.0)
+C                        (N X N  SUBMATRIX)
+  655             ITEST=NALSJP(ML+1,I)
+                  DO L=LN,LX
+                    IF (NALSJ(L,I).EQ.ITEST) GO TO 657
+                  ENDDO
+  657             LDEL=L-LN
+  660             ITEST=NALSJP(ML,I)
+                  DO L0=LN,LX
+                    IF (NALSJ(L0,I).EQ.ITEST) THEN
+                      M=MC
+                      L1=L0+LDEL*M1
+                      DO L=L0,L1,LDEL
+                        DO LP=L0,L,LDEL
+                          C(L,LP)=PC(M)
+                          M=M+1
+                        ENDDO
+                      ENDDO
+                    ENDIF  ! (NALSJ(L0,I).EQ.ITEST)
+                  ENDDO
+                ENDIF  ! (M1.LE.0)
+  679         CONTINUE
+C             GO TO 690
+            ENDIF ! (KCPL.EQ.2)
+          ENDIF ! (KPAR.GT.0)
+        ENDIF  ! (KPAR.NE.-2)
+C            JJ COUPLING
+C
+C
+C            COMPLETE MATRIX (UPPER TRIANGLE)
+C
+  690   DO L=1,NLS
+          DO LP=1,L
+            C(LP,L)=C(L,LP)
+          ENDDO
+        ENDDO
+C
+C            OUTPUT
+C
+  700   K=KC
+        NNN=N
+c           Lx=21
+c           if (lx.gt.nls) lx=nls
+c           write(iw,9801) Npar
+c           do LP=1,lx
+c             write(IW,9800) (C(L,LP),L=1,lx)
+c           enddo
+c9800       format(25F11.6)
+c9801       format(' writing, NPAR=',I5)
+        CALL SPRIN
+C
+C 800   WRITE (IC) ((C(L,LP),L=LP,NLS), LP=1,NLS)
+C  ***  ******************************************** A.KRAMIDA v
+c  800   IMSQ=NLS*(NLS+1)/2
+c       write (*,*) 'pk1(IC) call 3: N,NPAR,ICPTR,MAXBC=',
+c    1    N,NPAR,ICPTR,MAXBC
+c        if (N.EQ.2 .AND. NPAR.EQ.26) then
+c          call printarray(C,NLS,KMX)
+c        endif
+  800   CALL PK1(IC,NLS,NLS,C,KMX,KMX,0,MAXBC)   !,3,IW)
+        ICPTR=ICPTR+1
+C  ***  ******************************************** A.KRAMIDA ^
+        NOICWR=NOICWR+1
+C
+        IF (ICTBCD.EQ.0) GO TO 604
+C
+        NN=N
+  805   IF (ICTBCD.LE.0.AND.NPAR.LE.1) THEN
+C            SET UP MATRIX ELEMENTS FOR ZEEMAN-LABORATORY
+C                 LEAST-SQUARES PROGRAM (KONFIT)
+c            AK 2026: This procedure does not work since KSHIFT is 
+c            not defined. Research of earlier versions of RCG 
+c            is required to fix this problem.
+c          IF (NLS.GT.KSHIFT.OR.KISER.LT.2*KSHIFT) THEN
+          IF (NLS.GT.KSHIFT.OR.ISER_size.LT.2*KSHIFT) THEN
+            WRITE(6,*) ' THIS PROCEDURE DEMANDS DIMENSION KISER >= ',2*NLS
+c            WRITE(6,*) ' CURRENT SETTING: KISER = ',KISER
+            WRITE(6,*) ' CURRENT SETTING: KISER = ',ISER_size
+            STOP
+          ENDIF
+          DO L=1,NLS
+            FIERAS=FIDLS(L,1)
+            IF (KCPL.EQ.2) FIERAS=FIDJJ(L,1)
+C           ENCODE (10,81,IP5(L)) NCFG(L),FIERAS
+            WRITE (R5(L),81) NCFG(L),FIERAS
+C  81       FORMAT (I1,1H(,A8)
+   81       FORMAT (I1,A7)
+          ENDDO
+          N5=NLS
+          IF (KCPL.LT.2) THEN
+            M=NOSUBC
+            DO L=1,NLS
+              N5=N5+1
+              P5(N5)=0.D0
+              IF (SCRJ8.NE.0.D0)
+     1          P5(N5)=0.50116D0*(SCRS(L,M)*(SCRS(L,M)+1.D0)-SCRL(L,M)*
+     2          (SCRL(L,M)+1.D0))/(SCRJ8*(SCRJ8+1.D0))+1.50116D0
+            ENDDO
+          ENDIF ! (KCPL.LT.2)
+  820     N4=N5
+          REWIND 2
+          WRITE (2) N4,(P5(K),K=1,N4)
+          NCOEFF=0
+        ENDIF ! (ICTBCD.LE.0.AND.NPAR.LE.1)
+C
+  870   N5=0
+        IMAP(3)=NPAR
+        IMAP(4)=0
+        DO 880 LP=1,NLS
+          IMAP(1)=LP
+          DO 879 L=LP,NLS
+            IF (DABS(C(L,LP)).GT.1.D-9) THEN
+              IF (ICTBCD.LE.0) THEN
+                IMAP(2)=L  ! RMAP is EQUIV to IMAP
+                N5=N5+1
+                P5(N5)=RMAP
+                P5(N5+KSHIFT)=C(L,LP)
+              ELSE ! (ICTBCD.GT.0)
+C                  WRITE MATRIX ELEMENTS FOR ARGONNE LEAST-SQUARES PROGRAM
+  874           IF (KCPL.GT.1) THEN
+                  WRITE (19,87) N,LP,L,NPAR,C(L,LP), NALSJ(L,1),
+     1              FIDJJ(L,1),PARNAM(NPAR,1)
+                ELSE  ! (KCPL.LE.1)
+  875             WRITE(19,88) N,LP,L,NPAR,C(L,LP), NALS(L,1),
+     1              FIDLS(L,1),PARNAM(NPAR,1)
+                ENDIF ! (KCPL.LE.1)
+              ENDIF ! (ICTBCD.GT.0)
+            ENDIF ! (DABS(C(L,LP)).GT.1.D-9)
+   87       FORMAT (4I6,F12.7, 2H (,I3,2X,A7, 2X,A8,3X,3(A1,I2,2X) )
+   88       FORMAT (4I6,F12.7, 2H (,I3,1X,A8,2X,A8,3X,3(A1,I2,2X) )
+  879     CONTINUE
+  880   CONTINUE
+        IF (ICTBCD.LE.0) THEN
+          WRITE (2) N5,(P5(K),K=1,N5),(P5(K+KSHIFT),K=1,N5)
+          NCOEFF=NCOEFF+N5
+          NPARX=NPAR
+        ENDIF
+c 888   IF ((ICTBCD.EQ.0.OR.NPAR.EQ.NPARO+1) .AND.NN.GT.0) THEN
+  888   IF (NN.GT.0) THEN
+          GO TO 604
+        ELSE
+          NPARO=NPAR
+          NPAR=NPAR+1
+          IF (NPAR.EQ.NPAR20) GO TO 609
+        ENDIF
+        IIX = 1
+        GO TO 6041
+C
+  890   IF (ICTBCD.LT.0) THEN
+C            Read back the data written on tape2
+          WRITE (IW,89) SCRJ8,NLS,NCOEFF
+   89     FORMAT (F10.1,2I5)
+          P5(1)=SCRJ8
+          P5(2)=DFLOAT(NLS)
+          P5(3)=DFLOAT(NCOEFF)
+C         BUFFER OUT (5,1) (P5(1),P5(3))
+C         ITEST=UNIT(5)
+          REWIND 2
+          READ (2) N4,(P5(K),K=1,N4)
+          N6=N4
+          DO 1168 J=1,NPARX
+            READ (2) N5,(P5(K+N6),K=1,N5),(P5(K+N6+NCOEFF),K=1,N5)
+  892     N6=N6+N5
+ 1168     CONTINUE
+          N7=N6+NCOEFF
+          DO K=1,NLS
+C             SPLIT THE TERM DESIGNATION IN ORDER TO INSERT THE MISSING LEFT BRACKET
+            READ (R5(K),9001) PR5(1),PR5(2)
+ 9001       FORMAT (A1,A7)
+            R5(K)=PR5(1)
+            R5(K+N7)=PR5(2)
+          ENDDO
+C         WRITE (IW,90) (P5(K),K=1,NLS)
+C  90     FORMAT (1X,5A10)
+          WRITE (IW,90) (R5(K),R5(K+N7),K=1,NLS)
+   90     FORMAT ( (8(1X,A1,1H(,A7)) )
+          IF (N4.GT.NLS) WRITE (IW,9089) (P5(K+NLS),K=1,NLS)
+ 9089     FORMAT (8F10.5)
+          N4P1=N4+1
+C         WRITE (IW,9090) (INT(P5(K)),P5(K+NCOEFF),K=N4P1,N6)
+C9090     FORMAT (2(1X,O22,F12.8))
+          DO K=N4P1,N6
+            RMAP = P5(K)  ! EQUIVALENT to array IMAP
+            NPAR5=IMAP(3)
+            L=IMAP(2)
+            LP=IMAP(1)
+            WRITE (IW,9090) LP,L,NPAR5,P5(K+NCOEFF)
+          ENDDO
+ 9090     FORMAT (3I6,F17.12)
+C         BUFFER OUT (5,1) (P5(1),P5(N6+NCOEFF))
+C         ITEST5=UNIT(5)
+        ELSEIF (ICTBCD.GT.0) THEN
+          WRITE (19,14)
+        ENDIF
+C
+        CALL CPL37
+C
+  900 CONTINUE
+C           WRITE DUMMY RECORD, REQUIRED BY SYSTEM BUG (UPON BACKSPACE)
+      WRITE (IL) (PC(I), I=1,20)
+C
+      REWIND 20
+      REWIND IL
+      IF (ICTBCD.LE.0) GO TO 950
+      M=NOSUBC
+      IF (KCPL.NE.1) GO TO 920
+        READ (IL)
+        DO 1169 N=1,NSCRJ8
+C       READ (IL) SCRJ8,NLS,((A,L=1,NLS),LP=1,NLS),
+C    1    ((A,SCRL(L,I),SCRS(L,I), I=1,M), A,A,A, L=1,NLS)
+C************************************************************** A.KRAMIDA v
+        READ (IL) SCRJ8,NLS,((A,SCRL(L,I),SCRS(L,I), I=1,M),
+     1    A,A,A, L=1,NLS)
+        READ (IL)
+C************************************************************** A.KRAMIDA ^
+        DO 910 L=1,NLS
+          PC(L)=0.D0
+          IF  (SCRJ8.EQ.0.D0) GO TO 910
+          PC(L)=0.50116D0*(SCRS(L,M)*(SCRS(L,M)+1.D0)-SCRL(L,M)*
+     1      (SCRL(L,M)+1.D0))/(SCRJ8*(SCRJ8+1.D0))+1.50116D0
+  910   CONTINUE
+  915   WRITE (19,91) (PC(L),L=1,NLS)
+ 1169   CONTINUE
+   91   FORMAT (6F12.6)
+        REWIND IL
+  920 READ (IL)
+      DO 930 N=1,NSCRJ8
+C       READ (IL) SCRJ8,NLS,((A,L=1,NLS), LP=1,NLS),
+C    1    ((A,A,A, I=1,M), A,FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+C********************************************************* A.KRAMIDA v
+        READ (IL) SCRJ8,NLS,
+     1    ((A,A,A, I=1,M), A,FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+        READ (IL)
+C********************************************************* A.KRAMIDA ^
+        IF (KCPL.NE.1) GO TO 925
+        WRITE (19,92) (FIDLS(L,1), L=1,NLS)
+   92   FORMAT (6(2H (,A8,:,2X))
+        GO TO 930
+  925   WRITE (19,92) (FIDJJ(L,1), L=1,NLS)
+  930 CONTINUE
+      REWIND IL
+      WRITE (19,93) (PARNAM(I,1), I=1,NPARX)
+   93 FORMAT (6(2X,A10))
+      END FILE 19
+      WRITE (IW,96) COUPL(KCPL)
+   96 FORMAT (/44H0COEFFICIENT MATRICES WRITTEN ON TAPE 19 IN ,
+     1  A6,9H COUPLING)
+  950 CONTINUE
+      RETURN
+      END  ! CALCFC
+C
+C
+      SUBROUTINE CFCDUP (ENCOD)
+C
+C          A. Kramida 2026.  ELIMINATE DUPLICATE TERM NAMES.
+C
+C          THIS REPLACES THE DOUBLE LOOP THAT USED TO STAND AT LABEL
+C          4715 OF CALCFC.  THAT LOOP LOOKED FOR THE FIRST PAIR L<LP
+C          WITH THE SAME CONFIGURATION AND THE SAME LABEL, ADVANCED ONE
+C          DISAMBIGUATING CHARACTER, AND THEN STARTED THE WHOLE DOUBLE
+C          SCAN AGAIN FROM L=1.  ON THE Pr III TEST CASE IT RESTARTED
+C          ABOUT 0.8*NLS TIMES PER J BLOCK, SO IT COST ABOUT 0.4*NLS**3
+C          COMPARISONS -- FINE AT NLS=600, HOURS AT NLS=16000.
+C
+C          ONLY LEVELS THAT SHARE A CONFIGURATION AND A LABEL EVER MEET
+C          IN THAT TEST, SO THE WORK SPLITS INTO INDEPENDENT CLASSES.
+C          THIS ROUTINE SORTS THE LEVELS ONCE, WHICH BRINGS EACH CLASS
+C          TOGETHER, AND THEN RUNS THE ORIGINAL LOOP -- BODY, RESTART
+C          AND ALL -- INSIDE ONE CLASS AT A TIME.  THE RENAMING IS NOT
+C          WORTH SHORT-CUTTING WITH A FORMULA: IT LOOKS LIKE PLAIN
+C          LETTERING BUT IS NOT, BECAUSE A BLANK IN COLUMN 7 TURNS INTO
+C          'a' ON THE LEFT MEMBER OF A PAIR AND SO STOPS MATCHING THE
+C          BLANKS STILL WAITING BEHIND IT, WHICH LEAVES THE LAST MEMBER
+C          OF AN ODD-SIZED CLASS BLANK.  RUNNING THE ORIGINAL LOOP KEEPS
+C          EVERY SUCH DETAIL BY CONSTRUCTION.  THE COST FALLS FROM
+C          NRENAME*NLS**2 TO THE SUM OF THE CLASS SIZES CUBED, THE
+C          CLASSES BEING A HANDFUL OF LEVELS EACH.
+C
+C          THE CLASSES ARE INDEPENDENT ONLY IF NO RENAMED LABEL LANDS ON
+C          A LABEL BELONGING TO ANOTHER CLASS.  THAT CANNOT HAPPEN WITH
+C          THE LABELS THE FORMAT AT LABEL 41 PRODUCES, BUT IT IS NOT
+C          WORTH ASSUMING: THE LABELS ARE SAVED FIRST, AND IF A SECOND
+C          SORT FINDS ANY DUPLICATE LEFT, EVERYTHING IS PUT BACK AND THE
+C          ORIGINAL LOOP IS RUN OVER THE WHOLE BLOCK INSTEAD.  THE
+C          FALLBACK HAS NEVER FIRED ON THE TEST CASES; IT IS THERE SO
+C          THAT THE RESULT IS THE ORIGINAL ONE BY CONSTRUCTION AND NOT
+C          BY ARGUMENT.
+C
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*8 COUPL
+      CHARACTER*4 LSYMB
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS),MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      CHARACTER*8 PARNAM,FIDLS,FIDJJ,LDES,LDESP
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      CHARACTER*4 LHS,LH
+      CHARACTER*95 ENCOD
+      CHARACTER*8 A1,A2,FSAVE
+      CHARACTER*1 CH1,CH2
+      COMMON/CFCWK1/IXR(KMX),IWK(KMX)
+      COMMON/CFCWK2/FSAVE(KMX)
+C
+      IF (NLS.LE.1) RETURN
+      DO L=1,NLS
+        FSAVE(L)=FIDLS(L,1)
+      ENDDO
+      CALL CFCSRL (NLS,IXR,IWK)
+C
+C          ONE PASS OVER THE CLASSES
+C
+      IFAIL=0
+      IP=1
+  100 IF (IP.GT.NLS) GO TO 200
+        L=IXR(IP)
+        IQ=IP+1
+  110   IF (IQ.LE.NLS) THEN
+          LP=IXR(IQ)
+          IF (NCFG(LP).EQ.NCFG(L).AND.FIDLS(LP,1).EQ.FIDLS(L,1)) THEN
+            IQ=IQ+1
+            GO TO 110
+          ENDIF
+        ENDIF
+        IEC=IQ-1
+        IF (IEC.GT.IP) THEN
+C
+C            THE ORIGINAL LOOP, OVER THE MEMBERS OF THIS CLASS ONLY.
+C            IXR(IP..IEC) ARE THEIR ROW NUMBERS IN INCREASING ORDER,
+C            BECAUSE THE SORT IS STABLE.
+C
+          IS=IP
+  120     DO IA=IS,IEC
+            DO IB=IA+1,IEC
+              L=IXR(IA)
+              LP=IXR(IB)
+              IF (FIDLS(L,1).EQ.FIDLS(LP,1)) THEN
+                A1=FIDLS(L,1)
+                CH1=A1(7:7)
+                KK1=ICHAR(CH1)
+                IF (KK1.GE.49.AND.KK1.LE.57) THEN    ! SENIORITY IS USED
+                  CH1=A1(3:3)   ! expected ')' in original code
+                  KK1=ICHAR(CH1)-31
+                  IF (KK1.LT.1.OR.KK1.GT.95) THEN
+                    IFAIL=1
+                    GO TO 200
+                  ENDIF
+                  CH2=ENCOD(KK1:KK1)
+                  if (CH2.eq.')') then  ! Got the same ')' back
+                STOP 'MORE THAN 95 REPEATING TERMS WITH SAME SENIORITY.'
+                  endif
+                  A1(3:3)=CH2
+                  FIDLS(LP,1)=A1
+                else
+                  IF (KK1.EQ.32) KK1=97 ! 'a' IF PREVIOUS IS ' '
+                  A1(7:7)=CHAR(KK1)
+                  KK2=KK1+1
+                  A2=FIDLS(LP,1)
+                  A2(7:7)=CHAR(KK2)
+                  FIDLS(L,1)=A1
+                  FIDLS(LP,1)=A2
+                endif
+                IS=IP
+                GO TO 120
+              ENDIF
+            ENDDO
+          ENDDO
+        ENDIF
+        IP=IQ
+        GO TO 100
+C
+C          DID ANY DUPLICATE SURVIVE
+C
+  200 IF (IFAIL.EQ.0) THEN
+        CALL CFCSRL (NLS,IXR,IWK)
+        DO IP=2,NLS
+          L=IXR(IP-1)
+          LP=IXR(IP)
+          IF (NCFG(LP).EQ.NCFG(L).AND.FIDLS(LP,1).EQ.FIDLS(L,1))
+     1      IFAIL=1
+        ENDDO
+      ENDIF
+      IF (IFAIL.EQ.0) RETURN
+C
+C          FALLBACK: PUT THE LABELS BACK AND RUN THE ORIGINAL LOOP
+C
+      DO L=1,NLS
+        FIDLS(L,1)=FSAVE(L)
+      ENDDO
+      L_start=1
+ 4715 DO L=L_start,NLS
+        DO LP=L+1,NLS
+          IF (NCFG(L).EQ.NCFG(LP).AND.FIDLS(L,1).EQ.FIDLS(LP,1)) THEN
+            A1=FIDLS(L,1)
+            CH1=A1(7:7)
+            KK1=ICHAR(CH1)
+            IF (KK1.GE.49.AND.KK1.LE.57) THEN      ! SENIORITY IS USED
+              CH1=A1(3:3)     ! expected ')' in original code
+              KK1=ICHAR(CH1)-31
+              CH2=ENCOD(KK1:KK1)
+              if (CH2.eq.')') then    ! Got the same ')' back
+              STOP 'MORE THAN 95 REPEATING TERMS WITH SAME SENIORITY.'
+              endif
+              A1(3:3)=CH2
+              FIDLS(LP,1)=A1
+              L_start=L+1
+            else
+              IF (KK1.EQ.32) KK1=97  ! 'a' CHARACTER IF PREVIOUS IS ' '
+              A1(7:7)=CHAR(KK1)
+              KK2=KK1+1
+              A2=FIDLS(LP,1)
+              A2(7:7)=CHAR(KK2)
+              FIDLS(L,1)=A1
+              FIDLS(LP,1)=A2
+            endif
+            L_start=1
+            go to 4715
+          ENDIF
+        ENDDO
+      ENDDO
+      RETURN
+      END  ! CFCDUP
+C
+C
+      SUBROUTINE CFCSRL (N,IDX,IWK)
+C
+C          A. Kramida 2026.  STABLE INDEX SORT OF 1..N BY THE KEY
+C          (NCFG(L), FIDLS(L,1)).  BOTTOM-UP MERGE SORT; STABLE, SO
+C          EQUAL KEYS COME OUT IN INCREASING ROW ORDER, WHICH IS WHAT
+C          CFCDUP NEEDS TO REPRODUCE THE ORIGINAL RENAMING ORDER.
+C
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*8 COUPL
+      CHARACTER*4 LSYMB
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS),MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      CHARACTER*8 PARNAM,FIDLS,FIDJJ,LDES,LDESP
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      CHARACTER*4 LHS,LH
+      DIMENSION IDX(*),IWK(*)
+      LOGICAL TAKEL
+C
+      DO I=1,N
+        IDX(I)=I
+      ENDDO
+      IWD=1
+  100 IF (IWD.GE.N) RETURN
+      I=1
+  110 IF (I.GT.N) GO TO 190
+        I2=MIN0(I+IWD,N+1)
+        IEND=MIN0(I+IWD+IWD,N+1)
+        JA=I
+        JB=I2
+        JO=I
+  120   IF (JA.LT.I2.AND.JB.LT.IEND) THEN
+          KA=IDX(JA)
+          KB=IDX(JB)
+          IF (NCFG(KA).NE.NCFG(KB)) THEN
+            TAKEL=NCFG(KA).LT.NCFG(KB)
+          ELSE
+            TAKEL=FIDLS(KA,1).LE.FIDLS(KB,1)
+          ENDIF
+          IF (TAKEL) THEN
+            IWK(JO)=KA
+            JA=JA+1
+          ELSE
+            IWK(JO)=KB
+            JB=JB+1
+          ENDIF
+          JO=JO+1
+          GO TO 120
+        ENDIF
+  130   IF (JA.LT.I2) THEN
+          IWK(JO)=IDX(JA)
+          JA=JA+1
+          JO=JO+1
+          GO TO 130
+        ENDIF
+  140   IF (JB.LT.IEND) THEN
+          IWK(JO)=IDX(JB)
+          JB=JB+1
+          JO=JO+1
+          GO TO 140
+        ENDIF
+        I=I+IWD+IWD
+        GO TO 110
+  190 DO I=1,N
+        IDX(I)=IWK(I)
+      ENDDO
+      IWD=IWD+IWD
+      GO TO 100
+      END  ! CFCSRL
+C
+C
+      SUBROUTINE CFCSIG (N,KEY,LDK,NS,IDX,IWK,IOK)
+C
+C          A. Kramida 2026.  STABLE SORT OF 1..N BY THE SIGNATURE
+C          KEY(L,1..NS), SUBSHELL 1 MOST SIGNIFICANT.  LSD RADIX WITH
+C          ONE COUNTING PASS PER SUBSHELL, SO O(NS*N) AND STABLE:
+C          EQUAL SIGNATURES COME OUT IN INCREASING INDEX ORDER, WHICH IS
+C          WHAT KEEPS THE SUMS AND THE PRINTED MESSAGES OF CFCORT IN THE
+C          ORIGINAL ORDER.  IOK=0 IF A KEY IS OUT OF THE COUNTING RANGE,
+C          IN WHICH CASE THE CALLER FALLS BACK TO THE FULL LOOP.
+C
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*8 COUPL
+      CHARACTER*4 LSYMB
+      DIMENSION KEY(LDK,*),IDX(*),IWK(*)
+      DIMENSION KCNT(0:KLS2+1)
+C
+      IOK=0
+      IF (N.LE.0.OR.NS.LE.0) RETURN
+      DO I=1,NS
+        DO L=1,N
+          IF (KEY(L,I).LT.0.OR.KEY(L,I).GT.KLS2) RETURN
+        ENDDO
+      ENDDO
+      IOK=1
+      DO L=1,N
+        IDX(L)=L
+      ENDDO
+      DO I=NS,1,-1
+        DO K=0,KLS2+1
+          KCNT(K)=0
+        ENDDO
+        DO L=1,N
+          KCNT(KEY(L,I))=KCNT(KEY(L,I))+1
+        ENDDO
+        NAC=1
+        DO K=0,KLS2
+          KCTMP=KCNT(K)
+          KCNT(K)=NAC
+          NAC=NAC+KCTMP
+        ENDDO
+        DO L=1,N
+          KA=IDX(L)
+          KB=KEY(KA,I)
+          IWK(KCNT(KB))=KA
+          KCNT(KB)=KCNT(KB)+1
+        ENDDO
+        DO L=1,N
+          IDX(L)=IWK(L)
+        ENDDO
+      ENDDO
+      RETURN
+      END  ! CFCSIG
+C
+C
+      SUBROUTINE CFCORT (TMX,LDT)
+C
+C          A. Kramida 2026.  ORTHONORMALITY OF COWAN'S J1J2 MATRIX.
+C
+C          THIS REPLACES THE TRIPLE LOOP THAT USED TO STAND AT LABEL 540
+C          OF CALCFC.  THAT LOOP RAN OVER EVERY PAIR OF ROWS AND SUMMED
+C          OVER EVERY COLUMN, SO IT COST NLS**3/2 MULTIPLY-ADDS, AND IT
+C          READ TMX ALONG ROWS OF A COLUMN-MAJOR ARRAY, ONE CACHE LINE
+C          PER TERM.  MEASURED ON A 7950X: 11 s AT NLS=2000, 138 s AT
+C          NLS=4000, SO HOURS PER BLOCK AT NLS=16000 -- WHICH IS WHERE
+C          MOST OF THE 20 HOURS OF A LARGE RUN WENT.
+C
+C          TMX IS IN FACT BLOCK DIAGONAL.  THE LOOP AT LABEL 505 LEAVES
+C          TMX(LS,JJ) AT ZERO UNLESS NALS(LS,I)=NALSJ(JJ,I) FOR EVERY
+C          SUBSHELL I, SO ROW LS HAS NONZEROS ONLY IN THE COLUMNS
+C          CARRYING ITS OWN SUBSHELL-TERM SIGNATURE.  TWO ROWS WITH
+C          DIFFERENT SIGNATURES THEREFORE HAVE DISJOINT SUPPORTS AND
+C          THEIR PRODUCT IS EXACTLY ZERO, TERM BY TERM.  GROUPING THE
+C          ROWS AND THE COLUMNS BY SIGNATURE AND SUMMING ONLY INSIDE A
+C          GROUP DROPS THE COST TO THE SUM OF N(g)**2*M(g), WHICH IS
+C          LINEAR IN NLS IN PRACTICE.
+C
+C          THE RESULT IS BIT FOR BIT THE OLD ONE.  THE TERMS THAT ARE
+C          SKIPPED ARE EXACTLY 0.D0 (VERIFIED BY INSTRUMENTING A RUN AND
+C          COUNTING NONZEROS OUTSIDE THE GROUPS: NONE), ADDING 0.D0
+C          CHANGES NO BITS, THE SURVIVING TERMS ARE STILL SUMMED IN
+C          INCREASING COLUMN ORDER BECAUSE THE SORT IS STABLE, AND THE
+C          PAIRS ARE STILL VISITED IN INCREASING L AND THEN INCREASING
+C          LP, SO ANY MESSAGE COMES OUT WHERE IT USED TO.
+C
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*8 COUPL
+      CHARACTER*4 LSYMB
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS),MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      CHARACTER*4 LHS,LH
+      DIMENSION TMX(LDT,*)
+      COMMON/CFCWK1/IXR(KMX),IWK(KMX)
+      COMMON/CFCWK3/IXC(KMX),IGRP(KMX),IPOS(KMX),IRB(KMX+1),
+     1  ICS(KMX),ICE(KMX)
+C
+      IF (NLS.LE.0) RETURN
+      CALL CFCSIG (NLS,NALS,KMX,NOSUBC,IXR,IWK,IOKR)
+      CALL CFCSIG (NJJ,NALSJ,KMX,NOSUBC,IXC,IWK,IOKC)
+      IF (IOKR.EQ.0.OR.IOKC.EQ.0) GO TO 800
+C
+C          ROW GROUPS
+C
+      NGR=0
+      IP=1
+  100 IF (IP.GT.NLS) GO TO 120
+        NGR=NGR+1
+        IRB(NGR)=IP
+        L=IXR(IP)
+        IQ=IP
+  110   IGRP(IXR(IQ))=NGR
+        IPOS(IXR(IQ))=IQ
+        IQ=IQ+1
+        IF (IQ.LE.NLS) THEN
+          LP=IXR(IQ)
+          NEQ=1
+          DO I=1,NOSUBC
+            IF (NALS(LP,I).NE.NALS(L,I)) NEQ=0
+          ENDDO
+          IF (NEQ.EQ.1) GO TO 110
+        ENDIF
+        IP=IQ
+        GO TO 100
+  120 IRB(NGR+1)=NLS+1
+C
+C          COLUMN GROUPS, MATCHED TO THE ROW GROUPS BY A MERGE.  BOTH
+C          LISTS ARE SORTED ON THE SAME KEY IN THE SAME ORDER, SO ONE
+C          FORWARD SCAN OF THE COLUMNS SERVES ALL THE ROW GROUPS.
+C
+      JP=1
+      DO IG=1,NGR
+        ICS(IG)=1
+        ICE(IG)=0
+        L=IXR(IRB(IG))
+  200   IF (JP.LE.NJJ) THEN
+          M=IXC(JP)
+          NCMP=0
+          DO I=1,NOSUBC
+            IF (NCMP.EQ.0) THEN
+              IF (NALSJ(M,I).LT.NALS(L,I)) NCMP=-1
+              IF (NALSJ(M,I).GT.NALS(L,I)) NCMP=1
+            ENDIF
+          ENDDO
+          IF (NCMP.LT.0) THEN
+            JP=JP+1
+            GO TO 200
+          ENDIF
+          IF (NCMP.EQ.0) THEN
+            ICS(IG)=JP
+            JQ=JP
+  210       JQ=JQ+1
+            IF (JQ.LE.NJJ) THEN
+              M=IXC(JQ)
+              NEQ=1
+              DO I=1,NOSUBC
+                IF (NALSJ(M,I).NE.NALS(L,I)) NEQ=0
+              ENDDO
+              IF (NEQ.EQ.1) GO TO 210
+            ENDIF
+            ICE(IG)=JQ-1
+            JP=JQ
+          ENDIF
+        ENDIF
+      ENDDO
+C
+C          THE CHECK ITSELF
+C
+      DO L=1,NLS
+        IG=IGRP(L)
+        JE=IRB(IG+1)-1
+        K0=ICS(IG)
+        K1=ICE(IG)
+        DO JB=IPOS(L),JE
+          LP=IXR(JB)
+          SUM=0.D0
+          IF (L.EQ.LP) SUM=-1.D0
+          DO K=K0,K1
+            M=IXC(K)
+            SUM=SUM+TMX(L,M)*TMX(LP,M)
+          ENDDO
+          IF (DABS(SUM).GE.1.D-7) WRITE (IW,54) L,LP
+   54     FORMAT (6H ROWS ,I3, 5H AND ,I3, 16H NOT ORTHONORMAL)
+        ENDDO
+      ENDDO
+      RETURN
+C
+C          FALLBACK: THE ORIGINAL FULL CHECK
+C
+  800 DO L=1,NLS
+        DO LP=L,NLS
+          SUM=0.D0
+          IF (L.EQ.LP) SUM=-1.D0
+          DO M=1,NJJ
+            SUM=SUM+TMX(L,M)*TMX(LP,M)
+          ENDDO
+          IF (DABS(SUM).GE.1.D-7) WRITE (IW,54) L,LP
+        ENDDO
+      ENDDO
+      RETURN
+      END  ! CFCORT
+C
+C
+      SUBROUTINE CFCUOR (IERR)
+C
+C          A. Kramida 2026.  ORTHOGONALITY OF THE LS -> jj MATRIX U
+C          THAT LSJJU HAS JUST LEFT IN /LSJJR/.  IERR=0 IF EVERY J
+C          BLOCK OF U IS ORTHOGONAL, 1 OTHERWISE.
+C
+C          THIS IS WHAT REPLACES THE SECOND FULL ORTHONORMALITY CHECK,
+C          THE ONE THAT USED TO RUN ON THE ROTATED TRUE jj MATRIX IN
+C          CALCFC.  THAT CHECK COST NLS**3/2 MULTIPLY-ADDS -- THE SAME
+C          AS THE CHECK AT LABEL 540, SO HOURS PER J BLOCK ON A LARGE
+C          RUN -- AND IT COULD NOT FIND ANYTHING THAT THIS ONE CANNOT.
+C          THE MATRIX GOING INTO THE ROTATION HAS ALREADY BEEN CHECKED
+C          AT LABEL 540, THE ROTATION IS T -> T*U WITH U BLOCK DIAGONAL
+C          OVER THE CAFCDOLP BLOCKS, AND
+C
+C            (T*U)*(T*U)^t = T*(U*U^t)*T^t = T*T^t   WHEN U*U^t = 1,
+C
+C          SO ORTHONORMALITY OF THE PRODUCT IS EQUIVALENT TO
+C          ORTHOGONALITY OF THE FACTOR AND NOTHING IS GIVEN UP.  WHAT
+C          IS GAINED IS THE SIZE OF THE OBJECT TESTED: U IS A PROPERTY
+C          OF THE DECK, NOT OF THE RUN, AND ITS J BLOCKS ARE AT WORST A
+C          FEW TENS SQUARE (327 LS STATES IN ALL FOR f**7, SPREAD OVER
+C          2J = 1..31), SO THE WHOLE TEST IS MICROSECONDS AND IS DONE
+C          ONCE PER SUBSHELL l**N RATHER THAN ONCE PER J BLOCK OF EVERY
+C          CONFIGURATION SET.  THE SAVE BELOW IS WHAT MAKES "ONCE" TRUE:
+C          LSJJU CACHES ON (IULQ,IUNEL) AND RETURNS AT ONCE WHEN THE
+C          MATRIX ASKED FOR IS THE ONE ALREADY BUILT, SO CFCUOR IS
+C          CALLED MANY TIMES FOR THE SAME U AND MUST BE ABLE TO SAY SO.
+C
+C          THE FIBRE ROTATION IN LSJJRT SUMS OVER THE ROWS IRU(1..NI1),
+C          NOT OVER I0+1..I0+NI1.  IRU IS A PERMUTATION OF THAT RANGE --
+C          LSJJRT HAS ALREADY REJECTED ANYTHING ELSE WITH IERR=7 -- AND
+C          A PERMUTATION OF THE ROWS LEAVES EVERY COLUMN DOT PRODUCT
+C          ALONE, SO SUMMING IN THE NATURAL ORDER TESTS THE SAME THING.
+C
+C          THE TOLERANCE IS THE 1.D-7 OF THE CHECK IT REPLACES.  THAT
+C          CHECK SAW U'S ERRORS THROUGH AN ORTHONORMAL T, WHICH NEITHER
+C          MAGNIFIES NOR HIDES THEM, SO THE TWO TESTS TRIP AT THE SAME
+C          PLACE.
+C
+      INCLUDE 'LSJJPAR.F'
+      SAVE LQDONE,NLDONE
+      DATA LQDONE/-1/, NLDONE/-1/
+C
+      IERR=0
+      IF (ILSJRD.EQ.0) RETURN
+      IF (IULQ.EQ.LQDONE .AND. IUNEL.EQ.NLDONE) RETURN
+      DO 200 IJ2=0,MXJI
+        NC=NUJC(IJ2)
+        IF (NC.LE.0) GO TO 200
+C            ROWS AND COLUMNS SPAN THE SAME SPACE, SO A SQUARE BLOCK IS
+C            PART OF THE CLAIM AND NOT AN ASSUMPTION TO BE MADE.
+        IF (NUJR(IJ2).NE.NC) THEN
+          IERR=1
+          RETURN
+        ENDIF
+        I0=IUOFR(IJ2)
+        J0=IUOFC(IJ2)
+        DO KA=1,NC
+          DO KB=KA,NC
+            SUM=0.D0
+            IF (KA.EQ.KB) SUM=-1.D0
+            DO M=1,NC
+              SUM=SUM+UMAT(I0+M,J0+KA)*UMAT(I0+M,J0+KB)
+            ENDDO
+            IF (DABS(SUM).GE.1.D-7) THEN
+              IERR=1
+              RETURN
+            ENDIF
+          ENDDO
+        ENDDO
+  200 CONTINUE
+      LQDONE=IULQ
+      NLDONE=IUNEL
+      RETURN
+      END  ! CFCUOR
+C
+C
+      SUBROUTINE CAFCDOLP(L,K)
+C
+C          SET UP FINAL COEF MATRICES, AND CALC LS-JJ TRANSF MATRIX
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS),MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX),V1(KLSI,KLSI,9),PC(KISER)
+      pointer (CT4_PTR,CT4),(CT4_PTR,V1)                                ! ,(CT4_PTR,PC)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/C3LCM/MN1,MX1,MN2,MX2,MN3,MX3,MN4,MX4,MN5,MX5,
+     1  MN6,MX6,MN7,MX7,MN8,MX8,SJ2,SJ3,SJ4,SJ5,SJ6,SJ7,SJ8
+      COMMON/EE1/NALSP(KLSC,KS),PSCRL(KLSC,KS),PSCRS(KLSC,KS),
+     1  NCFGP(KLSC),NJK(KJK,KS),NCFGJP(KJP,KS),MULS1(KLSC),MULS4(KLSC),
+     2  LHS1(KLSC),LHS4(KLSC)
+C     A. Kramida 2026: shape of each odometer block, for LSJJRT.
+      COMMON/LSJJBK/IJJROT,IJJU,IBSJJ(KNSJK),NBKJJ(KS,KNSJK)
+      DIMENSION P5(KISER)
+C     A. Kramida 2026: TMXH and EAV were implicitly REAL*8 and initialised from a
+C     Hollerith constant.  They are not referenced anywhere else in this
+C     routine, so the declaration below merely gives the DATA
+C     statement a matching type; no generated code changes.
+      CHARACTER*3 TMXH,EAV
+      DATA TMXH/'TMX'/
+      DATA EAV/'EAV'/
+C
+C
+C     KS=8
+C     KC=200
+C
+C     A. Kramida 2026: record the shape of this block for the true-jj
+C     rotation.  The columns about to be written are a Cartesian product
+C     -- subshell I takes NBKJJ(I,K) values and subshell 8 varies
+C     fastest -- which is what lets LSJJRT apply the rotation one
+C     subshell at a time.  Nothing else reads these.
+      IF (K.GE.1 .AND. K.LE.KNSJK) THEN
+        IBSJJ(K)=L
+        NBKJJ(1,K)=MX1-MN1+1
+        NBKJJ(2,K)=MX2-MN2+1
+        NBKJJ(3,K)=MX3-MN3+1
+        NBKJJ(4,K)=MX4-MN4+1
+        NBKJJ(5,K)=MX5-MN5+1
+        NBKJJ(6,K)=MX6-MN6+1
+        NBKJJ(7,K)=MX7-MN7+1
+        NBKJJ(8,K)=MX8-MN8+1
+      ENDIF
+      DO 1176 M1=MN1,MX1
+      DO 1175 M2=MN2,MX2
+      DO 1174 M3=MN3,MX3
+      DO 1173 M4=MN4,MX4
+      DO 1172 M5=MN5,MX5
+      DO 1171 M6=MN6,MX6
+      DO 1170 M7=MN7,MX7
+      DO 325 M8=MN8,MX8
+      L=L+1
+      IF (L.GT.KMX) GO TO 325
+      NSJK(K)=NSJK(K)+1
+      GO TO (324,323,322,321,318,317,316,315) NOSUBC
+  315 SCRJ(L,8)=SJ8
+      FJ(L,8)=PJ(M8,8)
+      NALSJ(L,8)=NALSJP(M8,8)
+  316 SCRJ(L,7)=SJ7
+      FJ(L,7)=PJ(M7,7)
+      NALSJ(L,7)=NALSJP(M7,7)
+  317 SCRJ(L,6)=SJ6
+      FJ(L,6)=PJ(M6,6)
+      NALSJ(L,6)=NALSJP(M6,6)
+  318 SCRJ(L,5)=SJ5
+      FJ(L,5)=PJ(M5,5)
+      NALSJ(L,5)=NALSJP(M5,5)
+  321 SCRJ(L,4)=SJ4
+      FJ(L,4)=PJ(M4,4)
+      NALSJ(L,4)=NALSJP(M4,4)
+  322 SCRJ(L,3)=SJ3
+      FJ(L,3)=PJ(M3,3)
+      NALSJ(L,3)=NALSJP(M3,3)
+  323 SCRJ(L,2)=SJ2
+      FJ(L,2)=PJ(M2,2)
+      NALSJ(L,2)=NALSJP(M2,2)
+  324 SCRJ(L,1)=PJ(M1,1)
+      FJ(L,1)=PJ(M1,1)
+      NALSJ(L,1)=NALSJP(M1,1)
+  325 CONTINUE
+ 1170 CONTINUE
+ 1171 CONTINUE
+ 1172 CONTINUE
+ 1173 CONTINUE
+ 1174 CONTINUE
+ 1175 CONTINUE
+ 1176 CONTINUE
+      RETURN
+      END
+C
+      SUBROUTINE CPL37
+C
+C          CALC TRANSF MATRICES FROM LS TO REPRESENTATIONS 3-7
+C
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS), MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      DIMENSION IQL(KMX),IQM1L(KMX),IQM2L(KMX),SCRJM1(KMX),SCRJM2(KMX)
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,AA,COUPL
+      CHARACTER*4 LSYMB,LHQQ,LHS4
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+C
+C
+C        CALC TRANSFORMATION MATRICES FROM LS (KCPL=1) OR JJ (KCPL=2) TO
+C               FIVE ADDITIONAL COUPLINGS (KCPL1=3,4,5,6,7)
+C
+  100 IF (NOSUBC.LE.1.OR.NLS.LE.1) GO TO 980
+      IF (NLS.GT.NLSMAX) GO TO 980
+      KCPL1=3
+      IF (KCPL.EQ.1) GO TO 101
+      REWIND 2
+C     WRITE (2) ((TMX(L,LP),L=1,NLS), LP=1,NLS)
+C  ******************************************************** A.KRAMIDA v
+      IMSQ=NLS*NLS
+      CALL PK1(2,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)   !,4,IW)
+C  ******************************************************** A.KRAMIDA ^
+  101 NMAX=NSCONF(2,KK)
+      DO 107 NC=1,NMAX
+        IQ=0
+        IQM1=0
+        IQM2=0
+        DO 104 I=1,NOSUBC
+          J=NOSUBC-I+1
+          IERAS=4.D0*FLLIJK(J,NC,KK)+2.D0
+          IF (NIJK(J,NC,KK).EQ.0.OR.NIJK(J,NC,KK).EQ.IERAS) GO TO 104
+          IF (IQ.EQ.0) THEN
+            IQ=J
+            GO TO 104
+          ENDIF
+          IF (IQM1.EQ.0) THEN
+            IQM1=J
+            GO TO 104
+          ENDIF
+          IF (IQM2.EQ.0) IQM2=J
+          GO TO 105
+  104   CONTINUE
+  105   IQM1=MAX0(1,IQM1)
+        IQM2=MAX0(1,IQM2)
+        DO 106 L=1,NLS
+          IF (NCFG(L).NE.NC) GO TO 106
+          IQL(L)=IQ
+          IQM1L(L)=IQM1
+          IQM2L(L)=IQM2
+  106   CONTINUE
+  107 CONTINUE
+      IF (IABG.LT.3) GO TO 110
+      DO 109 L=1,NLS
+        M=NOSUBC
+        I=SCRL(L,M)+SCRS(L,M)-SCRJ8
+        IF (MOD(I,2).NE.0) GO TO 109
+        DO 1177 LP=1,NLS
+  108   TMX(L,LP)=-TMX(L,LP)
+ 1177   CONTINUE
+  109 CONTINUE
+C
+  110 DO 1178 L=1,NLS
+  111 LF(L)=0
+ 1178 CONTINUE
+      IF (KCPLD(KCPL1).LE.0) GO TO 200
+      IF (KCPL1.NE.4) GO TO 120
+      IF ((KCPLD(5)).LE.0) GO TO 200
+      GO TO 970
+  120 IF (KCPL1.NE.6) GO TO 970
+  121 IF (KCPLD(7).GT.0) GO TO 970
+  200 GO TO (100,100,300,400,500,600,700) KCPL1
+C
+C          JJJK COUPLING (KCPL1=3)
+C
+  300 DO 349 L=1,NLS
+        IQM1=IQM1L(L)
+        IQ=MAX0(IQL(L),IQM1+1)
+        SCRJM1(L)=SCRJ(L,IQM1)
+        IF (LF(L).NE.0) GO TO 349
+        LF(L)=L
+        NQ=NALSJ(L,IQ)
+        FKK=DMIN1(SCRJ(L,IQM1)+FL(NQ,IQ), SCRJ8+S(NQ,IQ))
+        FKJ(L)=FKK
+        IF (L.GE.NLS) GO TO 349
+        L1=L+1
+        DO 339 LP=L1,NLS
+          DO I=1,IQ
+            IF (NALSJ(L,I).NE.NALSJ(LP,I)) GO TO 339
+          ENDDO
+          DO I=1,IQM1
+            IF (FJ(L,I).NE.FJ(LP,I)) GO TO 339
+            IF (SCRJ(L,I).NE.SCRJ(LP,I)) GO TO 339
+          ENDDO
+          LF(LP)=L
+          FKK=FKK-1.D0
+          FKJ(LP)=FKK
+  339   CONTINUE
+  349 CONTINUE
+C
+      DO 369 L=1,NLS
+        IQM1=IQM1L(L)
+        IQ=MAX0(IQL(L),IQM1+1)
+        NQ=NALSJ(L,IQ)
+        FJLQ=FJ(L,IQ)
+        FJLQ21=2.D0*FJLQ+1.D0
+        FLNQ=FL(NQ,IQ)
+        SNQ=S(NQ,IQ)
+        I=SCRJ(L,IQM1)+FLNQ+SNQ+SCRJ8+0.001D0
+        DO 368 LP=1,NLS
+          CT4(L,LP)=TMX(L,LP)
+          C(L,LP)=0.D0
+          IF(NCFG(L).NE.NCFG(LP)) GO TO 368
+          IF (LF(L).NE.LF(LP)) GO TO 368
+          A=DSQRT((2.D0*FKJ(LP)+1.D0)*FJLQ21)
+          IF (MOD(I,2).NE.0) A=-A
+          B=S6J(FKJ(LP),SNQ,SCRJ8,FJLQ,SCRJ(L,IQM1),FLNQ)
+          C(L,LP)=A*B
+  368   CONTINUE
+  369 CONTINUE
+      GO TO 900
+C
+C          LSLK COUPLING (KCPL1=4)
+C
+  400 DO 449 L=1,NLS
+        IQM1=IQM1L(L)
+        IQ=MAX0(IQL(L),IQM1+1)
+        IF (LF(L).NE.0) GO TO 449
+        LF(L)=L
+        NQ=NALS(L,IQ)
+        FKK=DMIN1(SCRL(L,IQ)+SCRS(L,IQM1), SCRJ8+S(NQ,IQ))
+        FK(L)=FKK
+        IF (L.GE.NLS) GO TO 449
+        L1=L+1
+        DO 439 LP=L1,NLS
+          DO 425 I=1,IQ
+            IF (NALS(L,I).NE.NALS(LP,I)) GO TO 439
+  425     CONTINUE
+          IF (SCRL(L,IQ).NE.SCRL(LP,IQ)) GO TO 439
+          DO 430 I=1,IQM1
+          IF (SCRL(L,I).NE.SCRL(LP,I)) GO TO 439
+          IF (SCRS(L,I).NE.SCRS(LP,I)) GO TO 439
+  430     CONTINUE
+          LF(LP)=L
+          FKK=FKK-1.D0
+          FK(LP)=FKK
+  439   CONTINUE
+  449 CONTINUE
+C
+      DO 469 L=1,NLS
+        IQM1=IQM1L(L)
+        IQ=MAX0(IQL(L),IQM1+1)
+        NQ=NALS(L,IQ)
+        SNQ=S(NQ,IQ)
+        DO 468 LP=1,NLS
+          TMX(L,LP)=0.D0
+          IF(NCFG(L).NE.NCFG(LP)) GO TO 468
+          IF (LF(L).NE.LF(LP)) GO TO 468
+          I=SCRL(L,IQ)+SCRS(L,IQM1)+S(NQ,IQ)+SCRJ8+0.001D0
+          A=DSQRT((2.D0*FK(LP)+1.D0)*(2.D0*SCRS(L,IQ)+1.D0))
+          IF (MOD(I,2).NE.0) A=-A
+          B=S6J(FK(LP),SNQ,SCRJ8,SCRS(L,IQ),SCRL(L,IQ),SCRS(L,IQM1))
+          TMX(L,LP)=A*B
+  468   CONTINUE
+  469 CONTINUE
+      GO TO 930
+C
+C          LSJK COUPLING (KCPL1=5)
+C
+  500 DO 549 L=1,NLS
+        IQM1=IQM1L(L)
+        IQ=MAX0(IQL(L),IQM1+1)
+        IF (LF(L).NE.0) GO TO 549
+        LF(L)=L
+        NQ=NALS(L,IQ)
+        FJJ=DMIN1(SCRL(L,IQM1)+SCRS(L,IQM1), FL(NQ,IQ)+FK(L))
+        SCRJ(L,IQM1)=FJJ
+        SCRJM1(L)=FJJ
+        IF (L.GE.NLS) GO TO 549
+        L1=L+1
+        DO 539 LP=L1,NLS
+          DO 525 I=1,IQ
+           IF (NALS(L,I).NE.NALS(LP,I)) GO TO 539
+  525     CONTINUE
+          IF (FK(L).NE.FK(LP)) GO TO 539
+          DO 530 I=1,IQM1
+            IF (SCRL(L,I).NE.SCRL(LP,I)) GO TO 539
+            IF (SCRS(L,I).NE.SCRS(LP,I)) GO TO 539
+  530     CONTINUE
+          LF(LP)=L
+          FJJ=FJJ-1.D0
+          SCRJ(LP,IQM1)=FJJ
+          SCRJM1(LP)=FJJ
+  539   CONTINUE
+  549 CONTINUE
+C
+      DO 569 L=1,NLS
+        IQM1=IQM1L(L)
+        IQ=MAX0(IQL(L),IQM1+1)
+        SCRLQ1=SCRL(L,IQM1)
+        FKL=FK(L)
+        SCRLQ=SCRL(L,IQ)
+        SCRSQ1=SCRS(L,IQM1)
+        DO 568 LP=1,NLS
+          CT4(L,LP)=TMX(L,LP)
+          C(L,LP)=0.D0
+          IF(NCFG(L).NE.NCFG(LP)) GO TO 568
+          IF (LF(L).NE.LF(LP)) GO TO 568
+          NQ=NALS(LP,IQ)
+          I=SCRL(L,IQ)+SCRJ(LP,IQM1)+FL(NQ,IQ)+SCRS(L,IQM1)+0.001D0
+          A=DSQRT((2.D0*SCRLQ+1.D0)*(2.D0*SCRJ(LP,IQM1)+1.D0))
+          IF (MOD(I,2).NE.0) A=-A
+          B=S6J(SCRLQ,SCRSQ1,FKL,SCRJ(LP,IQM1),FL(NQ,IQ),SCRLQ1)
+          C(L,LP)=A*B
+  568   CONTINUE
+  569 CONTINUE
+      GO TO 900
+C
+C          LSJLKS COUPLING (KCPL1=6)
+C
+C      CALC QU. NOS. FOR KCPL1=6 AND 7 BOTH
+  600 DO 646 L=1,NLS
+        IQM2=IQM2L(L)
+        IQM1=MAX0(IQM1L(L),IQM2+1)
+        IQ=MAX0(IQL(L),IQM1+1)
+        IF (LF(L).NE.0) GO TO 646
+        L1=L
+        NQM1=NALS(L,IQM1)
+        NQ=NALS(L,IQ)
+        NJQ=2.D0*DMIN1(SCRL(L,IQM2),SCRS(L,IQM2))+1.D0
+        NLQ=2.D0*DMIN1(FL(NQM1,IQM1),FL(NQ,IQ))+1.D0
+        NSQ=2.D0*DMIN1(S(NQM1,IQM1),S(NQ,IQ))+1.D0
+        SJQ=SCRL(L,IQM2)+SCRS(L,IQM2)
+        DO 1181 IJQ=1,NJQ
+          SLQ=FL(NQM1,IQM1)+FL(NQ,IQ)
+          DO 1180 ILQ=1,NLQ
+            SSQ=S(NQM1,IQM1)+S(NQ,IQ)
+            DO 1179 ISQ=1,NSQ
+              FKK=SJQ+SLQ+1.D0
+              FKMN=DABS(SJQ-SLQ)
+              FJJ=SLQ+SSQ+1.D0
+              FJMN=DABS(SLQ-SSQ)
+  602         FKK=FKK-1.D0
+              IF (FKK.LT.FKMN) GO TO 643
+              IF ((FKK+SSQ-SCRJ8).LT.0) GO TO 643
+              IF ((FKK+SSQ-SCRJ8).EQ.0) GO TO 608
+  606         IF (DABS(FKK-SSQ).GT.SCRJ8) GO TO 602
+  608         FJJ=FJJ-1.D0
+              IF (FJJ.LT.FJMN) GO TO 643
+              IF ((FJJ+SJQ-SCRJ8).LT.0) GO TO 643
+              IF ((FJJ+SJQ-SCRJ8).EQ.0) GO TO 615
+  612         IF (DABS(FJJ-SJQ).GT.SCRJ8) GO TO 608
+  615         LF(L1)=L
+              SCRJ(L1,IQM2)=SJQ
+              SCRJM2(L1)=SJQ
+              SCRL6(L1)=SLQ
+              FK6(L1)=FKK
+              SCRS6(L1)=SSQ
+              SCRJ(L1,IQM1)=FJJ
+              SCRJM1(L1)=FJJ
+              I=SLQ+1.D0
+              LHQQ(L1)=LSYMB(I)
+              MULTQQ(L1)=2.D0*SSQ+1.D0
+              IF (L1.GE.NLS) GO TO 646
+              L11=L1+1
+              DO 630 LP=L11,NLS
+                DO 622 I=1,IQ
+                  IF (NALS(LP,I).NE.NALS(L,I)) GO TO 630
+  622           CONTINUE
+                DO 625 I=1,IQM2
+                  IF (SCRL(LP,I).NE.SCRL(L,I)) GO TO 630
+                  IF (SCRS(LP,I).NE.SCRS(L,I)) GO TO 630
+  625           CONTINUE
+                L1=LP
+                GO TO 602
+  630         CONTINUE
+              GO TO 646
+  643       SSQ=SSQ-1.D0
+ 1179       CONTINUE
+  644     SLQ=SLQ-1.D0
+ 1180     CONTINUE
+  645   SJQ=SJQ-1.D0
+ 1181   CONTINUE
+  646 CONTINUE
+C
+      DO 669 L=1,NLS
+        IQM2=IQM2L(L)
+        IQM1=MAX0(IQM1L(L),IQM2+1)
+        IQ=MAX0(IQL(L),IQM1+1)
+        NQM1=NALS(L,IQM1)
+        NQ=NALS(L,IQ)
+        A1=SCRL(L,IQM2)
+        A2=SCRS(L,IQM2)
+        A4=SCRL(L,IQM1)
+        A5=SCRS(L,IQM1)
+        A6=SCRL(L,IQ)
+        A7=SCRS(L,IQ)
+        A8=FL(NQM1,IQM1)
+        A9= S(NQM1,IQM1)
+        A10=FL(NQ,IQ)
+        A11= S(NQ,IQ)
+        DO 668 LP=1,NLS
+          TMX(L,LP)=0.D0
+          IF(NCFG(L).NE.NCFG(LP)) GO TO 668
+          IF (LF(L).NE.LF(LP)) GO TO 668
+          A3=SCRJ(LP,IQM2)
+          A12=FK6(LP)
+          A13=SCRL6(LP)
+          A14=SCRS6(LP)
+          I=A1+A2+A3+A6+A7-SCRJ8+A8+A9+A10+A11+A13-A14
+          A=DSQRT((2.D0*A4+1.D0)*(2.D0*A5+1.D0)*(2.D0*A6+1.D0)*
+     1      (2.D0*A7+1.D0)*(2.D0*A13+1.D0)*(2.D0*A14+1.D0)*
+     2      (2.D0*A12+1.D0)*(2.D0*A3+1.D0))
+          IF (MOD(I,2).NE.0) A=-A
+          B=S6J(A1,A8,A4, A10,A6,A13) * S6J(A2,A9,A5, A11,A7,A14)
+     1      *S6J(A12,A14,SCRJ8, A7,A6,A2) * S6J(A6,A2,A12, A3,A13,A1)
+          TMX(L,LP)=A*B
+  668   CONTINUE
+  669 CONTINUE
+      GO TO 930
+C
+C          LSJ(LSJ) COUPLING (KCPL1=7)
+C
+  700 DO 769 L=1,NLS
+        IQM2=IQM2L(L)
+        IQM1=MAX0(IQM1L(L),IQM2+1)
+        IQ=MAX0(IQL(L),IQM1+1)
+        A1=SCRJ(L,IQM2)
+        A2=SCRL6(L)
+        A3=FK6(L)
+        A4=SCRS6(L)
+        DO 768 LP=1,NLS
+          CT4(L,LP)=TMX(L,LP)
+          C(L,LP)=0.D0
+          IF(NCFG(L).NE.NCFG(LP)) GO TO 768
+          IF (LF(L).NE.LF(LP)) GO TO 768
+          IF (A1.NE.SCRJ(LP,IQM2)) GO TO 768
+          IF (A2.NE.SCRL6(LP)) GO TO 768
+          IF (A4.NE.SCRS6(LP)) GO TO 768
+          A6=SCRJ(LP,IQM1)
+          I=A1+A2+A4+SCRJ8
+          A=DSQRT((2.D0*A3+1.D0)*(2.D0*A6+1.D0))
+          IF (MOD(I,2).NE.0) A=-A
+          B=S6J(A1,A2,A3, A4,SCRJ8,A6)
+          C(L,LP)=A*B
+  768   CONTINUE
+  769 CONTINUE
+C     GO TO 900
+C
+C          OUTPUT
+C
+C     A. Kramida 2026: O(NLS**3), run once per coupling 3-7 per block.
+C     Threaded over L; each L writes only its own row of TMX and reads
+C     CT4 and C, which it does not write, and the accumulation keeps its
+C     original order, so the result is bit-for-bit unchanged.
+  900 CONTINUE
+!$OMP PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,K) SCHEDULE(STATIC)
+      DO L=1,NLS
+        DO LP=1,NLS
+          TMX(L,LP)=0.D0
+          DO K=1,NLS
+            TMX(L,LP)=TMX(L,LP)+CT4(L,K)*C(K,LP)
+          ENDDO
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+C
+  930 IF (IABG.LT.3) GO TO 935
+      DO 934 L=1,NLS
+        M=NOSUBC
+        I=SCRL(L,M)+SCRS(L,M)-SCRJ8
+        IF (MOD(I,2).NE.0) GO TO 934
+        DO 1182 LP=1,NLS
+  933   TMX(L,LP)=-TMX(L,LP)
+ 1182   CONTINUE
+  934 CONTINUE
+  935 IF (KCPL.EQ.1) GO TO 939
+      IF (KCPL1.EQ.5.OR.KCPL1.EQ.7) GO TO 939
+C          TRANSFORM FROM LS TO JJ REPRESENTATION
+      REWIND 2
+C     READ (2) ((C(L,LP),L=1,NLS), LP=1,NLS)
+C  ******************************************************** A.KRAMIDA v
+      IMSQ=NLS*NLS
+      CALL UNPK1(2,NLS,NLS,C,KMX,KMX,IMSQ,MAXBC)
+C  ******************************************************** A.KRAMIDA ^
+      DO L=1,NLS
+        DO LP=1,NLS
+          CT4(L,LP)=TMX(L,LP)
+        ENDDO
+      ENDDO
+C     A. Kramida 2026: the second O(NLS**3) product of this routine,
+C     threaded over L on the same reasoning as the one at label 900.
+!$OMP PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,LPP,DELT) SCHEDULE(STATIC)
+      DO L=1,NLS
+        DO LP=1,NLS
+          DELT=0.D0
+          DO LPP=1,NLS
+            DELT=DELT+C(LPP,L)*CT4(LPP,LP)
+          ENDDO
+          TMX(L,LP)=DELT
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+  939 IF (KCPLD(KCPL1).NE.0) GO TO 970
+C     WRITE (IC) ((TMX(L,LP), LP=1,NLS),  FK(L),FKJ(L),SCRJM1(L),
+C    1  SCRJM2(L),SCRL6(L),FK6(L),SCRS6(L),LHQQ(L),MULTQQ(L),L=1,NLS)
+C  ********************************************************* A.KRAMIDA v
+      WRITE (IC) (FK(L),FKJ(L),SCRJM1(L),
+     1  SCRJM2(L),SCRL6(L),FK6(L),SCRS6(L),LHQQ(L),MULTQQ(L),L=1,NLS)
+      IMSQ=NLS*NLS
+      CALL PK1(IC,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)  !,5,IW)
+      ICPTR=ICPTR+2
+C  ********************************************************* A.KRAMIDA ^
+      NOICWR=NOICWR+2
+C
+      IF (ICFC.LE.0) GO TO 970
+      WRITE (IW,91) COUPL(KCPL),COUPL(KCPL1)
+   91 FORMAT (9H0TMX FROM, A6, 5H  TO ,A6,9H COUPLING//)
+      LX=0
+  940 LN=LX+1
+      LX=LX+11
+      IF (LX.GT.NLS) LX=NLS
+      GO TO (943,943,943,944,945,946,947) KCPL1
+  943 WRITE (IW,93) (SCRJM1(L),FKJ(L), L=LN,LX)
+   93 FORMAT (28X,11(F4.1,1HK,F4.1))
+      GO TO 950
+  944 LP1=SCRL(L,NOSUBC)+1.D0
+      LHS4=LSYMB(LP1)
+      WRITE (IW,94) (LHS4,FK(L), L=LN,LX)
+   94 FORMAT (28X,11(2X,A1,1H(,F4.1,1H)))
+      GO TO 950
+  945 WRITE (IW,93) (SCRJM1(L),FK(L), L=LN,LX)
+      GO TO 950
+  946 WRITE (IW,96) (SCRJM2(L),LHQQ(L),FK6(L),MULTQQ(L), L=LN,LX)
+   96 FORMAT (28X,11(F4.1,A1,F3.1,I1))
+      GO TO 950
+  947 WRITE (IW,97) (SCRJM2(L),MULTQQ(L),LHQQ(L),SCRJM1(L),
+     1    L=LN,LX)
+   97 FORMAT (28X,11(F4.1,I1,A1,F3.1))
+  950 DO 955 L=1,NLS
+      IF (KCPL.EQ.1) GO TO 953
+      WRITE (IW,98) NCFG(L),FIDJJ(L,1), L, (TMX(L,LP), LP=LN,LX)
+   98 FORMAT (I11,2X,2H (,A7,I4,2X,11F9.5)
+      GO TO 955
+  953 WRITE (IW,98) NCFG(L),FIDLS(L,1), L, (TMX(L,LP), LP=LN,LX)
+  955 CONTINUE
+      IF (LX.LT.NLS) GO TO 940
+C
+  970 KCPL1=KCPL1+1
+      IF (KCPL1.LE.4) GO TO 110
+      IF ((KCPL1-6).EQ.0) GO TO 110
+      IF ((KCPL1-6).GT.0) GO TO 973
+  972 IF ((NOSUBC-3).LT.0) GO TO 980
+      GO TO 110
+  973 IF ((KCPL1-7).LT.0) GO TO 110
+      IF ((KCPL1-7).EQ.0) GO TO 121
+  980 CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      WRITE (IW,99) DELT
+   99 FORMAT (11X,5HTIME=,F9.3,4H MIN)
+      RETURN
+      END
+C
+C     OVERLAY(G9,7,0)
+      SUBROUTINE MUPOLE
+C
+C
+C          COMPUTE MAGNETIC-DIPOLE (II=0), ELECTRIC-DIPOLE (II=1),
+C               OR ELECTRIC-QUADRUPOLE (II=2) MATRICES
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/MAGEE/NMULT,NDUM,NEXP(KMX),SUMS(KMULT),
+     1  IALS(KMULT,KS,2),SL(KMULT,KS,2),SS(KMULT,KS,2),NEXPED(KMULT,2),
+     2  ETRM(KMULT,2)
+      COMMON/C2A/SJ8K(2),NOTSJP(KS,KNT),NCFGP(KMX),NALSP(KMX,KS)
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS,2),
+     2  SCRS(KMX,KS,2), MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION VECT(KMX,KMX),TMXP(KMX,KMX)
+      pointer (C3LC4_PTR,VECT),(C3LC4_PTR,TMXP)                         ! A. Kramida: was TMPX (typo) - left TMXP as an 800 MB static array
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE2/EIG(KMX),ELEM1(3),FNT(9,2),I1,I2,
+     1  IFACT(4),FACT(4),LCSER(KMX),XXX(KMX)
+c
+      integer*8 FL_PTR,S_PTR,CFP2_PTR,CFP1_PTR
+      DIMENSION FL(KMX,KS,2),S(KMX,KS,2),CFP2(KLS1,KLS1),CFP1(KLS1,KLS1)
+      pointer (FL_PTR,FL),(S_PTR,S),(CFP2_PTR,CFP2),(CFP1_PTR,CFP1)
+c
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      DIMENSION U1(KLS1,KLS1)
+      pointer (CFP1_PTR,U1)
+      CHARACTER*8 FIDMULT(KMULT,2)
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,AA,COUPL
+      CHARACTER*4 LSYMB
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      COMMON/CHAR1/FIDMULT
+C
+C
+      CALL ALLOC(FL_PTR,KMX*KS*2,8)
+      CALL ALLOC(S_PTR,KMX*KS*2,8)
+      CALL ALLOC(CFP2_PTR,KLS1**2,8)
+      CALL ALLOC(CFP1_PTR,KLS1**2,8)
+c
+      IRMN1=IRMN+1
+      IRMX1=IRMX+1
+      RMX=IRMX
+      II=IARG1
+      IL1=IARG2
+      IL2=IARG3
+      IX=II
+      I1=IL1-ILA+1
+      I2=IL2-ILA+1
+      DO 990 IR1=IRMN1,IRMX1,2
+      R=IR1-1
+      SUMS20=0.D0
+      SUMS21=0.D0
+      REWIND IL1
+      READ (IL1) NOTSJ1,NSCRJ8,SJ8MN,SJ8MX,NPAR,NPARJ,PARNAM,
+     1  NOTSX, ((FL(L,I,1),S(L,I,1), L=1,NOTSX), I=1,NOSUBC)
+      SJ8K(I1)=SJ8MN-1.D0
+      REWIND IL2
+      READ (IL2) NOTSJP,NSCRJP,SJ8PMN,SJ8PMX,NPAR,NPARJ,PARNAM,
+     1  NOTSX, ((FL(L,I,2),S(L,I,2), L=1,NOTSX), I=1,NOSUBC)
+      SJ8K(I2)=SJ8PMN-1.D0
+      J1A=NSCONF(2,I1)
+      J1B=NSCONF(2,I2)
+      DO 1184 I=1,J1A
+      DO 1183 J=1,J1B
+  105 SOPI2(I,J)=0.D0
+ 1183 CONTINUE
+ 1184 CONTINUE
+      NMULT=0
+      DO 1185 I=1,KMULT
+  106 SUMS(I)=0.D0
+ 1185 CONTINUE
+C
+      NSC=NOSUBC
+      SJD=SJ8K(I1)
+  110 SJD=SJD+1.D0
+      IF (SJD.GT.SJ8MX) GO TO 950
+  120 N=SJ8K(I1)-SJD
+      IF (N.LT.0) GO TO 126
+  122 N=N+1
+C     DO 124 I=1,N
+C 124 BACKSPACE IL1
+      CALL BACK(IL1,2*N)
+C 126 READ (IL1) SJ8K(I1),NLS, ((TMX(L,LP),L=1,NLS), LP=1,NLS),
+C    1  ((NALS(L,I),SCRL(L,I,1),SCRS(L,I,1),I=1,NSC),
+C    2  NCFG(L),FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+C********************************************************* A.KRAMIDA v
+  126 READ (IL1) SJ8K(I1),NLS,
+     1  ((NALS(L,I),SCRL(L,I,1),SCRS(L,I,1),I=1,NSC),
+     2  NCFG(L),FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+      IMSQ=NLS*NLS
+      CALL UNPK1(IL1,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+C********************************************************* A.KRAMIDA ^
+      IF (SJ8K(I1).NE.SJD) GO TO 120
+      Y=100.D0
+      DO 127 I=IRMN1,IRMX1,2
+      R1=I-1
+      X=DABS(SJD-R1)
+      IF (X.LE.Y) Y=X
+  127 CONTINUE
+      IF (II.EQ.0) Y=DABS(SJD-1.D0)
+  128 X=0.D0
+      IF (I1.EQ.I2) X=SJD
+      SJPD=DMAX1(SJ8PMN,Y,X)
+      GO TO 135
+  130 SJPD=SJPD+1.D0
+      IF (SJD.EQ.0.D0) SJPD=SJPD+1.D0
+  135 IF (SJPD.GT.DMIN1(SJD+RMX,SJ8PMX)) GO TO 110
+  140 N=SJ8K(I2)-SJPD
+      IF (N.LT.0) GO TO 146
+  142 N=N+1
+C     DO 144 I=1,N
+C 144 BACKSPACE IL2
+      CALL BACK(IL2,2*N)
+C 146 READ (IL2) SJ8K(I2),NLSP, ((TMXP(L,LP),L=1,NLSP), LP=1,NLSP),
+C    1  ((NALSP(L,I),SCRL(L,I,2),SCRS(L,I,2),I=1,NSC),
+C    2  NCFGP(L),FIDLS(L,2),FIDJJ(L,2), L=1,NLSP)
+  146 READ (IL2) SJ8K(I2),NLSP,
+     1  ((NALSP(L,I),SCRL(L,I,2),SCRS(L,I,2),I=1,NSC),
+     2  NCFGP(L),FIDLS(L,2),FIDJJ(L,2), L=1,NLSP)
+      IMSQ=NLSP*NLSP
+      CALL UNPK1(IL2,NLSP,NLSP,TMXP,KMX,KMX,IMSQ,MAXBC)
+      IF (SJ8K(I2).NE.SJPD) GO TO 140
+C
+C
+  150 NCO=0
+      NCPO=0
+      DO 879 L=1,NLS
+      NC=NCFG(L)
+      DO 878 LP=1,NLSP
+      NCP=NCFGP(LP)
+      C(L,LP)=0.D0
+      IF (II.GT.0) GO TO 300
+C
+C          CALC MAGNETIC DIPOLE ELEMENT
+C
+  200 IF (NC.NE.NCP) GO TO 878
+      DO 1186 I=1,NOSUBC
+      IF (NALS(L,I).NE.NALSP(LP,I)) GO TO 878
+      IF (SCRL(L,I,1).NE.SCRL(LP,I,2)) GO TO 878
+  210 IF (SCRS(L,I,1).NE.SCRS(LP,I,2)) GO TO 878
+ 1186 CONTINUE
+      A1=SCRL(L,NOSUBC,1)
+      A2=SCRS(L,NOSUBC,1)
+      TC=1.00232D0*UNCPLB(A1,A2,SJD,ONE,A2,SJPD)
+     1  *DSQRT(A2*(A2+1.D0)*(2.D0*A2+1.D0))
+      IF (SJD.EQ.SJPD) TC=TC+DSQRT(SJD*(SJD+1.D0)*(2.D0*SJD+1.D0))
+      GO TO 700
+C
+C          CALC ELECTRIC MULTIPOLE ELEMENT
+C
+  300 IF (NC.EQ.NCO.AND.NCP.EQ.NCPO) GO TO 400
+C
+C          DETERMINE WHETHER A TRANSITION IS POSSIBLE (ITRANS.NE.0)
+C
+      ITRANT=ITRANS
+      IT=I
+      JT=J
+      ITRANS=0
+      DO 1188 IRHO=1,NOSUBC
+      DO 340 IRHOP=1,NOSUBC
+      DO 302 I=1,NOSUBC
+      IF (I.EQ.IRHO.OR.I.EQ.IRHOP) GO TO 302
+      IF (NIJK(I,NC,I1)+NIJK(I,NCP,I2).EQ.0) GO TO 302
+      IF (FLLIJK(I,NC,I1).NE.FLLIJK(I,NCP,I2)) GO TO 340
+      IF (NIJK(I,NC,I1).NE.NIJK(I,NCP,I2)) GO TO 340
+  302 CONTINUE
+      IF (IRHO.NE.IRHOP) GO TO 320
+      IF (IL1.NE.IL2.OR.NC.NE.NCP) GO TO 305
+      DO 304 I=IRHO,NOSUBC
+      IERAS=4.D0*FLLIJK(I,NC,I1)+2.D0
+      NN=NIJK(I,NC,I1)
+      IF ((NN.EQ.0.OR.NN.EQ.IERAS).AND.I.EQ.IRHO) GO TO 340
+      IF (I.EQ.IRHO) GO TO 304
+      IF (NN.EQ.0.OR.NN.EQ.IERAS) GO TO 304
+      IF (FLLIJK(I,NC,I1).EQ.0.D0) GO TO 304
+      GO TO 340
+  304 CONTINUE
+      GO TO 320
+  305 NN=0
+      DO 1187 I=IRHO,NOSUBC
+  310 NN=NN+NIJK(I,NC,I1)+NIJK(I,NCP,I2)
+ 1187 CONTINUE
+      IF (NN.GT.2) GO TO 340
+  320 A=FLLIJK(IRHO,NC,I1)+FLLIJK(IRHOP,NCP,I2)
+      IF (DMOD(A+R,TWO).NE.ZERO) GO TO 340
+      IF (A.LT.R) GO TO 340
+      IF (DABS(FLLIJK(IRHO,NC,I1)-FLLIJK(IRHOP,NCP,I2)).GT.R) GO TO 340
+      DO 325 I=1,NOSUBC
+      N=NIJK(I,NC,I1)
+      IF (I.EQ.IRHO) N=N-1
+      M=NIJK(I,NCP,I2)
+      IF (I.EQ.IRHOP) M=M-1
+      IF (N.NE.M) GO TO 340
+      IF (N.LT.0) GO TO 340
+  325 CONTINUE
+      GO TO 350
+  340 CONTINUE
+ 1188 CONTINUE
+      ITRANS=ITRANT
+      I=IT
+      J=JT
+      GO TO 878
+C
+C          CALCULATE THEORETICAL S/P2
+C
+  350 NCO=NC
+      NCPO=NCP
+      IF (SOPI2(NC,NCP).NE.0.D0) GO TO 355
+      ERAS=2.D0
+      DO 1189 I=1,NOSUBC
+      B=NIJK(I,NC,I1)
+      B1=NIJK(I,NCP,I2)
+      IF (B.GE.B1) GO TO 351
+      A=4.D0*FLLIJK(I,NCP,I2)+1.D0
+      GO TO 354
+  351 A=4.D0*FLLIJK(I,NC,I1)+2.D0
+      IF (I.NE.IRHO) GO TO 354
+      IF (I1.NE.I2.OR.NC.NE.NCP) GO TO 353
+      ERAS=ERAS*B*(A-B)/(A*(A-1.D0))
+      GO TO 354
+  353 A=A-1.D0
+      B=B-1.D0
+  354 ERAS=ERAS*FCTRL(A)/(FCTRL(B)*FCTRL(A-B))
+ 1189 CONTINUE
+      SOPI2(NC,NCP)=ERAS
+      IF (I1.EQ.I2) SOPI2(NCP,NC)=ERAS
+C
+C          DETERMINE WHETHER CONFIGS ARE TO BE INTERCHANGED (ITRANS=-1)
+C
+  355 I=MIN0(IRHO,IRHOP)
+      J=MAX0(IRHO,IRHOP)
+      M=NIJK(IRHO,NC,I1)
+      N=NIJK(IRHOP,NCP,I2)
+      ITRANS=1
+      TC0=1.D0
+      IF (IL1.EQ.IL2.AND.NC.EQ.NCP) GO TO 370
+      A=M*N
+      TC0=DSQRT(A)
+      IF (IRHO.GT.IRHOP) N=M
+      M=0
+      DO 360 K=I,J
+      IF (K.NE.I.AND.K.NE.J) M=M+NIJK(K,NC,I1)
+  360 CONTINUE
+      IF (MOD(M+N,2).EQ.0) TC0=-TC0
+      IF (I.NE.IRHO) ITRANS=-1
+      IF (ITRANS.GT.0) GO TO 370
+      IF (DMOD(DABS(SJPD-SJD+R),TWO).NE.ZERO) TC0=-TC0
+C
+C          READ CFP FROM DISK 12, OR U2 FROM DISK 13 (FOR E2 TRANSITIONS),
+C               OR READ U0, U2, U4,... (FOR PLANE-WAVE-BORN CALCULATIONS)
+C
+  370 N=NIJK(IRHO,NC,I1)
+      ALL=FLLIJK(IRHO,NC,I1)
+      IF (I.EQ.J) GO TO 390
+      III=1
+  375 IF (N.LE.2) GO TO 385
+      CALL LOCDSK(ID2,ALL,N)
+      READ (ID2) (IA,IA,IA,A,A, M=1,NLT), NLP
+      IF (III.EQ.1.AND.ITRANS.EQ.(-1)) GO TO 380
+      IF (III.EQ.2.AND.ITRANS.EQ.1) GO TO 380
+      READ (ID2) ((CFP1(K,M), K=1,NLT), M=1,NLP)
+      GO TO 385
+  380 READ (ID2) ((CFP2(K,M), K=1,NLT), M=1,NLP)
+  385 IF (III.EQ.2) GO TO 400
+      N=NIJK(IRHOP,NCP,I2)
+      ALL=FLLIJK(IRHOP,NCP,I2)
+      III=2
+      GO TO 375
+C
+  390 IF (N.LT.2) GO TO 400
+      CALL LOCDSK(ID3,ALL,N)
+      IF (IR1.LE.1) GO TO 396
+      DO 1190 K=2,IR1
+  394 READ (ID3)
+ 1190 CONTINUE
+  396 READ (ID3) K73, ((U1(K,M), K=1,NLT), M=1,NLT)
+C
+C
+C
+  400 IF ((ITRANS).LT.0) GO TO 410
+      IF ((ITRANS).EQ.0) GO TO 878
+  405 L1=L
+      L2=LP
+      NC1=NC
+      NC2=NCP
+      J1=I1
+      J2=I2
+      K1=1
+      K2=2
+      SJ1=SJD
+      SJ2=SJPD
+      GO TO 420
+  410 L1=LP
+      L2=L
+      NC1=NCP
+      NC2=NC
+      J1=I2
+      J2=I1
+      K1=2
+      K2=1
+      SJ1=SJPD
+      SJ2=SJD
+C        TEST SELECTION RULES
+  420 DO 430 M=1,NOSUBC
+      A=DABS(SCRL(L,M,1)-SCRL(LP,M,2))
+      B=SCRL(L,M,1)+SCRL(LP,M,2)
+      IF (M.GE.J) GO TO 426
+      IF (M.LT.I) GO TO 424
+      IF (A.GT.FLLIJK(I,NC1,J1)) GO TO 878
+      IF (B.LT.FLLIJK(I,NC1,J1)) GO TO 878
+      IF (M.EQ.I) GO TO 430
+      GO TO 428
+  424 IF (A.NE.0.D0) GO TO 878
+      GO TO 427
+  426 IF (A.GT.R) GO TO 878
+      IF (B.LT.R) GO TO 878
+  427 IF (SCRS(L,M,1).NE.SCRS(LP,M,2)) GO TO 878
+      IF (M.EQ.J) GO TO 430
+  428 IF (NALS(L,M)-NOTSJ1(M,NC).NE.NALSP(LP,M)-NOTSJP(M,NCP)) GO TO 878
+  430 CONTINUE
+C
+  450 TC=TC0
+      A1=SCRL(L1,NOSUBC,K1)
+      A2=SCRL(L2,NOSUBC,K2)
+      A3=SCRS(L1,NOSUBC,K1)
+      TC=TC*UNCPLA(A1,A3,SJ1, R,A2,SJ2)
+C
+      MN=J+1
+      IF (MN.GT.NOSUBC) GO TO 460
+      DO 1191 M=MN,NOSUBC
+      A1=SCRL(L1,M-1,K1)
+      A2=SCRL(L1,M,K1)
+      A3=SCRL(L2,M,K2)
+      N1=NALS(L,M)
+      A4=FL(N1,M,1)
+  455 TC=TC*UNCPLA(A1,A4,A2, R,SCRL(L2,M-1,K2),A3)
+ 1191 CONTINUE
+C
+  460 IF (IL1.EQ.IL2.AND.NC.EQ.NCP) GO TO 600
+C
+C          COMPLETE CALCULATION FOR NON-CONF-DIAG CASE
+C
+  500 IF (NIJK(I,NC1,J1).LE.2) GO TO 510
+      N1=NALS(L,I)-NOTSJ1(I,NC)
+      N2=NALSP(LP,I)-NOTSJP(I,NCP)
+      A=CFP1(N1,N2)
+      IF (ITRANS.LT.0) A=CFP1(N2,N1)
+      TC=TC*A
+  510 IF (NIJK(J,NC2,J2).LE.2) GO TO 520
+      N1=NALS(L,J)-NOTSJ1(J,NC)
+      N2=NALSP(LP,J)-NOTSJP(J,NCP)
+      A=CFP2(N1,N2)
+      IF (ITRANS.GT.0) A=CFP2(N2,N1)
+      TC=TC*A
+C
+  520 FLI=FLLIJK(I,NC1,J1)
+      IF (I.EQ.1) GO TO 530
+      IF (NIJK(I,NC1,J1).EQ.1) GO TO 530
+      A1=SCRL(L1,I-1,K1)
+      A2=SCRL(L1,I,K1)
+      A3=SCRL(L2,I,K2)
+      N1=NALS(L,I)
+      N2=NALSP(LP,I)
+      IF (ITRANS.GT.0) GO TO 522
+      N1=N2
+      N2=NALS(L,I)
+  522 A4=FL(N1,I,J1)
+      A5=FL(N2,I,J2)
+      B1=SCRS(L1,I-1,K1)
+      B2=SCRS(L1,I,K1)
+      B3=SCRS(L2,I,K2)
+      B4=S(N1,I,J1)
+      B5=S(N2,I,J2)
+      TC=TC*RECPSH(A1,A5,A3,FLI,A2,A4)*RECPSH(B1,B5,B3,HALF,B2,B4)
+C
+  530 MN=I+1
+      MX=J-1
+      IF (MN.GT.MX) GO TO 540
+      DO 1192 M=MN,MX
+      A1=SCRL(L1,M-1,K1)
+      A2=SCRL(L2,M-1,K2)
+      A3=SCRL(L1,M,K1)
+      A4=SCRL(L2,M,K2)
+      N1=NALS(L,M)
+      A5=FL(N1,M,1)
+      B1=SCRS(L1,M-1,K1)
+      B2=SCRS(L2,M-1,K2)
+      B3=SCRS(L1,M,K1)
+      B4=SCRS(L2,M,K2)
+      B5=S(N1,M,1)
+  539 TC=TC*RECPEX(A2,FLI,A1,A5,A3,A4)*RECPEX(B2,HALF,B1,B5,B3,B4)
+ 1192 CONTINUE
+C
+  540 FLJ=FLLIJK(J,NC2,J2)
+      N1=NALS(L,J)
+      N2=NALSP(LP,J)
+      IF (ITRANS.GT.0) GO TO 542
+      N1=N2
+      N2=NALS(L,J)
+  542 A1=SCRL(L1,J-1,K1)
+      A2=SCRL(L2,J-1,K2)
+      A3=SCRL(L1,J,K1)
+      A4=SCRL(L2,J,K2)
+      IF (I.EQ.J) GO TO 560
+      A5=FL(N1,J,J1)
+      A6=FL(N2,J,J2)
+      B5=S(N1,J,J1)
+      IF (B5.EQ.0.D0) GO TO 550
+      B1=SCRS(L1,J-1,K1)
+      B2=SCRS(L2,J-1,K2)
+      B3=SCRS(L1,J,K1)
+      B6=S(N2,J,J2)
+      TC=TC*RECPJP(B2,HALF,B1,B5,B3,B6)
+  550 IF (A5.EQ.0.D0) GO TO 560
+      IF (DMOD(FLJ+A5-A6,TWO).NE.ZERO) TC=-TC
+      TC=TC*DSQRT((2.D0*A1+1.D0)*(2.D0*A6+1.D0)*(2.D0*A3+1.D0)*
+     1  (2.D0*A4+1.D0))
+      TC=TC*S9J(A1,A2,FLI, A5,A6,FLJ, A3,A4,R)
+      GO TO 700
+  560 IF (J.EQ.1) GO TO 700
+      IF (A2.EQ.0.D0) GO TO 700
+      TC=TC*UNCPLB(A2,FLI,A3, R,FLJ,A4)
+      GO TO 700
+C
+C          COMPLETE CALCULATION FOR CONF-DIAG CASE
+C
+  600 IF (I.EQ.1) GO TO 620
+      N1=NALS(L,I)
+      N2=NALSP(LP,I)
+  610 A1=SCRL(L1,I-1,K1)
+      A3=SCRL(L1,I,K1)
+      A4=SCRL(L2,I,K2)
+      A5=FL(N1,I,1)
+      A6=FL(N2,I,2)
+      TC=TC*UNCPLB(A1,A5,A3, R,A6,A4)
+  620 IF (NIJK(I,NC1,J1).EQ.1) GO TO 700
+      N1=NALS(L,I)-NOTSJ1(I,NC)
+      N2=NALSP(LP,I)-NOTSJP(I,NCP)
+      TC=TC*U1(N1,N2)
+C
+  700 A1=TC*TC
+      SUMS21=SUMS21+A1
+      IF (I1.NE.I2) GO TO 720
+      IF (SJD.NE.SJPD) GO TO 710
+      IF (L.LE.LP) GO TO 725
+      GO TO 720
+  710 SUMS21=SUMS21+A1
+  720 SUMS20=SUMS20+A1
+  725 IF (IABG.LT.3) GO TO 730
+      M=NOSUBC
+      IPP=SCRL(L,M,1)+SCRS(L,M,1)-SJD+SCRL(LP,M,2)+SCRS(LP,M,2)-SJPD
+      IF (MOD(IPP,2).NE.0) TC=-TC
+  730 C(L,LP)=TC
+C
+C          SUM LINE STRENGTH FOR EACH MULTIPLET (SPECIAL FOR MAGEE)
+C
+      IF (IELPUN.LT.2) GO TO 878
+      IF (A1.LE.0.D0) GO TO 878
+      IF (NMULT.EQ.0) GO TO 830
+      DO 820 NN=1,NMULT
+      DO 810 JJ=1,KS
+      IF (NALS(L,JJ).NE.IALS(NN,JJ,1).OR.NALSP(LP,JJ).NE.IALS(NN,JJ,2))
+     1  GO TO 820
+      IF (SCRL(L,JJ,1).NE.SL(NN,JJ,1).OR.SCRL(LP,JJ,2).NE.SL(NN,JJ,2))
+     1  GO TO 820
+      IF (SCRS(L,JJ,1).NE.SS(NN,JJ,1).OR.SCRS(LP,JJ,2).NE.SS(NN,JJ,2))
+     1  GO TO 820
+  810 CONTINUE
+      SUMS(NN)=SUMS(NN)+A1
+      GO TO 878
+  820 CONTINUE
+  830 NMULT=NMULT+1
+      IF (NMULT.LE.KMULT) GO TO 832
+      WRITE (IW,83) NMULT,KMULT
+   83 FORMAT ('0*****NMULT=',I3,'  GREATER THAN DIMENSION KMULT=',I3)
+      STOP '(MUPOLE 83)'
+  832 NN=NMULT
+      DO 840 JJ=1,KS
+      IALS(NN,JJ,1)=NALS(L,JJ)
+      IALS(NN,JJ,2)=NALSP(LP,JJ)
+      SL(NN,JJ,1)=SCRL(L,JJ,1)
+      SL(NN,JJ,2)=SCRL(LP,JJ,2)
+      SS(NN,JJ,1)=SCRS(L,JJ,1)
+      SS(NN,JJ,2)=SCRS(LP,JJ,2)
+      SUMS(NN)=A1
+      FIDMULT(NN,1)=FIDLS(L,1)
+      FIDMULT(NN,2)=FIDLS(LP,2)
+      NEXPED(NN,1)=0.D0
+      NEXPED(NN,2)=0.D0
+  840 CONTINUE
+C
+  878 CONTINUE
+  879 CONTINUE
+C
+C          OUTPUT (TRANSFORM TO JJ COUPLING IF NECESSARY)
+C
+  900 KPAR=2
+      SCRJ8=SJD
+      SCRJ8P=SJPD
+      CALL SPRIN
+C
+  925 GO TO 130
+C
+C          WRITE DUMMY RECORD
+C
+  950 SCRJ8=-7.D0
+      NLS=1
+C     WRITE (IC) SCRJ8,SCRJ8,NLS,NLS, C(1,1), NCFG,NCFGP
+C****************************************************** A.KRAMIDA v
+      WRITE (IC) SCRJ8,SCRJ8,NLS,NLS,NCFG,NCFGP
+      IMSQ=NLS*NLS
+      CALL PK1(IC,NLS,NLS,C,KMX,KMX,IMSQ,MAXBC)   !,6,IW)
+      ICPTR=ICPTR+2
+C****************************************************** A.KRAMIDA ^
+      NOICWR=NOICWR+2
+      NOICMUP(KK)=NOICMUP(KK)+2
+      REWIND IL1
+      REWIND IL2
+      J1X=NSCONF(2,I1)
+      J2X=NSCONF(2,I2)
+      SSOPI2=0.D0
+      DO 1194 NC=1,J1X
+      DO 1193 NCP=1,J2X
+  958 SSOPI2=SSOPI2+SOPI2(NC,NCP)
+ 1193 CONTINUE
+ 1194 CONTINUE
+      WRITE (IW,92) SUMS21,SUMS20,SSOPI2
+   92 FORMAT (///15H0SUMS21,SUMS20=,2F12.5/8X,7HSSOPI2=,F12.5//)
+c     DO 960 I=1,J1X
+c 960 WRITE (IW,93) (SOPI2(I,J), J=1,J2X)
+c  93 FORMAT (45X,9F8.3)
+      IF (II.EQ.0) SOPI2(1,1)=SUMS21
+C     WRITE (IC) SOPI2
+C****************************************************** A.KRAMIDA v
+      IMSQ=KC*KC
+      CALL PK1(IC,KC,KC,SOPI2,KC,KC,IMSQ,MAXBC)   !,7,IW)
+      ICPTR=ICPTR+1
+C****************************************************** A.KRAMIDA ^
+      NOICWR=NOICWR+1
+      NOICMUP(KK)=NOICMUP(KK)+1
+  990 CONTINUE
+      CALL DALLOC(FL_PTR)
+      CALL DALLOC(S_PTR)
+      CALL DALLOC(CFP2_PTR)
+      CALL DALLOC(CFP1_PTR)
+      RETURN
+      END
+C
+C     OVERLAY(G9,10,0)
+      SUBROUTINE ENERGY
+C
+C          READ PARAMETER VALUES, CALC ENERGY MATRICES, AND DIAGONALIZE
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/MAGEE/NMULT,NDUM,NEXP(KMX),SUMS(KMULT),
+     1  IALS(KMULT,KS,2),SL(KMULT,KS,2),SS(KMULT,KS,2),NEXPED(KMULT,2),
+     2  ETRM(KMULT,2)
+C     A. Kramida 2026: true-jj switch, its unit, and the jj column labels.
+      COMMON/LSJJBK/IJJROT,IJJU,IBSJJ(KNSJK),NBKJJ(KS,KNSJK)
+      INCLUDE 'LSJJID.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS), MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4),(CT4_PTR,DELE),(CT4_PTR,AA),(CT4_PTR,CPURTY)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION VECT(KMX,KMX),CII(KMX,KMX)
+      pointer (C3LC4_PTR,VECT),(C3LC4_PTR,CII)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      DIMENSION CI(KMX,KMX)
+      pointer (CFGP1_PTR,CI)
+      COMMON/C3LC6/GAAXC_PTR,BRNCHX_PTR
+      integer*8 GAAXC_PTR,BRNCHX_PTR
+      dimension GAAXC(KMX,KEXC),BRNCHX(KEXC,KEXC)
+      pointer (GAAXC_PTR,GAAXC),(BRNCHX_PTR,BRNCHX)
+c
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE2/EIG(KMX),ELEM1(3),FNT(9,2),I1,I2,
+     2  IFACT(4),FACT(4),LCSER(KMX),X(KMX)
+c     +  ,DUMEE2(KEE2)                                                    ! A. Kramida 7/31/2012: if KEE2 <= 0,
+c                                                                        ! comment the line with DUMEE2
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/C6/EMIN,EMAX,SUMWT,FLBDN,FLBDX,FNUNP,FNUXP,NLEV,IEWR
+      DIMENSION DELE(KMX),ENK(2),EXK(2)
+      DIMENSION CPURTY(KMX,KC),NLCFGJ(KC),NSCFGJ(KC)
+      DIMENSION AA(KMX,KMX),JPAR(KPR)
+      COMMON/C7/G1,SUMGAA,SUMGAR,SUMGAAT
+      COMMON/C8/EXC(KEXC),JEXC(KEXC),MEXC(KEXC)
+      COMMON/C9/L1,L2,CFLAG(KC,2),CGENGY(KC,2),SWT(KC,2),IMAX
+      COMMON/PWBORN/NBIGKS,NENRGS,EKMINL,EKMAXL,DELEKL,BIGKS(KBGKS),
+     1  XMIN,XMAX,TEV(25),CORR(KENRGS),IBK,IPWR,I11
+      COMMON/ENERGIES/ETOT(KC,2),EE8(KC,2),E0KIN(KC),EKIN(KMX)
+      CHARACTER*8 LDESN(KMX),FIDMULT(KMULT,2),ELEM,ELEM1
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,COUPL,CFLAG
+      CHARACTER LSYMB*4,BLNK*1,STAR*1
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      COMMON/CHAR1/FIDMULT
+      EQUIVALENCE (ELEM(1,1,1),IELEM)
+      DATA BLNK,STAR/' ','*'/
+c
+      CALL ALLOC(GAAXC_PTR,KMX*KEXC,8)
+      CALL ALLOC(BRNCHX_PTR,KEXC**2,8)
+C
+C     KS=8
+C     KMX=1200
+C     KEXC=40
+      IKKK=KCPLD(8)
+C     A. Kramida 2026: this guard keeps the KCPLD(8)=9 second pass off
+C     whenever the extra couplings are being built, and it used to test
+C     NLSMAX because NLSMAX>0 was the only way to ask for them.  Now
+C     that a blank field means "no limit" (label 105 of the main
+C     program), NLSMAX is non-zero in every deck, so testing it alone
+C     would kill the second pass everywhere.  Test both: NLSPCH, the
+C     value actually punched in columns 23-25, reproduces the old
+C     decision for every deck ever written, and the KCPLD(3:7) loop
+C     covers the newly reachable case of a blank field that lets
+C     couplings 3-7 through.
+      IF (NLSPCH.NE.0) IKKK=0
+      IF (NLSMAX.NE.0) THEN
+        DO I=3,7
+          IF (KCPLD(I).EQ.0) IKKK=0
+        ENDDO
+      ENDIF
+      IPRINT=KCPLD(9)
+c        Changed by Alex K 11/02/02
+c     DO 99 I=1,594
+c  99 ELEM(I,1,1)=BLNK
+      DO I = 1, 3
+        DO IL = 1, KC
+          DO IE = 1, 2
+            ELEM(I,IL,IE)=BLNK
+          ENDDO
+        ENDDO
+      ENDDO
+      IEWR=0
+C
+C          READ QUANTUM NUMBERS
+C
+  100 IL=ILA
+      IE=ILA
+      NLSX=0
+      K=1
+      G1AA=0.D0
+      SUMGAA=0.D0
+      SUMGAAT=0.D0
+      REWIND IC
+      REWIND IJJU
+      ICPTR=0
+  101 REWIND IE
+      READ (IC) NOTSJ1,NSCRJ8,SJ8MN,SJ8MX,NPAR,NPARJ,PARNAM
+      ICPTR=ICPTR+1
+      ICRD=1
+      KK=K
+C
+C          READ PARAMETER VALUES
+C     IF (IPRINT.GE.7) GO TO 102
+      IF (IPRINT.LT.7) THEN
+        WRITE (IW,12)
+   12   FORMAT (1H1)
+      ENDIF
+  102 IXC=0
+      IXC1=1
+      NLST=0
+      DO I=1,KEXC
+        JEXC(I)=KEXC+1
+        EXC(I)=0.D0
+      ENDDO
+C
+      J1X=NSCONF(2,K)  ! Number of configs of parity K
+      NPAR0=1
+      DO I=1,J1X   ! Read parameters of each config
+        NPAV(I)=NPAR0
+        NPAR1=NPAR0+1
+        NPAR4=NPAR0+4
+        NPARSN=NPARJ(I,I)+NPAR0-1          ! NPARJ(i,i) is number of parameters for config. i
+  105   READ (IR,10) (ELEM1(N),N=1,3), X(NPAR0),
+     1    (X(N),JPAR(N),N=NPAR1,NPAR4),TYPE,IFACT
+   10   FORMAT (2A6,A7,1X,F10.5,4(F9.4,I1),A2,4I2)
+C       IF (NPAR0+K.NE.2) GO TO 109
+C       IF (ELEM1(1)(1:6).NE.'    0 ') GO TO 109
+        IF (NPAR0+K.EQ.2 .AND. ELEM1(1)(1:6).EQ.'    0 ') THEN
+C            INTERPRET AS A RESCALE CARD
+          DELEAV=X(1)
+          IERAS=10000.D0*X(2)+0.2D0
+          IERAS=10*IERAS+JPAR(2)
+          DO 1195 J=1,5
+            II=IERAS/100
+            JJ=IERAS-100*II
+            IF (JJ.EQ.99) JJ=100
+            ERAS=DFLOAT(JJ)
+            IF (ERAS.GT.0.D0.AND.ERAS.LT.1.5D0) ERAS=0.1D0
+            FACT0(6-J)=0.01D0*ERAS
+  107     IERAS=II
+ 1195     CONTINUE
+          ERAS=X(4)
+          IF (ERAS.GT.0.D0) THEN
+            SCALE=SCALE*UENRGY/ERAS
+            UENRGY=ERAS
+          ELSE
+            UENRGY=SCALE*UENRGY
+            SCALE=1.D0
+            GO TO 105
+          ENDIF
+        ENDIF
+C
+  109   IF (X(NPAR0).LT.-90000000.D0) GO TO 900
+C       IF (X(NPAR0).LT.-50000000.D0) GO TO 800
+        IF (X(NPAR0).LT.-50000000.D0) THEN
+          CALL RCEINP
+          GO TO 100
+        ENDIF
+        IF (X(NPAR0).LT.-30000000.D0) GO TO 100
+C
+        DO 1196 N=1,3
+  112   ELEM(N,I,K)=ELEM1(N)
+ 1196   CONTINUE
+        DO 1197 J=1,5
+  114   VPAR(NPAR0+J-1,K)=X(NPAR0+J-1)
+ 1197   CONTINUE
+        IF (NPARJ(I,I).GT.5) THEN
+          NPAR5=NPAR4+1
+          READ (IR,11) (VPAR(N,K),JPAR(N),N=NPAR5,NPARSN)
+   11     FORMAT (7(F9.4,I1))
+        ENDIF
+  120   DO J=1,4
+          IF (IFACT(J).EQ.99.OR.IFACT(J).EQ.0) IFACT(J)=100
+          ERAS=IFACT(J)
+          FACT(J)=0.01D0*ERAS
+        ENDDO
+C            SHIFT EAV AND/OR RESCALE SINGLE-CONFIGURATION PARAMETERS
+        N1=NPAR1
+        ERAS=VPAR(NPAR0,K)
+C       IF (ERAS.LE.-4000.D0) GO TO 123
+        IF (ERAS.GT.-4000.D0) THEN
+          VPAR(NPAR0,K)=ERAS+DELEAV
+          N1=NPAR0
+        ENDIF
+  123   DO N=N1,NPARSN
+          VPAR(N,K)=SCALE*VPAR(N,K)
+        ENDDO
+C       IF (NPAR1.GT.NPARSN) GO TO 127
+        IF (NPAR1.LE.NPARSN) THEN
+          DO N=NPAR1,NPARSN
+            J=JPAR(N)
+C           IF (J.LT.1.OR.J.GT.4) GO TO 126
+C           IF (FACT0(J).EQ.0.D0) GO TO 126
+            IF (J.GE.1 .AND. J.LE.4 .AND. FACT0(J).NE.0.D0) THEN
+              VPAR(N,K)=VPAR(N,K)*FACT0(J)/FACT(J)
+            ENDIF
+c  126       CONTINUE
+          ENDDO
+        ENDIF
+  127   DO J=1,4
+          IF (FACT0(J).GT.0.D0) FACT(J)=FACT0(J)
+        ENDDO
+        E0KIN(I)=0.D0
+        IF (VPAR(NPAR0,K).LE.-4000.D0) THEN
+          ERAS=EE8(I,K)
+          ERAS=ERAS*109737.0/UENRGY
+          E0KIN(I)=ETOT(1,1)-ETOT(I,K)+ERAS+VPAR(NPAR0,K)
+        ENDIF
+C
+  130   WRITE (IW,13) (ELEM(N,I,K),N=1,3),UENRGY,TYPE,FACT,
+     1    I, (LLIJK(L,I,K),NIJK(L,I,K), L=1,NOSUBC)
+   13   FORMAT (//1X,3A6,4X,20HPARAMETER VALUES IN ,F7.1,7H CM-1 (,
+     1    A2,6H TIMES,4F5.2,1H), 3X,I3,8(2X,A1,I2))
+        WRITE (IW,14) (PARNAM(N,K),N=NPAR0,NPARSN)
+C  14   FORMAT (/39X,A10,4(5X,A10)/4X,7(5X,A10)/4X,7(5X,A10)/4X,7(5X,A10))
+   14   FORMAT (/39X, A8, 4(7X,A8)/2X,7(7X,A8)/2X,7(7X,A8)/2X,7(7X,A8))
+        WRITE(IW,15) (VPAR(N,K),N=NPAR0,NPARSN)
+   15   FORMAT (/ 30X,5F15.5/(7F15.6))
+        NPAR0=NPARSN+1
+        CFLAG(I,K)=BLNK
+        CGENGY(I,K)=0.D0
+        SWT(I,K)=0.D0
+      ENDDO
+      NOT=NPAR0
+      NJJ=NPARJ(J1X,J1X)
+C     IF (J1X.LE.1) GO TO 139
+      IF (J1X.GT.1) THEN        ! Read CI parameters
+        J1XM1=J1X-1
+        DO 1198 J1A=1,J1XM1      ! for all configs with number .lt. the number of configs
+          J1AP1=J1A+1
+          DO 138 J1B=J1AP1,J1X   ! for all configs with number .gt. the number of the current config.
+            JAB=MAX0(J1B-J1A,1)
+C           IF (NPARJ(J1A,J1B).EQ.0) GO TO 138
+            IF (NPARJ(J1A,J1B).NE.0) THEN
+              NPAR4=NPAR0+4
+              READ(IR,16) (ELEM1(N),N=1,3),(VPAR(N,K),JPAR(N),
+     1        N=NPAR0,NPAR4),TYPE,IFACT
+   16         FORMAT (2A6,A7,1X,5(F9.4,I1),A2,4I2)
+              IF (IFACT(4).EQ.99.OR.IFACT(4).EQ.0) IFACT(4)=100
+              ERAS=IFACT(4)
+              FACT5=0.01D0*ERAS
+              NPARSN=NPARJ(J1A,J1B)+NPAR0-1
+C             IF (NPARJ(J1A,J1B).LE.5) GO TO 132
+              IF (NPARJ(J1A,J1B).GT.5) THEN
+                NPAR5=NPAR4+1
+                READ (IR,11) (VPAR(N,K),JPAR(N),N=NPAR5,NPARSN)
+              ENDIF
+C               RESCALE CONFIGURATION-INTERACTION PARAMETERS
+  132         SCALE1=SCALE
+              J=JPAR(NPAR0)
+C             IF (J.LT.1.OR.J.GT.5) GO TO 133
+C             IF (FACT0(J).EQ.0.D0) GO TO 133
+              IF (J.GE.1.AND.J.LE.5.AND.FACT0(J).NE.0.D0) THEN
+                SCALE1=SCALE*FACT0(J)/FACT5
+                FACT5=FACT0(J)
+              ENDIF
+  133         DO N=NPAR0,NPARSN
+                VPAR(N,K)=SCALE1*VPAR(N,K)
+              ENDDO
+C
+  136         WRITE (IW,17) (ELEM1(N),N=1,3),UENRGY,TYPE,FACT5,
+     1          (JN, (LLIJK(L,JN,K),NIJK(L,JN,K), L=1,KS),
+     2          JN=J1A,J1B,JAB)
+   17         FORMAT (//1X,2A6,A7,3X,20HPARAMETER VALUES IN ,F7.1,
+     1          7H CM-1 (,A2,6H TIMES, F5.2,1H),18X,I3,8(2X,A1,I2)/
+     2          89X,I3,8(2X,A1,I2))
+              WRITE (IW,14) (PARNAM(N,K),N=NPAR0,NPARSN)
+              WRITE (IW,15) (VPAR(N,K),N=NPAR0,NPARSN)
+              NPAR0=NPARSN+1
+            ENDIF
+  138   CONTINUE
+ 1198   CONTINUE
+      ENDIF
+C
+  139 DO I=1,9
+        AVP(I,K)=0.D0
+        FNT(I,K)=0.D0
+      ENDDO
+      AVCG(K)=0.D0
+      AVEIG(K)=0.D0
+      SUMWT=0.D0
+      EMIN=1.0D20
+      EMAX=-1.0D20
+      NLEV=0
+      NPAR=NPARSN
+      NPARK(K)=NPAR
+      DO L=1,KMX
+        LCSER(L)=0
+      ENDDO
+C
+C          CALCULATE ENERGY MATRICES
+C
+  200 DO NN=1,NSCRJ8    ! For each J value
+C       READ (IC) SCRJ8,NLS, ((TMX(L,LP),L=1,NLS), LP=1,NLS),
+C    1    ((NALS(L,I),SCRL(L,I),SCRS(L,I),
+C    2    I=1,NOSUBC), NCFG(L),FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+C       ICRD=ICRD+1
+C ***************************************************** A.KRAMIDA v
+        READ (IC) SCRJ8,NLS, ((NALS(L,I),SCRL(L,I),SCRS(L,I),
+     1    I=1,NOSUBC), NCFG(L),FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+        IMSQ=NLS*NLS
+c       write (*,*) 'unpk1(IC) call 2'
+        CALL UNPK1(IC,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+        ICPTR=ICPTR+2
+        ICRD=ICRD+2
+C ***************************************************** A.KRAMIDA ^
+C     A. Kramida 2026: nothing is substituted here.  TMX stays Cowan's
+C     J1J2 matrix all the way through ENERGY, so the KPAR=3 energy
+C     matrix, the save on unit 3, the KPAR=4 eigenvector print and
+C     SPRN37's purity sweep are bit for bit what they always were.  The
+C     true jj matrix waiting on IJJU is picked up by SPRIN itself, at
+C     the point where it has finished with TMX (SPRN37 overwrites TMX
+C     anyway, which is why ENERGY restores it from unit 3 afterwards).
+        NLSX=MAX0(NLSX,NLS)
+        NOICRD=0
+        WT=2.D0*SCRJ8+1.D0
+        ERAS=0.D0
+        IF (NLS.LE.0) NLS=1
+        DO L=1,NLS
+          DO LP=1,L
+            C(L,LP)=0.D0
+          ENDDO
+          J=NCFG(L)
+          I=NPAV(J)
+          ERAS=ERAS+VPAR(I,K)
+          C(L,L)=VPAR(I,K)         ! Average energy of config I of parity K
+c         write (*,*) 'NN,K,I,NLS,EAV(I,K)=',NN,K,I,NLS,C(L,L)
+        ENDDO
+        AVCG(K)=AVCG(K)+ERAS*WT
+        IF (NPAR.LE.1) GO TO 225
+c       write (*,*) 'Before cyc 222: NN,K,ICPTR,ICRD=',NN,K,ICPTR,ICRD
+        DO IPAR=2,NPAR
+          DO J=1,J1X
+            IF (IPAR.EQ.NPAV(J)) GO TO 222
+          ENDDO
+C         READ (IC) ((CT4(L,LP),L=LP,NLS), LP=1,NLS)
+C ************************************************* A.KRAMIDA v
+c         write (*,*) 'unpk1(IC) call 3: IPAR,NPAR,ICPTR,MAXBC=',
+c    1      IPAR,NPAR,ICPTR,MAXBC
+c         if (IPAR.EQ.26 .AND. NLS.EQ.1342) then
+c            call printarray(C,NLS,KMX)
+c           idbg=1
+c         endif
+          CALL UNPK1(IC,NLS,NLS,CT4,KMX,KMX,0,MAXBC)
+          ICPTR=ICPTR+1
+C ************************************************* A.KRAMIDA ^
+c         Lx=21
+c         if (lx.gt.nls) lx=nls
+c         write(iw,9221) ipar
+c         do LP=1,lx
+c           write(IW,9220) (CT4(L,LP),L=1,lx)
+c         enddo
+c9220     format(25F11.6)
+c9221     format(' reading, IPAR=',I5)
+          ICRD=ICRD+1
+          NOICRD=NOICRD+1
+          DO L=1,NLS     ! Fill lower left triangle
+            DO LP=1,L
+              C(L,LP)=C(L,LP)+VPAR(IPAR,K)*CT4(L,LP)
+            ENDDO
+          ENDDO
+  222     CONTINUE
+        ENDDO
+c       write (*,*) 'Done cycle 222, ICPTR=',ICPTR
+  225   DO L=1,NLS       ! Fill upper right triangle by mirrowing the lower left one
+          DO LP=1,L
+            C(LP,L)=C(L,LP)
+          ENDDO
+        ENDDO
+        IF (IPRINT.LT.7) THEN
+          KPAR=3
+          CALL SPRIN
+        ENDIF
+        IF (IPRINT.LT.8) THEN
+          REWIND 3
+          IMSQ=NLS*NLS
+          CALL PK1(3,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)   !,8,IW)
+        ENDIF
+  240   LX=0
+        DO L=1,NLS
+          J=NCFG(L)
+          I=NPAV(J)
+          IF (VPAR(I,K).GT.-4000.D0) LX=L
+        ENDDO
+        LXP1=LX+1
+        JX=NLS-LX+1
+        JXP1=JX+1
+        NLSP1=NLS+1
+        L=NOSUBC
+        J=1
+        KKK=1
+        IF (LX.EQ.0.OR.LX.EQ.NLS) GO TO 271
+        DO LP=1,NLS
+          DO L=1,NLS
+            CI(L,LP)=0.D0
+          ENDDO
+        ENDDO
+        I=0
+        DO LP=LXP1,NLS
+          I=I+1
+          DO L=1,LX
+            CI(L,I)=C(L,LP)
+            C(L,LP)=0.D0
+            C(LP,L)=0.D0
+          ENDDO
+        ENDDO
+C          CALC STATISTICAL WEIGHT OF FIRST CONFIGURATION OR
+C               (IF CONTINUUM CONFIGURATIONS PRESENT) OF ION CORE
+        DO L=LXP1,NLS
+          J=NCFG(L)
+          I=NPAV(J)
+          IF (VPAR(I,K).LT.-9000.D0) GO TO 266
+        ENDDO
+  266   KKK=K
+        M=0
+        DO I=1,NOSUBC
+          L=NOSUBC-I+1
+          IF (NIJK(L,J,KKK).GT.0) M=M+1
+          IF (M.EQ.2) GO TO 271
+        ENDDO
+  271   G1=1.D0
+        DO I=1,L
+          E1=4.D0*FLLIJK(I,J,KKK)+2.D0
+          E2=NIJK(I,J,KKK)
+          G1=G1*FCTRL(E1)/(FCTRL(E2)*FCTRL(E1-E2))
+        ENDDO
+        IF (LX.GT.0.AND.LX.LT.NLS) G1AA=G1
+        IF (G1AA.GT.0.D0) G1=G1AA
+C
+C          CALC EIGENVALUES AND VECTORS
+C
+  300   I=0
+        CALL CLOCK(TIME1)
+C          C CONTAINS MATRIX TO BE DIAGONALIZED.
+C          MLEW RETURNS EIGENVALUES AND VECTORS IN EIG AND C, RESPECTIVELY
+C       CALL OVERLAY(2HG9,8,3)
+        CALL MLEW
+        ERAS=0.D0
+        DO LP=1,NLS
+          ERAS=ERAS+EIG(LP)
+        ENDDO
+        CALL CLOCK(TIME)
+        TDIAG=TIME-TIME1
+        AVEIG(K)=AVEIG(K)+ERAS*WT
+        ERAS=NLS
+        SUMWT=SUMWT+ERAS*WT
+        EMIN=DMIN1(EMIN,EIG(1))
+        EMAX=DMAX1(EMAX,EIG(NLS))
+        NLEV=NLEV+NLS
+C          CHECK ORTHONORMALITY OF EIGENVECTORS
+C          A. Kramida 2026: this is a pure O(NLS**3) diagnostic whose
+C          only product is the warning below, and it costs more than the
+C          diagonalization itself once NLS passes a few thousand.  It is
+C          now done in two stages: a threaded scan that only counts bad
+C          pairs, and - only if the scan found any - the original serial
+C          loop, which then produces exactly the printout it always did.
+C          The scan does the same arithmetic in the same order, so it
+C          cannot disagree with the loop it guards.  Without -fopenmp the
+C          directive is a comment and the scan runs serially.
+        NBADOR=0
+!$OMP   PARALLEL DO IF(NLS.GT.400) DEFAULT(SHARED)
+!$OMP&    PRIVATE(L,LP,J,ERASO,ERASO1) REDUCTION(+:NBADOR)
+!$OMP&    SCHEDULE(DYNAMIC,8)
+        DO L=1,NLS
+          DO LP=L,NLS
+            ERASO=0.D0
+            IF (L.EQ.LP) ERASO=-1.D0
+            ERASO1=ERASO
+            DO J=1,NLS
+              ERASO=ERASO+C(J,L)*C(J,LP)
+              ERASO1=ERASO1+C(L,J)*C(LP,J)
+            ENDDO
+            IF (DABS(ERASO).GT.1.D-10.OR.DABS(ERASO1).GT.1.D-10)
+     1        NBADOR=NBADOR+1
+          ENDDO
+        ENDDO
+!$OMP   END PARALLEL DO
+        IF (NBADOR.GT.0) THEN
+        DO L=1,NLS
+          DO LP=L,NLS
+            ERAS=0.D0
+            IF (L.EQ.LP) ERAS=-1.D0
+            ERAS1=ERAS
+            DO J=1,NLS
+              ERAS=ERAS+C(J,L)*C(J,LP)
+              ERAS1=ERAS1+C(L,J)*C(LP,J)
+            ENDDO
+            IF (DABS(ERAS).GT.1.D-10.OR.DABS(ERAS1).GT.1.D-10)
+     1        WRITE (IW,29) L,LP,ERAS,ERAS1
+   29       FORMAT (35H *****POOR ORTHONORMALITY FOR L,LP=,2I4,
+     1        3X,1P2E10.2)
+          ENDDO
+        ENDDO
+        ENDIF
+C
+C          CALCULATE CONFIGURATION SERIAL NUMBER FOR LEVEL LP
+C
+        DO J=1,J1X
+          NLCFGJ(J)=0
+          NSCFGJ(J)=0
+          DO LP=1,NLS
+            CPURTY(LP,J)=0.D0
+          ENDDO
+        ENDDO
+        DO L=1,NLS
+          LCSER(L)=0
+          J=NCFG(L)
+          NSCFGJ(J)=NSCFGJ(J)+1
+          DO LP=1,NLS
+            CPURTY(LP,J)=CPURTY(LP,J)+C(L,LP)**2
+          ENDDO
+        ENDDO
+C
+        DO LP=1,NLS
+          ERAS=0.D0
+          DO J=1,J1X
+            IF (CPURTY(LP,J).GE.ERAS) THEN
+              ERAS=CPURTY(LP,J)
+              LCSER(LP)=J
+              M=J
+            ENDIF
+          ENDDO
+          NLCFGJ(M)=NLCFGJ(M)+1
+        ENDDO
+C
+        DO J=1,J1X
+          IF (NLCFGJ(J).NE.NSCFGJ(J)) CFLAG(J,K)=STAR
+        ENDDO
+C
+        ICOUNT=0
+C
+  335   IERAS=0
+        DO J=1,J1X
+          IF (NLCFGJ(J).LT.NSCFGJ(J)) THEN
+            IERAS=7
+            ERAS=0.D0
+            DO LP=1,NLS
+              J1=LCSER(LP)
+              IF (J1.NE.J .AND. NLCFGJ(J1).GT.NSCFGJ(J1) .AND.
+     1          CPURTY(LP,J).GE.ERAS) THEN
+                  ERAS=CPURTY(LP,J)
+                  M=LP
+              ENDIF
+            ENDDO
+            J1=LCSER(M)
+            LCSER(M)=J
+            NLCFGJ(J1)=NLCFGJ(J1)-1
+            NLCFGJ(J)=NLCFGJ(J)+1
+          ENDIF
+        ENDDO
+        ICOUNT=ICOUNT+1
+C
+        IF (IERAS.NE.0.AND.ICOUNT.LE.NLS) GO TO 335
+C
+        ERAS=2.D0*SCRJ8+1.D0
+        DO LP=1,NLS
+          J=LCSER(LP)
+          CGENGY(J,K)=CGENGY(J,K)+ERAS*EIG(LP)
+          SWT(J,K)=SWT(J,K)+ERAS
+        ENDDO
+        NNTRM=0
+C          CALCULATE LEVEL DESIGNATIONS
+        DO LP=1,NLS
+          C2X=0.D0
+          DO L=1,NLS
+            IF (NCFG(L).EQ.LCSER(LP)) THEN
+              C2=C(L,LP)**2
+              IF (C2.GE.C2X) THEN
+                LD=L
+                C2X=C2
+              ENDIF
+            ENDIF
+          ENDDO
+          LDES(LP)=FIDLS(LD,1)
+          IF (KCPL.EQ.2) LDES(LP)=FIDJJ(LD,1)
+          IF (C(LD,LP).LE.0.D0) THEN
+            DO L=1,NLS
+              C(L,LP)=-C(L,LP)
+            ENDDO
+          ENDIF
+C           DETERMINE EXPEDIENCY NUMBER (SPECIAL FOR MAGEE)
+ 2339     IF (IELPUN.LT.2) GO TO 340
+          IF (SCRJ8.GT.DABS(SCRL(LD,NOSUBC)-SCRS(LD,NOSUBC))) GO TO 340
+          IF (NNTRM.NE.0) THEN
+            DO N1=1,NNTRM
+              IF (LDES(LP).EQ.LDESN(N1)) GO TO 5339
+            ENDDO
+          ENDIF
+ 4339     NNTRM=NNTRM+1
+          N1=NNTRM
+          LDESN(N1)=LDES(LP)
+          NEXP(N1)=0
+ 5339     NEXP(N1)=NEXP(N1)+1
+          DO L1=1,NMULT
+            IF (LDES(LP).NE.FIDMULT(L1,K)) GO TO 7339
+            DO K1=1,NOSUBC
+              IF (NALS(LD,K1).NE.IALS(L1,K1,K)) GO TO 7339
+              IF (SCRL(LD,K1).NE.SL(L1,K1,K)) GO TO 7339
+              IF (SCRS(LD,K1).NE.SS(L1,K1,K)) GO TO 7339
+            ENDDO
+            NEXPED(L1,K)=NEXP(N1)
+            ETRM(L1,K)=EIG(LP)
+ 7339       CONTINUE
+          ENDDO
+C
+  340     CONTINUE
+        ENDDO
+C
+C          PRINT EIGENVALUES AND VECTORS
+C
+        IF (IPRINT.GE.9) GO TO 350
+        IF (IPRINT.LT.7.AND.IENGYD.GE.2.AND.NLS.GT.11) THEN
+          IF (EIG(NLS).LE.9999.D0.AND.EIG(1).GT.-1000.D0) THEN
+            WRITE (IW,30) SCRJ8,(EIG(L),L=1,NLS)
+   30       FORMAT (15H1  EIGENVALUES ,5X,3H(J=,F4.1,1H)/(/28X,11F9.3))
+          ELSE
+            WRITE (IW,31) SCRJ8,(EIG(L),L=1,NLS)
+   31       FORMAT (15H1  EIGENVALUES ,5X,3H(J=,F4.1,1H)/(/28X,11F9.2))
+          ENDIF
+        ELSE
+  342     IF (EIG(NLS).LE.9999.D0.AND.EIG(1).GT.-1000.D0) THEN
+            WRITE (IW,32) SCRJ8,(EIG(L),L=1,NLS)
+   32       FORMAT (15H0  EIGENVALUES ,5X,3H(J=,F4.1,1H)/(/28X,11F9.3))
+          ELSE
+  343       WRITE (IW,33) SCRJ8,(EIG(L),L=1,NLS)
+   33       FORMAT (15H0  EIGENVALUES ,5X,3H(J=,F4.1,1H)/(/28X,11F9.2))
+          ENDIF
+        ENDIF
+  345   WRITE (IW,34) (LCSER(L), L=1,NLS)
+   34   FORMAT (15H   CONFIG. NO. /(25X,11I9))
+C          PRINT FREE-ELECTRON KINETIC ENERGIES
+        IF (LX.EQ.0.OR.LX.EQ.NLS) GO TO 350
+        LLX=NLS-LX
+        DO LP=1,LLX
+          DO L=1,NLS
+            EKIN(L)=0.D0
+            IF (L.GT.LLX) THEN
+              IJJ=LCSER(LP)
+              EKIN(L)=EIG(L)+E0KIN(IJJ)-EIG(LP)
+            ENDIF
+          ENDDO
+          WRITE (IW,28) (ELEM(L1,IJJ,K), L1=1,3),
+     1    LDES(LP),(EKIN(L),L=2,NLS)
+   28     FORMAT (' KE FOR CORE  ',2A6,A2,2H (,A7,10F9.3
+     1      /(28X,11F9.3))
+        ENDDO
+  350   KPAR=4
+  355   WRITE (IE) SCRJ8,NLS, (EIG(LP), (CI(L,LP),L=1,NLS), LP=1,NLS),
+     1    ((C(L,LP),L=1,NLS), LP=1,NLS),LCSER,LDES
+        IEWR=IEWR+1
+        IJJ=0
+        DO L=3,7
+          IF (KCPLD(L).EQ.0) IJJ=IJJ+1
+        ENDDO
+  358   IF (IPRINT.LT.8.OR.IJJ.NE.0) THEN
+          IF (IPRINT.LT.8) THEN
+            CALL SPRIN
+            REWIND 3
+            IMSQ=NLS*NLS
+            CALL UNPK1(3,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+          ELSE
+            CALL SPRN37
+          ENDIF
+        ENDIF
+  359   IF (IELPUN.EQ.1) WRITE (11,35) (ELEM(L,1,K), L=1,3),
+     1    SCRJ8,NLS, (EIG(L), L=1,NLS)
+   35   FORMAT (3A6,2X,F5.1,I5/(6F12.3))
+C
+C          CALCULATE AUTOIONIZATION TRANSITION PROBABILITIES
+C
+        DO LP=1,NLS
+          AA(LP,JX)=0.D0
+          AA(LP,JXP1)=0.D0
+          DO I=1,KEXC
+            GAAXC(LP,I)=0.D0
+          ENDDO
+        ENDDO
+        IF (LX.EQ.0.OR.LX.EQ.NLS) GO TO 380
+        IF (NLS.GT.KMX) WRITE (IW,36) NLS,KMX
+   36   FORMAT (//10H *****NLS=,I3,29H .GT. MAX ALLOWABLE VALUE OF ,
+     1    I3,18H FOR AA CALCN*****//)
+        BACKSPACE IE
+        READ (IE) SCRJ8,NLS, (EIG(LP), (CI(L,LP),L=1,NLS), LP=1,NLS),
+     1    ((C(L,LP),L=1,NLS), LP=1,NLS)
+        DO LP=1,NLS
+          DO L=1,NLS
+            CII(L,LP)=0.D0
+          ENDDO
+        ENDDO
+        AAMX=0.D0
+        DO LP=1,NLS
+          DO J=LXP1,NLS
+            I=J-LX
+            SUM=0.D0
+            DO L=1,LX
+              SUM=SUM+C(L,LP)*CI(L,I)
+            ENDDO
+            CII(LP,J)=SUM
+          ENDDO
+        ENDDO
+        DO LP=1,NLS
+          DO I=1,NLS
+            IF (EIG(I).GT.-4000.D0) GO TO 364
+            AA(LP,I)=0.D0
+            IF (EIG(I).LT.-8000.D0.OR.EMINA.EQ.0.D0) GO TO 2362
+            IF (EIG(LP).LT.EMINA) GO TO 364
+            J=LCSER(I)
+            JJ=NPAV(J)
+            ETEMP=EIG(I)-VPAR(JJ,K)
+C             INCLUDE FOLLOWING STATEMENT ONLY IN SPECIAL CASES
+C           IF (ETEMP.GT.0.D0) GO TO 364
+C
+ 2362       SUM=0.D0
+            DO L=LXP1,NLS
+              SUM=SUM+CII(LP,L)*C(L,I)
+            ENDDO
+            AA(LP,I)=((SUM*UENRGY/109735.3D0)**2)*6.28318D0*2066.D0
+            IF (EIG(I).LT.-8000.D0) AA(LP,JX)=AA(LP,JX)+AA(LP,I)
+            AA(LP,JXP1)=AA(LP,JXP1)+AA(LP,I)
+  364       CONTINUE
+          ENDDO
+          AAMX=DMAX1(AA(LP,JXP1),AAMX)
+        ENDDO
+        ERAS=1.D0
+C       Modified by A. Kramida 12/27/03
+c       L=13
+c       IF (AAMX.LT.0.1D0) L=10
+c       IF (AAMX.GT.999.9D0) L=16
+c       L1=L
+c       IF (L.EQ.13) GO TO 367
+        L=0
+        L1=L
+C       End A. Kramida 12/27/03
+        ERAS=10.D0**(13-L)
+        DO LP=1,NLS
+          DO I=1,JXP1
+            AA(LP,I)=ERAS*AA(LP,I)
+          ENDDO
+        ENDDO
+  367   IF (IPRINT.GE.9) GO TO 371
+c       Modified by A. Kramida 12/27/03
+c       WRITE (IW,37) L
+c  37   FORMAT (17H AA(UNITS OF 10**,I2,5H/SEC))
+        WRITE (IW,37)
+   37   FORMAT (19H AA(UNITS OF 1/SEC))
+c       End A. Kramida 12/27/03
+        I=0
+        DO J=LX,NLSP1
+          I=I+1
+c         IF (NLS.EQ.LXP1.AND.I.GE.2) GO TO 370
+c         IF (KCPLD(1)+KCPLD(2).LT.3) GO TO 368
+c         IF (I.LT.JX.AND.(NLS-LX).GT.2.AND.NLS.GT.11) GO TO 370
+          IF (NLS.NE.LXP1.OR.I.LT.2) THEN
+            IF (KCPLD(1)+KCPLD(2).GE.3) THEN
+              IF (I.LT.JX.AND.NLS-LX.GT.2.AND.NLS.GT.11) GO TO 370
+                        ENDIF
+  368       IF (J.LT.NLS) THEN
+              N1=LCSER(I)
+              WRITE (IW,38) (ELEM(I1,N1,K),I1=2,3), LDES(I),
+     1          (AA(LP,I),LP=1,NLS)
+c                 Modified by A. Kramida 12/27/03
+c  38         FORMAT (8X,2A6,1H(,A8,11F9.4/(29X,11F9.4))
+c  38         FORMAT (8X,2A6,1H(,A8,1P,11E9.2/(29X,11E9.2))
+   38         FORMAT (8H **AA** ,2A6,1H(,A8,1P,11E9.2/(8H **AA** ,21X,
+     1          11E9.2))
+c             End A. Kramida 12/27/03
+                    ELSE
+  369         ITEMP=-8000
+              IF (J.EQ.NLSP1) ITEMP=-4000
+              WRITE (IW,39) ITEMP, (AA(LP,I),LP=1,NLS)
+c  39         FORMAT (12X,11H TOT, E.LT.,I5,11F9.4/(29X,11F9.4))
+   39         FORMAT (12X,11H TOT, E.LT.,I5,1P,11E9.2/(29X,11E9.2))
+                    ENDIF
+                    ENDIF
+  370     CONTINUE
+        ENDDO
+  371   ERAS=1.0D13/ERAS
+        GG=2.D0*SCRJ8+1.D0
+        DO LP=1,NLS
+          AA(LP,JX)=ERAS*AA(LP,JX)
+          AA(LP,JXP1)=ERAS*AA(LP,JXP1)
+          SUMGAA=SUMGAA+GG*AA(LP,JX)
+          SUMGAAT=SUMGAAT+GG*AA(LP,JXP1)
+        ENDDO
+        ERAS=GG*ERAS
+        JXM1=JX-1
+        DO L=1,JXM1
+          IF (EIG(L).GT.-4000.D0) GO TO 378
+          J=LCSER(L)
+          JJ=NPAV(J)
+          ETEMP=EIG(L)-VPAR(JJ,K)
+          IF (IXC.EQ.0) GO TO 375
+          DO I=1,IXC
+            IF (DABS(ETEMP-EXC(I)).LT.0.01D0.AND.J.EQ.JEXC(I)) GO TO 376
+          ENDDO
+  375     IXC=IXC+1
+          I=IXC
+          if (I.GT.KEXC) then
+            write (*,*) 'IXC=',IXC,
+     1      ' requires recompiling with greater KEXC'
+            STOP
+          endif
+          EXC(I)=ETEMP
+          JEXC(I)=J
+  376     DO LP=1,NLS
+            GAAXC(LP,I)=GAAXC(LP,I)+ERAS*AA(LP,L)
+          ENDDO
+  378     CONTINUE
+        ENDDO
+        IXC1=MAX0(IXC,1)
+        IF (IPRINT.LT.9) THEN
+          WRITE (IW,40) SUMGAA,SUMGAAT
+   40     FORMAT (/20X,7HSUMGAA=,1PE13.5,10X,8HSUMGAAT=,E13.5//
+     1      10X,11HEXC   GAAXC/)
+        ENDIF
+  380   WRITE (IE) LX, (AA(LP,JX),AA(LP,JXP1), LP=1,NLS),
+     1    NLST,IXC,IXC1, (EXC(I), (GAAXC(LP,I),LP=JX,NLS), I=1,IXC1)
+        NLST=NLST+LX
+        IF (IPRINT.GE.9) GO TO 399
+        IF (NLS.LE.1) GO TO 397
+        IF (IXC.EQ.0) GO TO 388
+        IF (LX.EQ.0.OR.LX.EQ.NLS) GO TO 388
+        ERAS=10.D0**(-L1)
+        DO I=1,IXC
+          DO LP=1,NLS
+            GAAXC(LP,I)=ERAS*GAAXC(LP,I)
+          ENDDO
+          WRITE (IW,41) JEXC(I),EXC(I), (GAAXC(LP,I), LP=1,NLS)
+        ENDDO
+C       Modified by A. Kramida 12/27/03
+c  41   FORMAT (13X,I3,F12.4,11F9.4/(29X,11F9.4))
+   41   FORMAT (13H **GAA**     ,I3,F12.4,1P,11E9.2/(8H **GAA**,21X,
+     1    11E9.2))
+c       End A. Kramida 12/27/03
+  388   CONTINUE
+C
+C          CALCULATE LEVEL DISTRIBUTION
+C
+        FNLS=NLS
+        SUM=0.D0
+        DO L=1,NLS
+          SUM=SUM+EIG(L)
+        ENDDO
+        AVEEIG=SUM/(FNLS+1.0D-10)
+        SUM=0.D0
+        SUM3=0.D0
+        DO L=1,NLS
+          DELTA=EIG(L)-AVEEIG
+          DELTA2=DELTA**2
+          SUM=SUM+DELTA2
+          SUM3=SUM3+DELTA2*DELTA
+        ENDDO
+        RMS1=DSQRT(SUM/FNLS)
+        SUM3=SUM3/FNLS
+        ALF3=SUM3/(RMS1**3+1.0D-10)
+        NLSM1=NLS-1
+        FNLSM1=NLSM1
+        DO L=1,NLSM1
+          DELE(L)=EIG(L+1)-EIG(L)
+        ENDDO
+        SUM=0.D0
+        DO L=1,NLSM1
+          SUM=SUM+DELE(L)
+        ENDDO
+        AVEDEL=SUM/FNLSM1
+        SUM=0.D0
+        DO L=1,NLSM1
+          SUM=SUM+(DELE(L)-AVEDEL)**2
+        ENDDO
+        RMS2=DSQRT(SUM/FNLSM1)
+        CALL CLOCK(TIME)
+        DELT=TIME-TIME0
+        WRITE (IW,42) AVEEIG,RMS1,ALF3,AVEDEL,RMS2,DELT,TDIAG
+   42   FORMAT (//17H0AVEEIG,RMS,ALF3=,2F12.3,F9.4,5X,11HAVEDEL,RMS=,
+     1    2F12.3,7X,15HTIME, DIAGTIME=,F9.2,F9.4,4H MIN)
+C
+C 397   IF (IV.NE.0) CALL OVERLAY(2HG9,8,2)
+  397   IF (IV.NE.0) CALL CALCV
+C
+  399 ENDDO
+      CONTINUE
+C           WRITE DUMMY RECORD, REQUIRED BY SYSTEM BUG
+      WRITE (IE) (EIG(L), L=1,20)
+C
+      DO 1199 J=1,J1X
+  400 CGENGY(J,K)=CGENGY(J,K)*UENRGY/((SWT(J,K)+1.D-8)*109737.31D0)
+ 1199 CONTINUE
+c       The following line has been remmed out by Alex K 11/02/02
+c     IF (K.EQ.1.AND.NSCONF(1,2).GT.0.AND.IPRINT.GE.7) GO TO 430
+c       End Alex K 11/02/02
+      AVCG(K)=AVCG(K)/SUMWT
+      AVEIG(K)=AVEIG(K)/SUMWT
+      DO 410 I=1,9
+        IF (FNT(I,K).NE.0.D0) THEN
+          AVP(I,K)=AVP(I,K)/FNT(I,K)
+        ENDIF
+  410 CONTINUE
+      IF (AVP(1,K).LE.0) THEN
+        DO 1200 I=1,9
+  412   AVP(I,K)=1.D0
+ 1200   CONTINUE
+      ENDIF
+C 415 IF (K.EQ.1.AND.NSCONF(1,2).GT.0.AND.IPRINT.GE.7) GO TO 430
+  415 IF (K.NE.1.OR.NSCONF(1,2).LE.0.OR.IPRINT.LT.7) THEN
+        WRITE  (IW,43) (COUPL(I), I=1,7)
+   43   FORMAT (///13H AVE PURITIES,29X,9(A6,2X)/)
+        DO 1201 K1=1,K
+          J1X=NSCONF(2,K1)
+          IF (J1X.LT.2) J1X=2
+          J1=J1X-1
+  420   WRITE (IW,44) ((ELEM(I,JN,K1), I=1,3), JN=1,J1X,J1),
+     1    (AVP(I,K1), I=1,7), AVCG(K1),AVEIG(K1)
+C     A. Kramida 2026: the true jj purity goes on a line of its own.
+C     Adding an eighth column to FORMAT 44 would have been tidier, but
+C     that line is parsed elsewhere and has to keep its shape.
+        IF (IJJROT.NE.0) WRITE (IW,441) COUPL(8),AVP(8,K1)
+  441   FORMAT (1X,'AVE PURITY  ',A6,F8.3)
+ 1201   CONTINUE
+   44   FORMAT (1X,3A6,3H---,3A6,7F8.3,5X,6H  EAV=,F10.4/101X,6HAVEIG=,
+     1    F10.4)
+        ENK(K)=EMIN
+        EXK(K)=EMAX
+      ENDIF
+C
+C 430 IF (ISPECC.GE.8) CALL OVERLAY(2HG9,8,1)
+  430 IF (ISPECC.GE.8) CALL LVDIST
+C
+      REWIND IE
+C     IF (IMAG.NE.K.AND.IMAG.LT.3) GO TO 450
+      IF (IMAG.EQ.K.OR.IMAG.GE.3) THEN
+C       CALL OVERLAY(2HG9,8,4)
+        IARG1=0
+        IARG2=IE
+        IARG3=IE
+        CALL SPECTR
+      ENDIF
+C 450 IF (IQUAD.NE.K.AND.IQUAD.LT.3) GO TO 470
+  450 IF (IQUAD.EQ.K.OR.IQUAD.GE.3) THEN
+C       CALL OVERLAY(2HG9,8,4)
+        IARG1=2
+        IARG2=IE
+        IARG3=IE
+        IRMN=IRNQ
+        CALL SPECTR
+C       IF (IGEN.GE.5) CALL OVERLAY(2HG9,8,5)
+        IF (IGEN.GE.5) CALL BORN
+      ENDIF
+  470 IF (NSCONF(1,2).LE.0) GO TO 100
+C     IF (IE.EQ.ILB) GO TO 500
+C 480 IL=ILB
+C     IE=ILB
+C     K=2
+C     GO TO 101
+      IF (IE.NE.ILB) THEN
+        IL=ILB
+        IE=ILB
+        K=2
+        GO TO 101
+      ENDIF
+C
+C 500 CALL OVERLAY(2HG9,8,4)
+  500 IARG1=IIPRTY
+      IARG2=ILA
+      IARG3=ILB
+      IRMN=IRND
+      EMEAN=0.5D0*(DMAX1(ENK(1),ENK(2))+DMAX1(EXK(1),EXK(2)))
+      CALL SPECTR
+C          WRITE MULTIPLET LINE STRENGTH ON TAPE 19 (FOR MAGEE)
+C     IF (IELPUN.LT.2) GO TO 515
+      IF (IELPUN.GE.2) THEN
+        STOT=0.D0
+        DO NN=1,NMULT
+          STOT=STOT+SUMS(NN)
+        ENDDO
+        WRITE (19,50) ((LLIJK(I,1,K),NIJK(I,1,K),I=1,3), K=1,2),
+     1    NMULT,STOT,SSOPI2
+   50   FORMAT (2X,3(A1,I2,2X),' - ',3(A1,I2,2X),'     NMULT=',I3,
+     1    '     STOT=',F9.5,'     THEORY=',F9.5)
+        DO 1202 NN=1,NMULT
+  510   WRITE (19,51) (FIDMULT(NN,K),NEXPED(NN,K),ETRM(NN,K), K=1,2),
+     1    SUMS(NN)
+ 1202   CONTINUE
+   51   FORMAT (2X,1H(,A8,I4,F12.5,5X,1H(,A8,I4,F12.5,F15.5)
+      ENDIF
+C
+C     IF (IGEN.GE.5) CALL OVERLAY(2HG9,8,5)
+  515 IF (IGEN.GE.5) CALL BORN
+C     IF (IKKK.LE.8) GO TO 100
+      IF (IKKK.GT.8) THEN
+C       DO 520 I=1,ICRD
+C 520   BACKSPACE IC
+        CALL BACKIC(IC,ICRD,ICPTR)
+C       GO TO 480
+        IL=ILB
+        IE=ILB
+        K=2
+        GO TO 101
+      ELSE
+        GO TO 100
+      ENDIF
+C
+C 800 CALL OVERLAY(2HG9,8,6)
+C 800 CALL RCEINP
+C     GO TO 100
+C
+  900 CALL DALLOC(GAAXC_PTR)
+      CALL DALLOC(BRNCHX_PTR)
+      RETURN
+      END
+C
+      subroutine printarray(arr,isize,idim)
+      implicit real*8 (a-h,o-z)
+      dimension arr(idim,idim)
+      open(51,file='dbg.txt',status='unknown')
+      do i=1,isize
+        write (51,*) i,(arr(i,j), j=1,isize)
+      enddo
+c   10 format (i5,100e20.12)
+      close(51)
+      end
+c------------------------------------
+C     OVERLAY(G9,10,1)
+      SUBROUTINE LVDIST
+C
+C          PLOT LEVEL DISTRIBUTION ON MICROFILM
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C3D/ECUT(42),EPLOT(82),ICUT(42),GCUT(42),TITLE(20),GPLT(82)
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE2/EIG(KMX),ELEM1(3),FNT(9,2),I1,I2,
+     1  IFACT(4),FACT(4),LCSER(KMX),X(KMX)
+c     +  ,DUMEE2(KEE2)                                                    ! A. Kramida 7/31/2012: if KEE2 <= 0,
+c                                                                        ! comment the line with DUMEE2
+      COMMON/C6/EMIN,EMAX,SUMWT,FLBDN,FLBDX,FNUNP,FNUXP,NLEV,IEWR
+      COMMON/CJE07/IXL,IXR,IYT,IYB,XMN,XMX,YMX,YMN
+C
+  100 IF (NLEV.LT.10) GO TO 900
+      K=KK
+      FN=40.D0
+      DEL=0.0005D0*(EMAX-EMIN)
+      EMIN=EMIN-DEL
+      EMAX=EMAX+DEL
+      DELE=(EMAX-EMIN)/FN
+      ECUT(1)=EMIN
+      EPLOT(1)=EMIN-0.5D0*DELE
+      NP2=FN+2.D0
+      DO 1203 J=1,NP2
+      IF (J.EQ.1) GO TO 140
+      ECUT(J)=ECUT(J-1)+DELE
+      EPLOT(J)=EPLOT(J-1)+DELE
+  140 ICUT(J)=0
+  150 GCUT(J)=0.D0
+ 1203 CONTINUE
+C
+      REWIND IE
+      DISP=0.D0
+      THIRD=0.D0
+      DO 300 NN=1,NSCRJ8
+      READ (IE) SCRJ8,NLS, (EIG(L), (B, LP=1,NLS), L=1,NLS),
+     1  ((B, LP=1,NLS), L=1,NLS)
+      READ (IE)
+      WT=2.D0*SCRJ8+1.D0
+      JCUT=2
+      DO 1204 N=1,NLS
+  210 IF (EIG(N).LT.ECUT(JCUT)) GO TO 220
+      JCUT=JCUT+1
+      GO TO 210
+  220 ICUT(JCUT)=ICUT(JCUT)+1
+      GCUT(JCUT)=GCUT(JCUT)+WT
+      ERAS1=EIG(N)-AVEIG(K)
+      ERAS2=WT*ERAS1*ERAS1
+      DISP=DISP+ERAS2
+  230 THIRD=THIRD+ERAS2*ERAS1
+ 1204 CONTINUE
+  300 CONTINUE
+      DISP=DISP/SUMWT
+      RMS=DSQRT(DISP)
+      THIRD=THIRD/SUMWT
+      ALF3=THIRD/(RMS**3)
+      WRITE (IW,30)
+   30 FORMAT (//1H0,8X,1HJ,7X,4HECUT,8X,5HEPLOT,7X,4HICUT,6X,4HGCUT,8X,
+     1  5HSUMWT,7X,4HDISP,9X,3HRMS,8X,4HALF3/)
+      DO 310 J=1,NP2
+      GCUT(J)=GCUT(J)/SUMWT
+      WRITE(IW,31)J,ECUT(J),EPLOT(J),ICUT(J),GCUT(J),SUMWT,DISP,RMS,ALF3
+   31 FORMAT (I10,2F12.3,I10,F12.6,F12.0,2F12.3,F12.4)
+  310 CONTINUE
+C     NP1=NP2-1
+C     L=0
+C     DO 320 J=1,NP1
+C     L1=J-1
+C     DO 320 J1=1,2
+C     L=L+1
+C     L1=L1+1
+C     EPLOT(L)=ECUT(J)
+C 320 GPLT(L)=GCUT(L1)
+C     NP1T2=2*NP1
+C
+C     J1X=MAX0(NSCONF(2,K),2)
+C     J1=J1X-1
+C     ENCODE (44,40,TITLE) ((ELEM(I,JN,K),I=1,3), JN=1,J1X,J1)
+C  40 FORMAT (6X,3A6,2H--,3A6)
+C     ENCODE (111,41,TITLE(6)) NLEV,SUMWT,RMS,ALF3
+C  41 FORMAT (50X,5HNLEV=,I4,4X,6HSUMWT=,F7.0,4X,4HRMS=,F10.3,4X,
+C    1  5HALF3=,F8.4)
+C     CALL PLOJB(EPLOT,GPLT,NP1T2,1,0,28,0.D0,1.D0,0.93D0,TITLE,161,
+C    1  13HE (1000 CM-1),13,29HFRACTIONAL STATISTICAL WEIGHT,29)
+C     DO 420 I=1,3
+C     FI=I
+C     EPLOT(I)=AVCG(K)+(FI-2.D0)*RMS
+C 420 GCUT(I)=0.D0
+C     CALL PLOJB(EPLOT,GCUT,3,1,1,-24,0.D0,1.D0,0.93D0,TITLE,0,
+C    1  B,0,B,0)
+C     CALL LINCNT(59)
+C     WRITE (12,42) (COUPL(I), I=1,7)
+C  42 FORMAT (10X,13H AVE PURITIES,29X,9(A6,2X)/)
+C     WRITE (12,44) ((ELEM(I,JN,K), I=1,3), JN=1,J1X,J1),
+C    1  (AVP(I,K), I=1,7), AVCG(K)
+C  44 FORMAT (11X,3A6,3H---,3A6,7F8.3,5X,6H  EAV=,F10.4)
+C
+C          PLOT SKEWED-GAUSSIAN CURVE
+C
+C     DE=(XMX-XMN)/81.D0
+C     EPLOT(1)=XMN
+C     DO 505 J=2,82
+C 505 EPLOT(J)=EPLOT(J-1)+DE
+C     C=(ECUT(2)-ECUT(1))/(RMS*DSQRT(2.D0*3.14159D0))
+C     DO 510 J=1,82
+C     X=(EPLOT(J)-AVEIG(K))/RMS
+C     X2=X*X
+C     Y=1.D0-0.5D0*ALF3*(X-X*X2/3.D0)
+C 510 GPLT(J)=C*Y*DEXP(-0.5D0*X2)
+C     CALL PLOJB(EPLOT,GPLT,82,1,0,-28,0.D0,1.D0,0.95D0,TITLE,0,B,0,B,0)
+  900 RETURN
+      END
+      SUBROUTINE PLOJB(X,Y,NPTS,INC,LNN,NSYM,C,XAA,YAA,LABELZ,NZL,LABEL
+     1  X,NXL,LABELY,NYL)
+      IMPLICIT REAL*8 (A-H,O-Z)
+      A=EPLOT
+      RETURN
+      END
+C
+C     OVERLAY(G9,10,2)
+      SUBROUTINE CALCV
+C
+C          CALC V MATRIX (DERIVATIVES OF EIGENVALUES WRT PARAMETERS)
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS), MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION VECT(KMX,KMX)
+      pointer (C3LC4_PTR,VECT)
+c
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE2/EIG(KMX),ELEM1(3),FNT(9,2),I1,I2,
+     1  IFACT(4),FACT(4),LCSER(KMX),X(KMX)
+c     +  ,DUMEE2(KEE2)                                                    ! A. Kramida 7/31/2012: if KEE2 <= 0,
+c                                                                        ! comment the line with DUMEE2
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,AA,COUPL
+      CHARACTER*4 LSYMB
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+C
+      DIMENSION V(KPR,KMX)
+      integer*8 V_PTR
+      pointer(V_PTR,V)
+C
+      CALL ALLOC(V_PTR,KPR*KMX,8)
+      M=NOICRD
+      IF (M.EQ.0) GO TO 900
+      K=KK
+C     DO 100 JJ=1,M
+C 100 BACKSPACE IC
+c     write (*,*) 'CALCV init ICPTR,NOICRD=',ICPTR,NOICRD
+      CALL BACKIC(IC,M,ICPTR)
+      NLST=MIN0(NLS,NEVMAX)
+C
+C          CALC V MATRIX
+C
+      DO 229 IPAR=1,NPAR
+        DO J=1,J1X
+          IF (IPAR.EQ.NPAV(J)) THEN
+            DO L=1,NLS
+              DO LP=1,NLS
+                CT4(L,LP)=0.D0
+              ENDDO
+              IF (NCFG(L).EQ.J) CT4(L,L)=1.D0
+            ENDDO
+            GO TO 212
+          ENDIF
+        ENDDO
+C
+C       READ (IC) ((CT4(L,LP),L=LP,NLS), LP=1,NLS)
+C ********************************************************** A.KRAMIDA v
+c       write (*,*) 'unpk1(IC) call 4'
+        CALL UNPK1(IC,NLS,NLS,CT4,KMX,KMX,0,MAXBC)
+        ICPTR=ICPTR+1
+C ********************************************************** A.KRAMIDA ^
+        DO 1206 L=1,NLS
+        DO 1205 LP=1,L
+  210   CT4(LP,L)=CT4(L,LP)
+ 1205   CONTINUE
+ 1206   CONTINUE
+C
+  212   DO M=1,NLST
+          DELT=0.D0
+          DO L=1,NLS
+            A=0.D0
+            DO LP=1,NLS
+              A=A+CT4(L,LP)*VECT(LP,M)
+            ENDDO
+            DELT=DELT+VECT(L,M)*A
+          ENDDO
+          V(IPAR,M)=DELT
+        ENDDO
+  229 CONTINUE
+c     write (*,*) 'CALCV done cycle 229, ICPTR,NOICRD=',ICPTR,NOICRD
+C
+C
+C
+      WRITE (IW,35)
+   35 FORMAT (////9H V MATRIX)
+      LX=0
+  310 WRITE (IW,36)
+   36 FORMAT (1H )
+      LN=LX+1
+      LX=LX+11
+      IF (LX.GT.NLST) LX=NLST
+      DO 1207 I=1,NPAR
+  320 WRITE (IW,37) PARNAM(I,K), (V(I,L), L=LN,LX)
+ 1207 CONTINUE
+   37 FORMAT (1X,A10,4X,11F9.5)
+      IF (LX.LT.NLST) GO TO 310
+C
+      M=NOICRD-NPAR+J1X
+      IF (M.LE.0) GO TO 900
+      DO 1208 I=1,M
+  400 READ (IC) A
+ 1208 CONTINUE
+      ICPTR=ICPTR+M
+C
+  900 CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      WRITE (IW,93) DELT
+   93 FORMAT (11X,5HTIME=,F9.3,4H MIN)
+      CALL DALLOC(V_PTR)
+      RETURN
+      END
+C
+C     OVERLAY(G9,10,3)
+      SUBROUTINE MLEW
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS), MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION VECT(KMX,KMX)
+      pointer (C3LC4_PTR,VECT)
+c
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE2/EIG(KMX),ELEM1(3),FNT(9,2),I1,I2,
+     1  IFACT(4),FACT(4),LCSER(KMX),X(KMX)
+c     +  ,DUMEE2(KEE2)                                                    ! A. Kramida 7/31/2012: if KEE2 <= 0,
+c                                                                        ! comment the line with DUMEE2
+C
+      CALL TRED2(KMX,NLS,C,EIG,FK,C)
+      CALL TQL2(KMX,NLS,EIG,FK,C,M)
+      IF (M.NE.0) WRITE (IW,10) M
+   10 FORMAT (36H*****ERROR IN DIAGONALIZATION, IERR=,I4)
+      RETURN
+      END
+C
+      SUBROUTINE TRED2(NM,N,A,D,E,Z)                                    TRED2  3
+C     DIMENSION A(NM,N),D(N),E(N),Z(NM,N)                               TRED2 56
+C***BEGIN PROLOGUE  TRED2                                               TRED2  4
+C***DATE WRITTEN   760101   (YYMMDD)                                    TRED2  5
+C***REVISION DATE  830518   (YYMMDD)                                    TRED2  6
+C***CATEGORY NO.  D4C1B1                                                TRED2  7
+C***KEYWORDS  EIGENVALUES,EIGENVECTORS,EISPACK                          TRED2  8
+C***AUTHOR  SMITH, B. T., ET AL.                                        TRED2  9
+C***PURPOSE  REDUCE REAL SYMMETRIC MATRIX TO SYMMETRIC TRIDIAGONAL      TRED2 10
+C            MATRIX USING AND ACCUMULATING ORTHOGONAL TRANSFORMATION    TRED2 11
+C***DESCRIPTION                                                         TRED2 12
+C                                                                       TRED2 13
+C     THIS SUBROUTINE IS A TRANSLATION OF THE ALGOL PROCEDURE TRED2,    TRED2 14
+C     NUM. MATH. 11, 181-195(1968) BY MARTIN, REINSCH, AND WILKINSON.   TRED2 15
+C     HANDBOOK FOR AUTO. COMP., VOL.II-LINEAR ALGEBRA, 212-226(1971).   TRED2 16
+C                                                                       TRED2 17
+C     THIS SUBROUTINE REDUCES A REAL SYMMETRIC MATRIX TO A              TRED2 18
+C     SYMMETRIC TRIDIAGONAL MATRIX USING AND ACCUMULATING               TRED2 19
+C     ORTHOGONAL SIMILARITY TRANSFORMATIONS.                            TRED2 20
+C                                                                       TRED2 21
+C     ON INPUT                                                          TRED2 22
+C                                                                       TRED2 23
+C        NM MUST BE SET TO THE ROW DIMENSION OF TWO-DIMENSIONAL         TRED2 24
+C          ARRAY PARAMETERS AS DECLARED IN THE CALLING PROGRAM          TRED2 25
+C          DIMENSION STATEMENT.                                         TRED2 26
+C                                                                       TRED2 27
+C        N IS THE ORDER OF THE MATRIX.                                  TRED2 28
+C                                                                       TRED2 29
+C        A CONTAINS THE REAL SYMMETRIC INPUT MATRIX.  ONLY THE          TRED2 30
+C          LOWER TRIANGLE OF THE MATRIX NEED BE SUPPLIED.               TRED2 31
+C                                                                       TRED2 32
+C     ON OUTPUT                                                         TRED2 33
+C                                                                       TRED2 34
+C        D CONTAINS THE DIAGONAL ELEMENTS OF THE TRIDIAGONAL MATRIX.    TRED2 35
+C                                                                       TRED2 36
+C        E CONTAINS THE SUBDIAGONAL ELEMENTS OF THE TRIDIAGONAL         TRED2 37
+C          MATRIX IN ITS LAST N-1 POSITIONS.  E(1) IS SET TO ZERO.      TRED2 38
+C                                                                       TRED2 39
+C        Z CONTAINS THE ORTHOGONAL TRANSFORMATION MATRIX                TRED2 40
+C          PRODUCED IN THE REDUCTION.                                   TRED2 41
+C                                                                       TRED2 42
+C        A AND Z MAY COINCIDE.  IF DISTINCT, A IS UNALTERED.            TRED2 43
+C                                                                       TRED2 44
+C     QUESTIONS AND COMMENTS SHOULD BE DIRECTED TO B. S. GARBOW,        TRED2 45
+C     APPLIED MATHEMATICS DIVISION, ARGONNE NATIONAL LABORATORY         TRED2 46
+C     ------------------------------------------------------------------TRED2 47
+C***REFERENCES  B. T. SMITH, J. M. BOYLE, J. J. DONGARRA, B. S. GARBOW, TRED2 48
+C                 Y. IKEBE, V. C. KLEMA, C. B. MOLER, *MATRIX EIGEN-    TRED2 49
+C                 SYSTEM ROUTINES - EISPACK GUIDE*, SPRINGER-VERLAG,    TRED2 50
+C                 1976.                                                 TRED2 51
+C***ROUTINES CALLED  (NONE)                                             TRED2 52
+C***END PROLOGUE  TRED2                                                 TRED2 53
+C                                                                       TRED2 54
+      IMPLICIT REAL*8 (A-H,O-Z)
+      INTEGER I,J,K,L,N,II,NM,JP1                                       TRED2 55
+      DIMENSION A(NM,N),D(N),E(N),Z(NM,N)                               TRED2 56
+C     REAL A(NM,N),D(N),E(N),Z(NM,N)                                    TRED2 56
+C     REAL F,G,H,HH,SCALE                                               TRED2 57
+C                                                                       TRED2 58
+C***FIRST EXECUTABLE STATEMENT  TRED2                                   TRED2 59
+      DO I = 1, N                                                       TRED2 60
+C                                                                       TRED2 61
+         DO J = 1, I                                                    TRED2 62
+            Z(I,J) = A(I,J)                                             TRED2 63
+         ENDDO
+      ENDDO                                                             TRED2 64
+C                                                                       TRED2 65
+      IF (N .EQ. 1) GO TO 320                                           TRED2 66
+C     .......... FOR I=N STEP -1 UNTIL 2 DO -- ..........               TRED2 67
+      DO II = 2, N                                                      TRED2 68
+         I = N + 2 - II                                                 TRED2 69
+         L = I - 1                                                      TRED2 70
+         H = 0.D0                                                       TRED2 71
+         SCALE = 0.D0                                                   TRED2 72
+         IF (L .LT. 2) GO TO 130                                        TRED2 73
+C     .......... SCALE ROW (ALGOL TOL THEN NOT NEEDED) ..........       TRED2 74
+         DO K = 1, L                                                    TRED2 75
+           SCALE = SCALE + DABS(Z(I,K))                                 TRED2 76
+         ENDDO
+C                                                                       TRED2 77
+         IF (SCALE .NE. 0.D0) GO TO 140                                 TRED2 78
+  130    E(I) = Z(I,L)                                                  TRED2 79
+         GO TO 290                                                      TRED2 80
+C                                                                       TRED2 81
+  140    DO K = 1, L                                                    TRED2 82
+            Z(I,K) = Z(I,K) / SCALE                                     TRED2 83
+            H = H + Z(I,K) * Z(I,K)                                     TRED2 84
+         ENDDO                                                          TRED2 85
+C                                                                       TRED2 86
+         F = Z(I,L)                                                     TRED2 87
+         G = -SIGN(DSQRT(H),F)                                          TRED2 88
+         E(I) = SCALE * G                                               TRED2 89
+         H = H - F * G                                                  TRED2 90
+         Z(I,L) = F - G                                                 TRED2 91
+         F = 0.D0                                                       TRED2 92
+C                                                                       TRED2 93
+C ***************************************** A.Kramida 2026 v
+C       THE TWO O(L**2) LOOPS BELOW CARRY THE BULK OF THE WORK OF THE
+C       HOUSEHOLDER REDUCTION AND ARE NOW RUN IN PARALLEL OVER J.  EACH
+C       J STILL ACCUMULATES ITS OWN DOT PRODUCT SERIALLY, AND EVERY
+C       ELEMENT OF Z RECEIVES THE SAME OPERATIONS IN THE SAME ORDER AS
+C       BEFORE, SO THE RESULT IS BIT FOR BIT UNCHANGED.  TWO SERIAL
+C       DEPENDENCIES HAD TO BE LIFTED OUT FIRST:
+C         - THE SUM F, NOW ACCUMULATED IN A LOOP OF ITS OWN IN THE
+C           ORIGINAL ORDER OF J;
+C         - THE UPDATE OF E(J), WHICH THE SECOND LOOP READ FOR K.LE.J
+C           ONLY AFTER IT HAD BEEN OVERWRITTEN, AND WHICH IS NOW
+C           APPLIED TO THE WHOLE OF E BEFOREHAND.
+C       WITHOUT -fopenmp THE DIRECTIVES ARE COMMENTS AND THIS RUNS
+C       SERIALLY.  BLOCKS BELOW L=1000 STAY SERIAL: MEASURED CROSSOVER
+C       IS NEAR L=1100 (BELOW IT THE THREAD OVERHEAD PER HOUSEHOLDER
+C       STEP EXCEEDS THE GAIN), ABOVE IT THE SPEEDUP REACHES 5.4x ON 32
+C       THREADS AT L=4000.
+!$OMP PARALLEL DO IF(L.GT.1000) DEFAULT(SHARED) PRIVATE(J,K,G,JP1)
+!$OMP&  SCHEDULE(STATIC,1)
+         DO J = 1, L                                                    TRED2 94
+            Z(J,I) = Z(I,J) / H                                         TRED2 95
+            G = 0.D0                                                    TRED2 96
+C     .......... FORM ELEMENT OF A*U ..........                         TRED2 97
+            DO K = 1, J                                                 TRED2 98
+              G = G + Z(J,K) * Z(I,K)                                   TRED2 99
+            ENDDO
+C                                                                       TRED2100
+            JP1 = J + 1                                                 TRED2101
+            IF (L .GE. JP1) THEN                                        TRED2102
+C                                                                       TRED2103
+              DO K = JP1, L                                             TRED2104
+                G = G + Z(K,J) * Z(I,K)                                 TRED2105
+              ENDDO
+            ENDIF
+C     .......... FORM ELEMENT OF P ..........                           TRED2106
+            E(J) = G / H                                                TRED2107
+         ENDDO                                                          TRED2109
+!$OMP END PARALLEL DO
+         DO J = 1, L
+            F = F + E(J) * Z(I,J)                                       TRED2108
+         ENDDO
+C                                                                       TRED2110
+         HH = F / (H + H)                                               TRED2111
+         DO J = 1, L
+            E(J) = E(J) - HH * Z(I,J)                                   TRED2115
+         ENDDO
+C     .......... FORM REDUCED A ..........                              TRED2112
+!$OMP PARALLEL DO IF(L.GT.1000) DEFAULT(SHARED) PRIVATE(J,K,F,G)
+!$OMP&  SCHEDULE(STATIC,1)
+         DO J = 1, L                                                    TRED2113
+            F = Z(I,J)                                                  TRED2114
+            G = E(J)                                                    TRED2116
+C                                                                       TRED2117
+            DO K = 1, J                                                 TRED2118
+              Z(J,K) = Z(J,K) - F * E(K) - G * Z(I,K)                   TRED2119
+            ENDDO
+         ENDDO                                                          TRED2120
+C                                                                       TRED2121
+  290    D(I) = H                                                       TRED2122
+      ENDDO                                                             TRED2123
+C                                                                       TRED2124
+  320 D(1) = 0.D0                                                       TRED2125
+      E(1) = 0.D0                                                       TRED2126
+C     .......... ACCUMULATION OF TRANSFORMATION MATRICES ..........     TRED2127
+      DO I = 1, N                                                       TRED2128
+         L = I - 1                                                      TRED2129
+         IF (D(I) .EQ. 0.D0) GO TO 380                                  TRED2130
+C                                                                       TRED2131
+C       BACK-TRANSFORMATION: EACH J WORKS ON COLUMN J ALONE AND ONLY
+C       READS COLUMN I AND ROW I, NEITHER OF WHICH IT WRITES, SO THE
+C       ITERATIONS ARE INDEPENDENT AND THE RESULT IS UNCHANGED.
+!$OMP PARALLEL DO IF(L.GT.1000) DEFAULT(SHARED) PRIVATE(J,K,G)
+!$OMP&  SCHEDULE(STATIC)
+         DO J = 1, L                                                    TRED2132
+            G = 0.D0                                                    TRED2133
+C                                                                       TRED2134
+            DO K = 1, L                                                 TRED2135
+              G = G + Z(I,K) * Z(K,J)                                   TRED2136
+            ENDDO
+C                                                                       TRED2137
+            DO K = 1, L                                                 TRED2138
+               Z(K,J) = Z(K,J) - G * Z(K,I)                             TRED2139
+            ENDDO
+         ENDDO                                                          TRED2140
+!$OMP END PARALLEL DO
+C                                                                       TRED2141
+  380    D(I) = Z(I,I)                                                  TRED2142
+         Z(I,I) = 1.D0                                                  TRED2143
+         IF (L .GE. 1) THEN                                             TRED2144
+C                                                                       TRED2145
+           DO J = 1, L                                                  TRED2146
+             Z(I,J) = 0.D0                                              TRED2147
+             Z(J,I) = 0.D0                                              TRED2148
+           ENDDO                                                        TRED2149
+         ENDIF
+C                                                                       TRED2150
+      ENDDO                                                             TRED2151
+C                                                                       TRED2152
+      RETURN                                                            TRED2153
+      END                                                               TRED2154
+C
+      SUBROUTINE TQL2(NM,N,D,E,Z,IERR)                                  TQL2   3
+C***BEGIN PROLOGUE  TQL2                                                TQL2   4
+C***DATE WRITTEN   760101   (YYMMDD)                                    TQL2   5
+C***REVISION DATE  830518   (YYMMDD)                                    TQL2   6
+C***CATEGORY NO.  D4A5,D4C2A                                            TQL2   7
+C***KEYWORDS  EIGENVALUES,EIGENVECTORS,EISPACK                          TQL2   8
+C***AUTHOR  SMITH, B. T., ET AL.                                        TQL2   9
+C***PURPOSE  COMPUTE EIGENVALUES AND EIGENVECTORS OF SYMMETRIC          TQL2  10
+C            TRIDIAGONAL MATRIX.                                        TQL2  11
+C***DESCRIPTION                                                         TQL2  12
+C                                                                       TQL2  13
+C     THIS SUBROUTINE IS A TRANSLATION OF THE ALGOL PROCEDURE TQL2,     TQL2  14
+C     NUM. MATH. 11, 293-306(1968) BY BOWDLER, MARTIN, REINSCH, AND     TQL2  15
+C     WILKINSON.                                                        TQL2  16
+C     HANDBOOK FOR AUTO. COMP., VOL.II-LINEAR ALGEBRA, 227-240(1971).   TQL2  17
+C                                                                       TQL2  18
+C     THIS SUBROUTINE FINDS THE EIGENVALUES AND EIGENVECTORS            TQL2  19
+C     OF A SYMMETRIC TRIDIAGONAL MATRIX BY THE QL METHOD.               TQL2  20
+C     THE EIGENVECTORS OF A FULL SYMMETRIC MATRIX CAN ALSO              TQL2  21
+C     BE FOUND IF  TRED2  HAS BEEN USED TO REDUCE THIS                  TQL2  22
+C     FULL MATRIX TO TRIDIAGONAL FORM.                                  TQL2  23
+C                                                                       TQL2  24
+C     ON INPUT                                                          TQL2  25
+C                                                                       TQL2  26
+C        NM MUST BE SET TO THE ROW DIMENSION OF TWO-DIMENSIONAL         TQL2  27
+C          ARRAY PARAMETERS AS DECLARED IN THE CALLING PROGRAM          TQL2  28
+C          DIMENSION STATEMENT.                                         TQL2  29
+C                                                                       TQL2  30
+C        N IS THE ORDER OF THE MATRIX.                                  TQL2  31
+C                                                                       TQL2  32
+C        D CONTAINS THE DIAGONAL ELEMENTS OF THE INPUT MATRIX.          TQL2  33
+C                                                                       TQL2  34
+C        E CONTAINS THE SUBDIAGONAL ELEMENTS OF THE INPUT MATRIX        TQL2  35
+C          IN ITS LAST N-1 POSITIONS.  E(1) IS ARBITRARY.               TQL2  36
+C                                                                       TQL2  37
+C        Z CONTAINS THE TRANSFORMATION MATRIX PRODUCED IN THE           TQL2  38
+C          REDUCTION BY  TRED2, IF PERFORMED.  IF THE EIGENVECTORS      TQL2  39
+C          OF THE TRIDIAGONAL MATRIX ARE DESIRED, Z MUST CONTAIN        TQL2  40
+C          THE IDENTITY MATRIX.                                         TQL2  41
+C                                                                       TQL2  42
+C      ON OUTPUT                                                        TQL2  43
+C                                                                       TQL2  44
+C        D CONTAINS THE EIGENVALUES IN ASCENDING ORDER.  IF AN          TQL2  45
+C          ERROR EXIT IS MADE, THE EIGENVALUES ARE CORRECT BUT          TQL2  46
+C          UNORDERED FOR INDICES 1,2,...,IERR-1.                        TQL2  47
+C                                                                       TQL2  48
+C        E HAS BEEN DESTROYED.                                          TQL2  49
+C                                                                       TQL2  50
+C        Z CONTAINS ORTHONORMAL EIGENVECTORS OF THE SYMMETRIC           TQL2  51
+C          TRIDIAGONAL (OR FULL) MATRIX.  IF AN ERROR EXIT IS MADE,     TQL2  52
+C          Z CONTAINS THE EIGENVECTORS ASSOCIATED WITH THE STORED       TQL2  53
+C          EIGENVALUES.                                                 TQL2  54
+C                                                                       TQL2  55
+C        IERR IS SET TO                                                 TQL2  56
+C          ZERO       FOR NORMAL RETURN,                                TQL2  57
+C          J          IF THE J-TH EIGENVALUE HAS NOT BEEN               TQL2  58
+C                     DETERMINED AFTER 30 ITERATIONS.                   TQL2  59
+C                                                                       TQL2  60
+C     CALLS PYTHAG(A,B) FOR SQRT(A**2 + B**2).                          TQL2  61
+C                                                                       TQL2  62
+C     QUESTIONS AND COMMENTS SHOULD BE DIRECTED TO B. S. GARBOW,        TQL2  63
+C     APPLIED MATHEMATICS DIVISION, ARGONNE NATIONAL LABORATORY         TQL2  64
+C     ------------------------------------------------------------------TQL2  65
+C***REFERENCES  B. T. SMITH, J. M. BOYLE, J. J. DONGARRA, B. S. GARBOW, TQL2  66
+C                 Y. IKEBE, V. C. KLEMA, C. B. MOLER, *MATRIX EIGEN-    TQL2  67
+C                 SYSTEM ROUTINES - EISPACK GUIDE*, SPRINGER-VERLAG,    TQL2  68
+C                 1976.                                                 TQL2  69
+C***ROUTINES CALLED  PYTHAG                                             TQL2  70
+C***END PROLOGUE  TQL2                                                  TQL2  71
+C                                                                       TQL2  72
+      IMPLICIT REAL*8 (A-H,O-Z)
+      INTEGER I,J,K,L,M,N,II,L1,L2,NM,MML,IERR                          TQL2  73
+      DIMENSION D(N),E(N),Z(NM,N)                                       TQL2  74
+C     A.Kramida 2026: BUFFERS HOLDING THE GIVENS ROTATIONS OF ONE QL
+C       SWEEP SO THAT THEY CAN BE APPLIED TO Z IN ONE BLOCKED, THREADED
+C       PASS (TQLROT) INSTEAD OF ONE THIN LOOP PER ROTATION.
+C       HERE THEY ARE ALLOCATED ON DEMAND AND KEPT BETWEEN CALLS, SO
+C       THEY COST NO STATIC STORAGE AND DO NOT DEPEND ON KMX.
+      REAL*8, ALLOCATABLE, SAVE :: CSAV(:),SSAV(:)
+C     REAL D(N),E(N),Z(NM,N)                                            TQL2  74
+C     REAL B,C,C2,C3,DL1,EL1,F,G,H,P,R,S,S2                             TQL2  75
+C     REAL PYTHAG                                                       TQL2  76
+C                                                                       TQL2  77
+C***FIRST EXECUTABLE STATEMENT  TQL2                                    TQL2  78
+      IERR = 0                                                          TQL2  79
+      IF (N .EQ. 1) GO TO 1001                                          TQL2  80
+C     A.Kramida 2026: BATCH THE ROTATIONS UNLESS THE BUFFERS ARE TOO
+C       SMALL (CANNOT HAPPEN FOR N SET BY THIS PROGRAM, WHERE N.LE.IA).
+      IBAT = 1
+      IF (ALLOCATED(CSAV)) THEN
+        IF (SIZE(CSAV) .LT. N) DEALLOCATE (CSAV,SSAV)
+      ENDIF
+      IF (.NOT.ALLOCATED(CSAV)) ALLOCATE (CSAV(N),SSAV(N))
+C                                                                       TQL2  81
+      ONE=1.D0
+      DO I = 2, N                                                       TQL2  82
+        E(I-1) = E(I)                                                   TQL2  83
+      ENDDO
+C                                                                       TQL2  84
+      F = 0.D0                                                          TQL2  85
+      B = 0.D0                                                          TQL2  86
+      E(N) = 0.D0                                                       TQL2  87
+C                                                                       TQL2  88
+      DO L = 1, N                                                       TQL2  89
+         J = 0                                                          TQL2  90
+         H = DABS(D(L)) + DABS(E(L))                                    TQL2  91
+         IF (B .LT. H) B = H                                            TQL2  92
+C     .......... LOOK FOR SMALL SUB-DIAGONAL ELEMENT ..........         TQL2  93
+         DO M = L, N                                                    TQL2  94
+            IF (B + DABS(E(M)) .EQ. B) GO TO 120                        TQL2  95
+C     .......... E(N) IS ALWAYS ZERO, SO THERE IS NO EXIT               TQL2  96
+C                THROUGH THE BOTTOM OF THE LOOP ..........              TQL2  97
+         ENDDO                                                          TQL2  98
+C                                                                       TQL2  99
+  120    IF (M .EQ. L) GO TO 220                                        TQL2 100
+  130    IF (J .EQ. 30) GO TO 1000                                      TQL2 101
+         J = J + 1                                                      TQL2 102
+C     .......... FORM SHIFT ..........                                  TQL2 103
+         L1 = L + 1                                                     TQL2 104
+         L2 = L1 + 1                                                    TQL2 105
+         G = D(L)                                                       TQL2 106
+         P = (D(L1) - G) / (2.D0 * E(L))                                TQL2 107
+C        R = PYTHAG(P,1.D0)                                             TQL2 108
+           PP=DMAX1(DABS(P),ONE)                                        PYTHAG14
+           QQ=DMIN1(DABS(P),ONE)                                        PYTHAG15
+           IF (QQ.EQ.0.D0) GO TO 20                                     PYTHAG16
+   10      CONTINUE                                                     PYTHAG17
+           RR=(QQ/PP)**2                                                PYTHAG18
+           TT=4.D0+RR                                                   PYTHAG19
+           IF (TT.EQ.4.D0) GO TO 20                                     PYTHAG20
+           SS=RR/TT                                                     PYTHAG21
+           PP=PP+2.D0*PP*SS                                             PYTHAG22
+           QQ=QQ*SS                                                     PYTHAG23
+           GO TO 10                                                     PYTHAG24
+   20    R=PP                                                           PYTHAG25
+         D(L) = E(L) / (P + SIGN(R,P))                                  TQL2 109
+         D(L1) = E(L) * (P + SIGN(R,P))                                 TQL2 110
+         DL1 = D(L1)                                                    TQL2 111
+         H = G - D(L)                                                   TQL2 112
+         IF (L2 .GT. N) GO TO 145                                       TQL2 113
+C                                                                       TQL2 114
+         DO I = L2, N                                                   TQL2 115
+           D(I) = D(I) - H                                              TQL2 116
+         ENDDO
+C                                                                       TQL2 117
+  145    F = F + H                                                      TQL2 118
+C     .......... QL TRANSFORMATION ..........                           TQL2 119
+         P = D(M)                                                       TQL2 120
+         C = 1.D0                                                       TQL2 121
+         C2 = C                                                         TQL2 122
+         EL1 = E(L1)                                                    TQL2 123
+         S = 0.D0                                                       TQL2 124
+         MML = M - L                                                    TQL2 125
+C     .......... FOR I=M-1 STEP -1 UNTIL L DO -- ..........             TQL2 126
+         DO II = 1, MML                                                 TQL2 127
+            C3 = C2                                                     TQL2 128
+            C2 = C                                                      TQL2 129
+            S2 = S                                                      TQL2 130
+            I = M - II                                                  TQL2 131
+            G = C * E(I)                                                TQL2 132
+            H = C * P                                                   TQL2 133
+            IF (DABS(P) .LT. DABS(E(I))) GO TO 150                      TQL2 134
+            C = E(I) / P                                                TQL2 135
+            R = DSQRT(C*C+1.D0)                                         TQL2 136
+            E(I+1) = S * P * R                                          TQL2 137
+            S = C / R                                                   TQL2 138
+            C = 1.D0 / R                                                TQL2 139
+            GO TO 160                                                   TQL2 140
+  150       C = P / E(I)                                                TQL2 141
+            R = DSQRT(C*C+1.D0)                                         TQL2 142
+            E(I+1) = S * E(I) * R                                       TQL2 143
+            S = 1.D0 / R                                                TQL2 144
+            C = C * S                                                   TQL2 145
+  160       P = C * D(I) - S * G                                        TQL2 146
+            D(I+1) = H + S * (C * G + S * D(I))                         TQL2 147
+C     .......... FORM VECTOR ..........                                 TQL2 148
+C           A.Kramida 2026: RECORD THE ROTATION ONLY; THE WHOLE SWEEP IS
+C           APPLIED TO Z AFTER THE LOOP.  Z IS NOT READ BY THE SCALAR
+C           RECURRENCE ABOVE, SO DEFERRING ITS UPDATE IS EXACT.
+            IF (IBAT .EQ. 0) THEN
+              DO K = 1, N                                               TQL2 149
+                 H = Z(K,I+1)                                           TQL2 150
+                 Z(K,I+1) = S * Z(K,I) + C * H                          TQL2 151
+                 Z(K,I) = C * Z(K,I) - S * H                            TQL2 152
+              ENDDO                                                     TQL2 153
+            ELSE
+              CSAV(I) = C
+              SSAV(I) = S
+            ENDIF
+C                                                                       TQL2 154
+         ENDDO                                                          TQL2 155
+         IF (IBAT .NE. 0) CALL TQLROT(NM,N,Z,CSAV,SSAV,L,M-1)
+C                                                                       TQL2 156
+         P = -S * S2 * C3 * EL1 * E(L) / DL1                            TQL2 157
+         E(L) = S * P                                                   TQL2 158
+         D(L) = C * P                                                   TQL2 159
+         IF (B + DABS(E(L)) .GT. B) GO TO 130                           TQL2 160
+  220    D(L) = D(L) + F                                                TQL2 161
+      ENDDO                                                             TQL2 162
+C     .......... ORDER EIGENVALUES AND EIGENVECTORS ..........          TQL2 163
+      DO II = 2, N                                                      TQL2 164
+         I = II - 1                                                     TQL2 165
+         K = I                                                          TQL2 166
+         P = D(I)                                                       TQL2 167
+C                                                                       TQL2 168
+         DO J = II, N                                                   TQL2 169
+            IF (D(J) .LT. P) THEN                                       TQL2 170
+              K = J                                                     TQL2 171
+              P = D(J)                                                  TQL2 172
+            ENDIF
+         ENDDO                                                          TQL2 173
+C                                                                       TQL2 174
+         IF (K .NE. I) THEN                                             TQL2 175
+           D(K) = D(I)                                                  TQL2 176
+           D(I) = P                                                     TQL2 177
+C                                                                       TQL2 178
+           DO J = 1, N                                                  TQL2 179
+              P = Z(J,I)                                                TQL2 180
+              Z(J,I) = Z(J,K)                                           TQL2 181
+              Z(J,K) = P                                                TQL2 182
+           ENDDO                                                        TQL2 183
+         ENDIF
+C                                                                       TQL2 184
+      ENDDO                                                             TQL2 185
+C                                                                       TQL2 186
+      GO TO 1001                                                        TQL2 187
+C     .......... SET ERROR -- NO CONVERGENCE TO AN                      TQL2 188
+C                EIGENVALUE AFTER 30 ITERATIONS ..........              TQL2 189
+ 1000 IERR = L                                                          TQL2 190
+ 1001 RETURN                                                            TQL2 191
+      END                                                               TQL2 192
+
+C ***************************************** A.Kramida 2026 v
+      SUBROUTINE TQLROT(NM,N,Z,CS,SN,ILO,IHI)
+C
+C          APPLIES ONE QL SWEEP'S WORTH OF GIVENS ROTATIONS, ACCUMULATED
+C          BY TQL2 IN CS/SN, TO THE EIGENVECTOR MATRIX Z.  ROTATION I
+C          MIXES COLUMNS I AND I+1 AND THE ROTATIONS MUST BE APPLIED FOR
+C          I = IHI DOWN TO ILO, THE ORDER IN WHICH TQL2 PRODUCES THEM.
+C
+C          EVERY ROW OF Z IS TRANSFORMED INDEPENDENTLY OF EVERY OTHER
+C          ROW, SO THE ROW RANGE IS SPLIT OVER THREADS.  WITHIN A ROW
+C          THE OPERATIONS AND THEIR ORDER ARE EXACTLY THOSE OF THE
+C          ORIGINAL IN-LINE LOOP, HENCE THE RESULT IS BIT-IDENTICAL AT
+C          ANY THREAD COUNT.
+C
+C          THE ROWS ARE PROCESSED IN BLOCKS OF NB: A BLOCK'S SLICE OF
+C          THE TWO ACTIVE COLUMNS THEN STAYS IN CACHE WHILE THE WHOLE
+C          SWEEP MARCHES ACROSS IT.  BLOCKING ALSO SPEEDS UP THE SERIAL
+C          PATH, WHICH OTHERWISE STREAMS ALL OF Z ONCE PER ROTATION.
+C
+C          THE BEST BLOCK SIZE DEPENDS ON HOW MANY THREADS ARE RUNNING
+C          (MEASURED AT N=4000): SERIALLY, KBLKS=64 IS ~10 PCT FASTER
+C          THAN NO BLOCKING, WHILE THE NARROW KBLKP=8 IS ALMOST TWICE AS
+C          SLOW; WITH THREADS THE ORDER REVERSES, KBLKP=8 BEING NEARLY
+C          TWICE AS FAST AS 64 BECAUSE EACH THREAD THEN KEEPS ITS SLICE
+C          IN L1 ACROSS THE WHOLE SWEEP.  SO PICK NB AT RUN TIME.
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      DIMENSION Z(NM,N),CS(*),SN(*)
+      PARAMETER (KBLKS=64,KBLKP=8)
+!$    INTEGER OMP_GET_MAX_THREADS
+C          THREADING PAYS ONLY FOR BIG BLOCKS - SEE THE HEADER NOTES ON
+C          THE TRED2 GUARD; BELOW THIS THE FORK/JOIN COSTS MORE THAN THE
+C          SWEEP ITSELF.
+      NTH = 1
+!$    NTH = OMP_GET_MAX_THREADS()
+      LPAR = 0
+      IF (NTH.GT.1 .AND. N.GT.1000 .AND. (IHI-ILO+1).GT.64) LPAR = 1
+      NB = KBLKS
+      IF (LPAR .NE. 0) NB = KBLKP
+!$OMP PARALLEL DO IF(LPAR.NE.0)
+!$OMP&  DEFAULT(SHARED) PRIVATE(KB,KE,I,K,C,S,H) SCHEDULE(STATIC)
+      DO KB = 1, N, NB
+        KE = MIN0(KB+NB-1,N)
+        DO I = IHI, ILO, -1
+          C = CS(I)
+          S = SN(I)
+          DO K = KB, KE
+            H = Z(K,I+1)
+            Z(K,I+1) = S * Z(K,I) + C * H
+            Z(K,I) = C * Z(K,I) - S * H
+          ENDDO
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+      RETURN
+      END
+C
+      SUBROUTINE BACK(NU,NBACK)
+      DO 1209 I=1,NBACK
+  10  BACKSPACE NU
+ 1209 CONTINUE
+      RETURN
+      END
+C
+      SUBROUTINE BACKIC(NU,NBACK,IPTR)
+      IPTR=IPTR-NBACK
+      IF (IPTR.LT.0) IPTR=0
+      IF (NBACK.LT.3) THEN
+        DO 1210 I=1,NBACK
+  10    BACKSPACE NU
+ 1210   CONTINUE
+      ELSE
+        REWIND NU
+        DO 1211 I=1,IPTR
+  20    READ (NU)
+ 1211   CONTINUE
+      ENDIF
+      RETURN
+      END
+C
+************************************************************************
+*                                                                      *
+      SUBROUTINE ALLOC (PTR,NMLOCS,LENGTH)
+*                                                                      *
+*   Borrowed from GRASP2K [AK]                                         *
+*   This  routine allocates  NMLOCS memory locations, each of length   *
+*   LENGTH bytes to the pointee of the pointer PTR.   LENGTH is  not   *
+*   required for the  CFT77  version --- the  8-byte word  length is   *
+*   assumed common to all data types; it has been retained to ensure   *
+*   compatibility with the code that calls this subprogram.            *
+*                                                                      *
+*   Original code by Charlotte F. Fischer.                             *
+*                                                                      *
+*   This version by Farid A. Parpia.      Last revision: 17 Sep 1992   *
+*   Updated for IBM and DEC by Bieron     Last revision: 05 Apr 1995   *
+*                                                                      *
+************************************************************************
+*
+c
+cbieron DEC pointer
+c
+c      INTEGER PTR                 ! DEC and CRAY require ?
+      INTEGER*8 PTR
+      pointer (PTR,ptrdummy)
+      INTEGER NMLOCS, LENGTH
+      INTEGER*8 NBYTES
+      INTEGER*8 MALLOC
+c      INTEGER*8 MMM
+c
+*
+*   Compute the size of the memory region in bytes; this is retained for
+*   calling compatibility and debugging purposes in the Cray version
+*   Also, all allocations are multiples of 8 bytes for alignment
+*   purposes.
+*
+cgd   NBYTES = NMLOCS*LENGTH
+      NBYTES = NMLOCS
+      NBYTES = NBYTES*LENGTH
+      IF (MOD(NBYTES,8) .NE. 0) NBYTES = 8*(NBYTES/8 + 1)
+*
+      IF (NBYTES. LE. 0) THEN
+         PRINT *, 'ALLOC: Invalid memory request:'
+         PRINT *, ', PTR = ',PTR,', NMLOCS = ',NMLOCS,
+     :            ', LENGTH = ',LENGTH,'.'
+         STOP
+*
+      ELSE
+
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!         PTR = MMM (NBYTES)                ! SUN & DEC
+!         PTR = MALLOC(%VAL(NBYTES))        ! IBM
+!         IF (PTR .EQ. 0) THEN
+!
+!         IABORT = 0
+!         CALL HPALLOC(PTR,NMLOCS,IERR,IABORT) ! CRAY
+!         IF (ierr.ne.0) THEN
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+! Choose one from above
+
+         PTR = MALLOC(NBYTES)                ! SUN & DEC
+         IF (PTR .EQ. 0) THEN
+
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            PRINT *, 'ALLOC: Unable to allocate memory:'
+            PRINT *, ', PTR = ',PTR,', NMLOCS = ',NMLOCS,
+     :               ', LENGTH = ',LENGTH,'.'
+            STOP
+         ENDIF
+      ENDIF
+      RETURN
+      END
+c------------------------------------
+c
+************************************************************************
+*                                                                      *
+      SUBROUTINE DALLOC (PTR)
+*                                                                      *
+*   Borrowed from GRASP2K [AK]                                         *
+*   This  subprogram deallocates the  memory locations that are asso-  *
+*   ciated  with the pointer PTR.   This version  is specific to Sun   *
+*   FORTRAN 77  (Sun OS)  or  Cray CFT77 (UNICOS)  depending on  the   *
+*   action of the preprocessor PREPRO.                                 *
+*                                                                      *
+*   Original code by Charlotte F. Fischer.                             *
+*                                                                      *
+*   This revision by Farid A. Parpia.     Last revision: 17 Sep 1992   *
+*   Updated by Anders Ynnerman            Last revision: 26 Jan 1994   *
+*   Updated for IBM and DEC by Bieron     Last revision: 05 Apr 1995   *
+*                                                                      *
+************************************************************************
+*
+c
+cbieron DEC pointer
+c
+c      INTEGER PTR                        ! DEC and CRAY require ?
+      integer*8 PTR
+      POINTER (PTR,ptrdummy)
+
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!      CALL FREE (PTR)                    ! SUN & DEC
+!      CALL FREE (%val(PTR))              ! IBM
+!      CALL DISCLAIM (%val(PTR))          ! IBM
+!      IERR = MZDALLOC(PTR,NSIZE)         ! TSS, Needs nsize 
+!      IABORT = 0
+!      CALL HPDEALLC(PTR,IERR,IABORT)     ! CRAY 
+!      IF (IERR.NE.0) THEN
+!         PRINT *, 'DEALLOCATION ERROR ',IERR
+!      END IF
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+      CALL FREE (PTR)                    ! SUN & DEC
+
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+      RETURN
+      END
+c------------------------------------
+c
+************************************************************************
+*                                                                      *
+      SUBROUTINE RALLOC (PTR,OLDSIZ,NEWSIZ,LENGTH)
+*                                                                      *
+*   Borrowed from GRASP2K [AK]                                         *
+*   This  subprogram reallocates  the memory for the pointee of PTR.   *
+*   OLDSIZ is the number of storage locations of length LENGTH (4 or   *
+*   8) bytes that are associated with  PTR upon entry. NEWSIZ is the   *
+*   number of storage locations associated with  PTR  on exit.  This   *
+*   version is specific to  SUN FORTRAN 77  (Sun  OS) or  Cray CFT77   *
+*   (UNICOS)  depending on the action of the preprocessor PREPRO.      *
+*                                                                      *
+*   Call(s) to: [LIB92]: ALLOC, DALLOC.                                *
+*                                                                      *
+*   Original code by Charlotte F. Fischer.                             *
+*                                                                      *
+*   This revision by Farid A. Parpia.     Last revision: 17 Sep 1992   *
+*   Updated for IBM and DEC by Bieron     Last revision: 05 Apr 1995   *
+*                                                                      *
+************************************************************************
+*
+      IMPLICIT REAL*8           (A-H,O-Z)
+      INTEGER OLDSIZ
+*
+      INTEGER*8 PTR
+      POINTER (PTR,ptrdummy)
+*
+      INTEGER*8 NBYTE
+      INTEGER*4 IA,ITA
+      CHARACTER*12 C,CT
+      POINTER (IPTR,IA(1)),(ITPTR,ITA(1))
+      POINTER (RPTR,RA(1)),(RTPTR,RTA(1))
+      POINTER(CPTR,C(1)),(CTPTR,CT(1))
+*
+c      IF (NEWSIZ*LENGTH .LE. 0) THEN
+      NBYTE=NEWSIZ
+      NBYTE=NBYTE*LENGTH
+      IF (NBYTE .LE. 0) THEN
+         WRITE(*,*) 'RALLOC: Invalid memory request:'
+         WRITE(*,*) ' NEWSIZ = ',NEWSIZ,', LENGTH = ',LENGTH,'.'
+      STOP
+      ENDIF
+*
+*   M is the number of array elements that are to be copied into the
+*   new array
+*
+      M = MIN (OLDSIZ,NEWSIZ)
+*
+      IF (LENGTH .EQ. 8) THEN
+*
+*   Arrays of length 8 bytes are assumed to be REAL*8          ;
+*   these are treated in the first branch
+*
+         RTPTR = PTR
+         CALL ALLOC (RPTR,NEWSIZ,LENGTH)
+*
+         DO I = 1,M
+            RA(I) = RTA(I)
+         END DO
+*
+*   Reset PTR so that it is associated with the new array
+*
+         PTR = RPTR
+*
+*   Deallocate the array that used to be associated with PTR
+*
+         CALL DALLOC (RTPTR)
+*
+      ELSEIF (LENGTH .EQ. 12) THEN
+*
+*   Character*12 arrays are treated in the third branch; the procedure is
+*   essentially the same as in the first branch
+*
+*   Associate CT with PTR
+*
+         CTPTR = PTR
+*
+*   Associate C with CPTR
+*
+         CALL ALLOC (CPTR,NEWSIZ,LENGTH)
+*
+*   Copy the contents of CT into IA
+*
+         DO I = 1,M
+            C(I) = CT(I)
+         END DO
+*
+*   Reset PTR so that it is associated with the new array
+*
+         PTR = CPTR
+*
+*   Release CT
+*
+         CALL DALLOC (CTPTR)
+*
+      ELSEIF (LENGTH .EQ. 4) THEN
+*
+*   Integer arrays are treated in the second branch; the procedure is
+*   essentially the same as in the first branch
+*
+*   Associate ITA with PTR
+*
+         ITPTR = PTR
+*
+*   Associate IA with IPTR
+*
+         CALL ALLOC (IPTR,NEWSIZ,LENGTH)
+*
+*   Copy the contents of ITA into IA
+*
+         DO I = 1,M
+            IA(I) = ITA(I)
+         end do
+*
+*   Reset PTR so that it is associated with the new array
+*
+         PTR = IPTR
+*
+*   Release ITA
+*
+         CALL DALLOC (ITPTR)
+*
+      ELSE
+*
+         WRITE(*,*) 'RALLOC: Invalid argument LENGTH = ',LENGTH,'.'
+         STOP
+*
+      ENDIF
+*
+      RETURN
+      END
+c------------------------------------
+c
+C     OVERLAY(G9,10,4)
+      SUBROUTINE SPECTR
+C
+C
+C        CALC SPECTRUM FOR MAGNETIC DIPOLE(II=0), ELECTRIC DIPOLE(II=1),
+C             OR ELECTRIC QUADRUPOLE(II=2) TRANSITIONS
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C2B/NCFG(KMX),NCFGP(KMX),PMUP(KC,KC),EIG(KMX),EIGP(KMX),
+     1  LCSER(KMX),LCSERP(KMX)
+      COMMON/C9/L1,L2,CFLAG(KC,2),CGENGY(KC,2),SWT(KC,2),IMAX
+      COMMON/C3B/T(KLAM),TP(KLAM),S2(KLAM),SOABSS(KLAM),
+     1  AA(KMX),AAP(KMX),GAA(KLAM),GAAP(KLAM),BRNCH(KLAM),
+     2  ICUT(66),SGFCUT(66),SFCUT(66),DIDGF(66),DSGFDGF(66),TITLE(20),
+     3  FICUT(66),FNUCUT(66),FNUPLT(82),SGF(66),FIPLT(82),SGFPLT(82),
+     4  NCSER(KLAM),AAT(KMX),AAPT(KMX)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/C6/EMIN,EMAX,SUMWT,FLBDN,FLBDX,FNUNP,FNUXP,NLEV,IEWR
+      DIMENSION V(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,V),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4),(CT4_PTR,FLAM)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION CTA(KMX,KMX)
+      pointer (C3LC4_PTR,CTA)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/C3LC6/GAAXC_PTR,BRNCHX_PTR
+      integer*8 GAAXC_PTR,BRNCHX_PTR
+      dimension GAAXC(KMX,KEXC),BRNCHX(KEXC,KEXC)
+      pointer (GAAXC_PTR,GAAXC),(BRNCHX_PTR,BRNCHX)
+c
+      CHARACTER*8 ELEM,ELEMJ
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE3/FJT(KLAM),FJTP(KLAM),NCSERP(KLAM),
+     1  GAAT(KLAM),GAAPT(KLAM)
+c
+      COMMON/CTKEV/NPTKEV,NTKEV,TKEV(6),TUNRGY(6),BRNCHL(6),BRNCHT(6),
+     1  EIONRY
+      COMMON/SORTDUM/DUM(2),IDUM(2)
+      DIMENSION IDD(KLAM),D(KMX,KMX)
+      integer*8 IDD_PTR, C_PTR
+      pointer (IDD_PTR,IDD),(C_PTR,D)
+      DIMENSION GFCUT(66)
+      DIMENSION X(KLAM),FNU(KLAM),FLAM(KLAM),SUMFJ(KC)
+      DIMENSION SPID(3)
+C     A. Kramida 2026: one row's worth of the two dot products of the
+C     line-selection loop; allocated on demand, so no static storage.
+      REAL*8, ALLOCATABLE, SAVE :: ERASAV(:),ERASSV(:)
+      COMMON/C7/G1,SUMGAA,SUMGAR,SUMGAAT
+      COMMON/C8/EXC(KEXC),JEXC(KEXC),MEXC(KEXC)
+      COMMON/ENERGIES/ETOT(KC,2),EE8(KC,2),E0KIN(KC),EKIN(KMX)
+      COMMON/PWBORN/NBIGKS,NENRGS,EKMINL,EKMAXL,DELEKL,BIGKS(KBGKS),
+     1  XMIN,XMAX,TEV(25),CORR(KENRGS),IBK,IPWR,I1
+      DIMENSION ISER(KLAM),EXC1(KEXC),JEXC1(KEXC),ELEMJ(KEXC),DELM1(KC)
+      dimension NLEVJ(KLAM),NLEVJP(KLAM)                                ! Added by A. Kramida 08/23/2018
+      CHARACTER BR1*9,IDFG(15)*11
+      CHARACTER*8 LLDES(KLAM),LLDESP(KLAM)
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,COUPL
+      CHARACTER*4 LSYMB,H18
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      CHARACTER*8 H1,H2,H3,H4,H5,H6,H7,H8,H9,H10,H11,H12,H13,H14,H15,
+     1 H17,H19,SPID,IERAS
+      CHARACTER*24 AA1,AA2
+      DATA H1/' '/,H2/' ---'/,H3/'INTENS'/,H4/'ITY'/,H5/'WAVENU'/,
+     1  H6/'MBER'/,H7/'(CM  )'/,H8/'WAVELE'/,H9/'NGTH'/,H10/'(A)'/,
+     2  H11/' ='/,H12/'OSCILL'/,H13/'ATOR STR'/,H14/'ENGTH (G'/,
+     3  H15/'F)'/,H17/'-1'/,H18/'('/,H19/'F.10+6)'/
+      DATA (SPID(I),I=1,3) /' MAG DIP','ELEC DIP','ELEC QUD'/
+C
+      CALL ALLOC(IDD_PTR,KLAM,4)
+      CALL ALLOC(C_PTR,KMX**2,8)
+C
+C     KMX=1200
+C     KEXC=40
+C     KLAM=10000
+C     KTRAN=600
+C
+C          FOR SPECIAL LUND UNIV. PRINT FORMATS (ON LEVEL-SORT
+C               LINE LISTS), SET ILUND=1; OTHERWISE, SET ILUND=0.
+C
+      ILUND=1
+C
+C          FOR PAPER WITH 66 LINES PER PAGE, HEADINGS ON EVERY PAGE,
+C               SET JLINES=52.
+C          FOR PAPER WITH 51 LINES PER PAGE, HEADINGS EVERY SECOND
+C               PAGE, SET JLINES=84.
+C
+      JLINES=52
+C
+C
+CC                                87 06 02  JOE
+C          IF DMIN.LT.0, DELETE UPWARD TRANSITIONS FOR LEVEL SORTS.
+C          IF ABS(DMIN) GT 1.0 AND LE 50.0, DELETE WEAK LINES ON THE
+C               BASIS OF GA<10**ABS(DMIN) RATHER THAN GF<ABS(DMIN).
+      NEGTP=0
+      IF (DMIN.LT.0.D0) NEGTP=1
+      DMINGA=DABS(DMIN)
+      IF (DMINGA.GT.1.D0.AND.DMINGA.LE.50.D0) THEN
+        IMINGA=DMINGA
+        DMINGA=10.D0**IMINGA
+        DMIN=0.D0
+      ELSE
+        DMINGA=0.D0
+        IMINGA=0
+      ENDIF
+CC                                 SLUT
+      IF (IARG1.EQ.0) GO TO 92
+      IF (IGEN.LT.5) GO TO 92
+      READ (IR,8) NBIGKS,EKMINL,EKMAXL,DELEKL,NENRGS,XMIN,XMAX
+    8 FORMAT (I5,3F15.10,I10,2F10.2)
+      WRITE (IW,9) NBIGKS,EKMINL,EKMAXL,DELEKL,NENRGS,XMIN,XMAX
+    9 FORMAT (//I5,3F15.10,I10,2F10.2)
+      DO I=1,KTRAN
+        DO J=1,NBIGKS
+          GOSS(I,J)=0.D0
+        ENDDO
+      ENDDO
+   92 II=IARG1
+      IE1=IARG2
+      IE2=IARG3
+      TUNRGY(1)=9.9D10
+      DO I=2,6
+        TUNRGY(I)=TKEV(I)*8065479.D0/UENRGY
+      ENDDO
+      UENREV=UENRGY/8065.479D0
+      GOLD=0.D0
+      HOLD=0.D0
+      IPWR=1
+      IBK=0
+C
+C          READ REDUCED MUPOLE MATRIX ELEMENTS
+C
+      IREAD=0
+      IF (II.EQ.0) GO TO 104
+  100 READ (IR,12) IERAS,N
+   12 FORMAT (50X,A1,6X,I1)
+      BACKSPACE IR
+      IF (IERAS.NE.H18) GO TO 999
+      IF (IGEN.LT.5.AND.N.NE.II) GO TO 999
+      IPWR=N
+      IPTG=0
+      IF (IBK.EQ.0.OR.(IPWR.GT.IRMN.AND.IBK.EQ.1)) IPTG=1
+      IF (II.NE.1) IPTG=0
+      IF (IPTG.EQ.1) WRITE (IW,13) SPID(II+1)
+   13 FORMAT (1H1,59X,A9,9H SPECTRUM////)
+      IBACK=IREAD
+      IF (IGEN.GE.5.AND.N.NE.IRMN) IBACK=0
+      IF (IBACK.NE.0) THEN
+        CALL BACKIC(IC,IREAD,ICPTR)
+        IREAD=0
+      ENDIF
+  104 L1=IE1-ILA+1
+      L2=IE2-ILA+1
+      JNX1=NSCONF(2,L1)
+      JNX2=NSCONF(2,L2)
+      JNX=MAX0(JNX1,JNX2)
+      DO I=1,JNX1
+        DO J=1,JNX2
+          PMUP(I,J)=1.D0
+          IF (II.NE.0) THEN
+            READ (IR,14) A,B,C,Z,E,F, PMUP(I,J), G,H, FRAC, PID
+   14       FORMAT (3A6,2X,3A6,F12.5, A6,A8, F6.4, A2,2E4.1)
+            IF (IPTG.EQ.1) WRITE(IW,15) I,A,B,C,J,Z,E,F,G,H,PMUP(I,J),
+     1        FRAC,PID
+   15       FORMAT (I5,5X,3A6,I10,5X,3A6,10X,A6,A8,1H=,F15.5,6X,5HFRAC=,
+     1        F7.4,5X,A2)
+            IF (PMUP(I,J).NE.0.D0) DELM1(J)=1.D0/FRAC**2
+            CSIGMA=0.D0
+            IF (G.EQ.GOLD.AND.H.EQ.HOLD) CSIGMA=8.06662D-18
+            GOLD=G
+            HOLD=H
+          ENDIF
+        ENDDO
+      ENDDO
+C          CSIGMA.GT.0.0 FOR PHOTOIONIZATION CROSS-SECTION CALC (SIGMA)
+      IF (NSCONF(3,2).GE.0.OR.L1.EQ.L2) CSIGMA=0.D0
+C
+  120 GFCUT(1)=0.D0
+      ERAS=-14.D0
+      DEL=0.25D0
+      DO J=2,65
+        ERAS=ERAS+DEL
+        GFCUT(J)=DEXP(2.302585093D0*ERAS)
+      ENDDO
+      GFCUT(66)=1.0D10
+      FNUX=1.0D8/(FLBDN*UENRGY)
+      FNUN=1.0D8/(FLBDX*UENRGY)
+      ASSIGN 57 TO IFMT1
+      ASSIGN 58 TO IFMT2
+      IF (CSIGMA.GT.0.D0) GO TO 150
+      ASSIGN 56 TO IFMT1
+      IF (TEXCIT.EQ.0.D0) GO TO 150
+      ASSIGN 51 TO IFMT1
+      ASSIGN 53 TO IFMT2
+C
+C
+C
+  150 REWIND IE1
+      REWIND IE2
+      REWIND 20
+      FNUNP=1.0D20
+      FNUXP=0.D0
+      SJ31=100.D0
+      SJ32=100.D0
+      PMAX=DSQRT(2.D0/3.D0)
+      PMAX=0.0001D0
+      DO I=1,JNX1
+        DO J=1,JNX2
+          IF (DABS(PMUP(I,J)).GT.DABS(PMAX)) PMAX=PMUP(I,J)
+        ENDDO
+      ENDDO
+      A=1.D0/PMAX
+      PSQ=3.0375D-6*(PMAX**2)
+      IF (II.EQ.0) PSQ=PSQ*(0.5D0/137.04D0)**2
+      IF (IGEN.GE.5) GO TO 162
+      IF (II.EQ.2) PSQ=PSQ*((3.14159D0*0.529D0)**2)/5.D0
+      GO TO 163
+  162 PSQ=PSQ*3.D0
+  163 SUMS2=0.D0
+      SUMS2N=0.D0
+      SUMS2M=0.D0
+      SUMGF=0.D0
+      SUMF=0.D0
+      SUMGAR=0.D0
+      JCUTX=0
+      DO J=1,66
+        ICUT(J)=0
+        SGFCUT(J)=0.D0
+        SFCUT(J)=0.D0
+      ENDDO
+      I=0
+      I0=0
+      I0N=0
+      I0X=0
+      I0E1=0
+      I0E2=0
+      IJJP=0
+      ILOSTT=0
+      ICDLT=0
+      IBRNCH=0
+      D0MAX=0.D0
+      D0MAX1=0.D0
+      DO L=1,KMX
+        DO J=1,KEXC
+          GAAXC(L,J)=0.D0
+        ENDDO
+      ENDDO
+  180 IF (IPTG.EQ.1) WRITE (IW,18)
+   18 FORMAT (////18X,12HNO. OF LINES/
+     1  5X,1HJ,5X,2HJP,5X,4HJ-JP,3X,5HTOTAL,3X,4HKLAM,4X,5HILOST,
+     2  8X,4HDMIN,6X,3HI0 ,6X,3HI0N,5X,3HI0X,4X,4HI0E1,4X,4HI0E2,
+     +  3X,6HITRUNC,3X,5HNTKEV/)
+C
+C          READ DIPOLE MATRIX FOR BASIS VECTORS
+C
+C 200 READ (IC) SCRJ8,SCRJ8P,NLS,NLSP, ((D(L,LP),L=1,NLS), LP=1,NLSP),
+C    1  NCFG,NCFGP
+C     IREAD=IREAD+1
+C ********************************************************** A.KRAMIDA v
+  200 READ (IC) SCRJ8,SCRJ8P,NLS,NLSP,NCFG,NCFGP
+      IMSQ=NLS*NLSP
+c     write (*,*) 'unpk1(IC) call 5'
+      CALL UNPK1(IC,NLS,NLSP,D,KMX,KMX,IMSQ,MAXBC)
+      ICPTR=ICPTR+2
+      IREAD=IREAD+2
+C ********************************************************** A.KRAMIDA ^
+      IF (SCRJ8.LT.0.D0) GO TO 560
+      DO L=1,NLS
+        DO LP=1,NLSP
+          IN=NCFG(L)
+          JN=NCFGP(LP)
+          D(L,LP)=D(L,LP)*A*PMUP(IN,JN)
+        ENDDO
+      ENDDO
+  250 ITRUNC=I
+      I00=I0
+      I0N0=I0N
+      I0X0=I0X
+      I0E10=I0E10
+      I0E20=I0E20
+      IJJP0=IJJP
+      SUMS20=SUMS2
+      SUMSN0=SUMS2N
+      SUMSM0=SUMS2M
+      ILOST=0
+C
+C          READ EIGENVALUES AND VECTORS
+C          AND CALC MUPOLE MATRIX FOR ACTUAL EIGENVECTORS
+C
+  300 IF ((SCRJ8-SJ31).EQ.0) GO TO 302
+      IF ((SCRJ8-SJ31).GT.0) GO TO 305
+  301 CONTINUE
+  302 REWIND IE1
+C 301 BACKSPACE IE1
+C     BACKSPACE IE1
+C 302 BACKSPACE IE1
+C     BACKSPACE IE1
+  305 READ (IE1) SJ31,NLS, (EIG(LP), (V(L,LP),L=1,NLS), LP=1,NLS),
+     1  ((V(L,LP),L=1,NLS), LP=1,NLS),LCSER,LDES
+      READ (IE1) LX, (AA(LP),AAT(LP), LP=1,NLS)
+      IF ((SCRJ8-SJ31).LT.0) GO TO 301
+      IF ((SCRJ8-SJ31).GT.0) GO TO 305
+  308 IF (IE1.EQ.IE2) SJ32=SJ31
+      IF (LX.NE.0.AND.LX.NE.NLS) IBRNCH=7
+C     A. Kramida 2026: CTA and CT4 are now stored TRANSPOSED, i.e. the
+C     element for (L,LP) goes to (LP,L).  The selection loop below reads
+C     them as CTA(K,L) with K running fastest, which is contiguous only
+C     in this layout; V(K,LP) already is.  Nothing else in this routine
+C     reads CTA or CT4, and the arithmetic is untouched.
+      DO L=1,NLS
+        DO LP=1,NLSP
+          ERASS=0.D0
+          ERASA=0.D0
+          DO K=1,NLS
+            ERAS=V(K,L)*D(K,LP)
+            ERASA=ERASA+DABS(ERAS)
+            ERASS=ERASS+ERAS
+          ENDDO
+          CTA(LP,L)=ERASA
+          CT4(LP,L)=ERASS
+        ENDDO
+      ENDDO
+  400 IF ((SCRJ8P-SJ32).EQ.0) GO TO 402
+      IF ((SCRJ8P-SJ32).GT.0) GO TO 405
+  401 CONTINUE
+  402 REWIND IE2
+C 401 BACKSPACE IE2
+C     BACKSPACE IE2
+C 402 BACKSPACE IE2
+C     BACKSPACE IE2
+  405 READ (IE2) SJ32,NLSP, (EIGP(LP), (V(L,LP),L=1,NLSP), LP=1,NLSP),
+     1  ((V(L,LP),L=1,NLSP), LP=1,NLSP),LCSERP,LDESP
+      READ (IE2) LXP, (AAP(LP),AAPT(LP), LP=1,NLSP)
+     1  ,NLST,IXC,IXC1, (EXC(J), (GAAXC(LP+NLST,J),LP=1,LXP), J=1,IXC1)
+      IF ((SCRJ8P-SJ32).LT.0) GO TO 401
+      IF ((SCRJ8P-SJ32).GT.0) GO TO 405
+  408 IF (IE1.EQ.IE2) SJ31=SJ32
+      IF (LXP.NE.0.AND.LXP.NE.NLSP) IBRNCH=7
+C
+C          CALC SPECTRUM
+C
+      IJJP=0
+      DELDMIN=0.1D0
+      ICONTIN=0
+C     A. Kramida 2026: this double loop is O(NLS*NLSP**2) and used to be
+C     the slowest part of a large run.  The two dot products are now
+C     computed for a whole row L in one pass into ERASAV/ERASSV, which
+C     the serial bookkeeping loop below then just reads.  That pass is
+C     threaded over LP: the pairs are independent, and each dot product
+C     still accumulates over K in the original order, so every result is
+C     bit-for-bit what the in-line loop gave.  Only pairs the loop below
+C     will actually use are computed.  Without -fopenmp the directive is
+C     a comment and this runs serially, still faster than before because
+C     of the transposed CTA/CT4 (see the loop at label 308).
+      IF (ALLOCATED(ERASAV)) THEN
+        IF (SIZE(ERASAV).LT.NLSP) DEALLOCATE (ERASAV,ERASSV)
+      ENDIF
+      IF (.NOT.ALLOCATED(ERASAV)) ALLOCATE (ERASAV(NLSP),ERASSV(NLSP))
+      DO L=1,NLS
+        LP0=1
+        IF (IE1.EQ.IE2.AND.SCRJ8.EQ.SCRJ8P) LP0=L
+        IF (EIG(L).GT.-4000.D0) THEN
+C           the guard is on the work in one row, not on NLSP alone: one
+C           fork per L only pays once a row is worth ~0.5M multiplies
+!$OMP     PARALLEL DO IF((NLSP-LP0)*NLSP.GT.500000) DEFAULT(SHARED)
+!$OMP&      PRIVATE(LP,K,ERASA0,ERASS0) SCHEDULE(STATIC)
+          DO LP=LP0,NLSP
+            IF (EIGP(LP).GT.-4000.D0) THEN
+              ERASA0=0.D0
+              ERASS0=0.D0
+              DO K=1,NLSP
+                ERASA0=ERASA0+CTA(K,L)*DABS(V(K,LP))
+                ERASS0=ERASS0+CT4(K,L)*V(K,LP)
+              ENDDO
+              ERASAV(LP)=ERASA0
+              ERASSV(LP)=ERASS0
+            ENDIF
+          ENDDO
+!$OMP     END PARALLEL DO
+        ENDIF
+        DO LP=1,NLSP
+          IF (EIG(L).GT.-4000.D0.AND.EIGP(LP).GT.-4000.D0) GO TO 450
+          ICONTIN=7
+          GO TO 520
+  450     IF (IE1.EQ.IE2.AND.SCRJ8.EQ.SCRJ8P.AND.L.GT.LP) GO TO 520
+          ERASA=ERASAV(LP)
+          ERAS=ERASSV(LP)
+          ERASS=ERAS*DABS(ERAS)
+          ERAS=ERAS*ERAS
+          SUMS2=SUMS2+ERAS
+          IF (IE1.NE.IE2) GO TO 490
+          IF (SCRJ8.NE.SCRJ8P) GO TO 480
+          IF (L.EQ.LP) GO TO 520
+  480     SUMS2=SUMS2+ERAS
+  490     CONTINUE
+          D0=ERAS
+          ERAS1=DABS(EIG(L)-EIGP(LP))
+          IF (LCSER(L).LE.NCK(1).AND.LCSERP(LP).LE.NCK(2)) GO TO 494
+          IF (L1.NE.L2) GO TO 492
+          IF (LCSERP(LP).LE.NCK(1).AND.LCSER(L).LE.NCK(2)) GO TO 494
+  492     ICDLT=ICDLT+1
+          GO TO 520
+  494     SUMS2N=SUMS2N+ERAS
+          IF (L1.EQ.L2.AND.SCRJ8.EQ.SCRJ8P) SUMS2N=SUMS2N+ERAS
+          IF (ERAS1.GE.FNUN) GO TO 498
+          I0N=I0N+1
+          GO TO 520
+  498     IF (ERAS1.LE.FNUX) GO TO 499
+          I0X=I0X+1
+          GO TO 520
+  499     IF (TEXCIT.LE.0.D0) GO TO 501
+          TEMP=ERAS1*UENRGY
+          GA=0.6698D0*PSQ*ERAS*(TEMP**3)
+          D0=GA*DEXP(-(DMAX1(EIG(L),EIGP(LP))-EMEAN)/TEXCIT)
+  501     IF (D0.GE.DMIN) GO TO 510
+          I0=I0+1
+          IF (D0.GT.D0MAX) D0MAX=D0
+          GO TO 520
+  510     IF (I.LT.KLAM) GO TO 515
+          IF (ITRUNC.GT.0) GO TO 511
+          IF (ITRUNC.EQ.0) GO TO 513
+  511     I=ITRUNC
+          I0=I00
+          I0N=I0N0
+          I0X=I0X0
+          IOE1=I0E10
+          I0E2=I0E20
+          SUMS2=SUMS20
+          SUMS2N=SUMSN0
+          SUMS2M=SUMSM0
+          IF (DMIN.LE.0.D0.AND.NTKEV.EQ.0) GO TO 560
+          IF (DMIN.LE.0.D0.AND.TEXCIT.GT.0.D0) DMIN=1.0D4
+          IF (DMIN.LE.0.D0) DMIN=0.00001D0
+C         DO 512 I=1,IREAD
+C 512     BACKSPACE IC
+          CALL BACKIC(IC,IREAD,ICPTR)
+          IREAD=0
+          DMIN=DMIN+DMIN1(DMIN,DELDMIN)
+          IF (DMIN.GT.4.D0) DMIN=2.D0*DMIN
+C           A.KRAMIDA
+          IF (IMINGA.GT.0) DMINGA=2.D0*DMINGA
+          GO TO 150
+  513     ILOST=ILOST+1
+          GO TO 520
+  515     I=I+1
+          IJJP=IJJP+1
+          ERAS1=1.D-6*(SCRJ8+0.01D0*DFLOAT(L))
+          T(I)=EIG(L)+ERAS1
+          FJT(I)=SCRJ8
+          ERAS2=1.D-6*(SCRJ8P+0.01D0*DFLOAT(LP))
+          TP(I)=EIGP(LP)+ERAS2
+          FJTP(I)=SCRJ8P
+c           Added by A. Kramida 8/23/2018
+          NLEVJ(I)=L
+          NLEVJP(I)=LP
+c           End of addition by A. Kramida 8/23/2018
+          IF (IGDLEV.EQ.0.OR.I.EQ.1) GO TO 518
+          IF (T(I).EQ.T(1)) GO TO 518
+          IF (T(I).LT.T(1)) GO TO 517
+          I=I-1
+          IJJP=MAX0(IJJP-1,0)
+          GO TO 520
+  517     T(1)=T(I)
+          FJT(1)=FJT(I)
+          TP(1)=TP(I)
+          FJTP(1)=FJTP(I)
+          IJJP=MAX0(IJJP-I+1,0)
+c           Added by A. Kramida 8/23/2018
+          NLEVJ(1)=NLEVJ(I)
+          NLEVJP(1)=NLEVJP(I)
+c           End of addition by A. Kramida 8/23/2018
+          I=1
+          SUMS2M=0.D0
+  518     GAA(I)=(2.D0*SCRJ8+1.D0)*AA(L)
+          GAAP(I)=(2.D0*SCRJ8P+1.D0)*AAP(LP)
+          GAAT(I)=(2.D0*SCRJ8+1.D0)*AAT(L)
+          GAAPT(I)=(2.D0*SCRJ8P+1.D0)*AAPT(LP)
+          S2(I)=ERAS
+          SUMS2M=SUMS2M+ERAS
+          SOABSS(I)=(ERASS+1.0D-30)/(ERASA*ERASA+1.0D-30)
+          ISER(I)=LP-(NLSP-LXP)+NLST
+          NCSER(I)=LCSER(L)
+          NCSERP(I)=LCSERP(LP)
+          LLDES(I)=LDES(L)
+          LLDESP(I)=LDESP(LP)
+c           Added by A. Kramida 8/23/2018
+          NLEVJ(I)=L
+          NLEVJP(I)=LP
+c           End of addition by A. Kramida 8/23/2018
+  519     IF (IE1.NE.IE2.OR.T(I).LT.TP(I)) GO TO 5191
+          T(I)=EIGP(LP)+ERAS2
+          FJT(I)=SCRJ8P
+          TP(I)=EIG(L)+ERAS1
+          FJTP(I)=SCRJ8
+          ERAS=GAA(I)
+          GAA(I)=GAAP(I)
+          GAAP(I)=ERAS
+          ERAS=GAAT(I)
+          GAAT(I)=GAAPT(I)
+          GAAPT(I)=ERAS
+          NCSER(I)=LCSERP(LP)
+          NCSERP(I)=LCSER(L)
+          LLDES(I)=LDESP(LP)
+          LLDESP(I)=LDES(L)
+c           Added by A. Kramida 8/23/2018 - There was an error here: L and LP were inverted.
+c           Corrected by A. Kramida 12/03/2025
+          NLEVJ(I)=LP
+          NLEVJP(I)=L
+c           End of addition by A. Kramida 8/23/2018
+C******************************************************* A.KRAMIDA v
+ 5191     IF (IMINGA.EQ.0) GO TO 5192
+          ERAS1=(DABS(T(I)-TP(I)))*UENRGY
+          ERAS2=1.0D8/ERAS1
+          GF=PSQ*S2(I)*ERAS1
+          IF (IGEN.LT.5.AND.II.EQ.2) GF=GF/(ERAS2**2)
+          ALGGF=-99.999D0
+          IF (GF.GT.0.D0) ALGGF=DLOG10(GF)
+          GA=0.66698D0*GF*ERAS1*ERAS1
+          IF (TEXCIT.GT.0.D0)
+     1      ALGGF=GA*DEXP(-(DMAX1(T(I),TP(I))-EMEAN)/TEXCIT)
+          JC=NCSERP(I)
+          IF (CSIGMA.GT.0.D0) GA=CSIGMA*GF*DELM1(JC)/(2.D0*SCRJ8P+1.D0)
+          IF (DABS(GA).LT.DMINGA) THEN
+            I=I-1
+            I0=I0+1
+            IF (GA.GT.D0MAX1) D0MAX1=GA
+            IJJP=MAX0(IJJP-1,0)
+            go to 520
+          ENDIF
+ 5192     if (E0MAX(1).GT.0.AND.EIG(L).GT.E0MAX(1)) THEN
+            I=I-1
+            I0E1=I0E1+1
+            GO TO 520
+          END IF
+          if (E0MAX(2).GT.0.AND.EIGP(LP).GT.E0MAX(2)) THEN
+            I=I-1
+            I0E2=I0E2+1
+          END IF
+C**************************************************** A.KRAMIDA ^
+  520     CONTINUE
+        ENDDO
+      ENDDO
+  550 IF (IPTG.EQ.1.AND.DMIN.LE.9999.D0) WRITE (IW,52) SCRJ8,SCRJ8P,
+     1  IJJP,I,KLAM,ILOST,DMIN,I0,I0N,I0X,I0E1,I0E2,ITRUNC,NTKEV
+   52 FORMAT (1H ,2F6.1,4I8,F15.6,I9,6I8)
+      IF (IPTG.EQ.1.AND.DMIN.GT.9999.D0) WRITE (IW,49) SCRJ8,SCRJ8P,
+     1  IJJP,I,KLAM,ILOST,DMIN,I0,I0N,I0X,I0E1,I0E2,ITRUNC,NTKEV
+   49 FORMAT (1H ,2F6.1,4I8,1PE15.3,I9,6I8)
+      IF (I.EQ.KLAM.AND.ILOST.GT.0) GO TO 560
+      GO TO 200
+C
+C          SORT LINES BY LEVELS OF FIRST PARITY
+C
+  560 IMAX=I
+      IF (IMAX.EQ.0) GO TO 980
+      ILOSTT=ILOSTT+ILOST
+      IPT=0
+      IF (MOD(ISPECC,2).NE.0) IPT=1
+      IF (ISPECC.EQ.9) IPT=0
+      IF (IGEN.GE.5) IPT=IPTG
+      IF (IPT.EQ.0.AND.IGEN.LT.5) GO TO 567
+      DO I=1,IMAX
+        X(I)=1.0D8*T(I)+TP(I)
+      ENDDO
+c      CALL SORT2(IMAX,12,X,D,ISER,T,NCSER,NCSERP,TP,FJT,FJTP,S2,SOABSS,
+c    1  GAA,GAAP,GAAT)
+      CALL SORT2(IMAX,12,X,IDD,ISER,T,NCSER,NCSERP,TP,FJT,FJTP,S2,
+     1  SOABSS,GAA,GAAP,GAAT)
+      IF (IMAX.LE.1) GO TO 563
+c     CALL ORDER2(IMAX,D,GAAPT)
+c     CALL ORDERCH(IMAX,D,LLDES)
+c     CALL ORDERCH(IMAX,D,LLDESP)
+      CALL ORDER2(IMAX,IDD,GAAPT)
+      CALL ORDERCH(IMAX,IDD,LLDES)
+      CALL ORDERCH(IMAX,IDD,LLDESP)
+c         Added by A. Kramida 8/23/2018
+c     CALL ORDERI(IMAX,D,NLEVJ)
+c     CALL ORDERI(IMAX,D,NLEVJP)
+      CALL ORDERI(IMAX,IDD,NLEVJ)
+      CALL ORDERI(IMAX,IDD,NLEVJP)
+c         End of addition by A. Kramida 8/23/2018
+  563 IF (IGEN.LT.5) GO TO 567
+      IF (IMAX.LE.KTRAN) GO TO 565
+      WRITE (IW,54) KTRAN,IMAX
+   54 FORMAT (//26H0*****WARNING-- ONLY FIRST,I5,3H OF,I6,
+     1  42H LINES RETAINED, FOR LACK OF STORAGE SPACE///)
+      IMAX=KTRAN
+  565 IF (IPWR.NE.IRMN) GO TO 567
+      EK=EKMINL+DELEKL*DFLOAT(IBK)
+      IBK=IBK+1
+      IF (IBK.GT.KBGKS) STOP 57
+      BIGKS(IBK)=EK
+  567 SUMFIU=0.D0
+      SUMFID=-0.D0
+      SUMGFPH=0.D0
+      JCX=MIN0(NSCONF(2,2),NCK(2))
+      DO JC=1,JCX
+        SUMFJ(JC)=0.D0
+      ENDDO
+      SUMGA=0.D0
+      S2MAX=0.D0
+      GFMAX=0.D0
+      I1=1
+      J=0
+      JNXX=JNX
+c        Alex K 11/02/02: Clean up junk in ELEM array
+      J1X1=NSCONF(2,L1)
+      J1X2=NSCONF(2,L2)
+      DO JN = J1X1 + 1, JNXX
+        DO L = 1, 3
+          ELEM(L,JN,L1) = '        '
+        ENDDO
+      ENDDO
+      DO JN = J1X2 + 1, JNXX
+        DO L = 1, 3
+          ELEM(L,JN,L2) = '        '
+        ENDDO
+      ENDDO
+c        End Alex K 11/02/02
+      IJOE=1
+      DO I=1,IMAX
+        IF (J.GT.0) GO TO 575
+        IF (IPT.EQ.0) GO TO 575
+        IF (ILUND.NE.0.AND.I.GT.1) GO TO 575
+        WRITE (IW,55) SPID(II+1),UENRGY,UENREV,
+     1    (JN, (ELEM(L,JN,L1),L=1,3), (ELEM(L,JN,L2),L=1,3), JN=1,JNXX)
+   55   FORMAT (1H1,9X,A8,9H SPECTRUM,5X,21H(ENERGIES IN UNITS OF,
+     1    F8.1,7H CM-1 =,F8.2,4H EV)//(I5,6X,3A6,12H   ---      ,3A6))
+        IF (ILUND.NE.0) THEN
+          WRITE (IW,1056)
+ 1056     FORMAT (/'            E      J     LEVEL        DELTA E ',
+     1      ' LAMBDA(A)  LOG GF GA(SEC-1) CF/BR'/)
+        ELSE
+  572     IF (TEXCIT.EQ.0.D0) WRITE (IW,IFMT1)
+          IF (TEXCIT.GT.0.D0) WRITE (IW,IFMT1) TEXCIT
+   51     FORMAT (/1H0,8X,7H   E   , 3X,8HJ   CONF,11X,8H   EP   , 2X,
+     1      4H JP ,6H CONFP,10X,
+     2    8H DELTA E,3X,9HLAMBDA(A),10H S/PMAX**2,3X,2HGF,10H GA*BLTZMN,
+     3      10H GA(SEC-1),9H CF,BRNCH/103X,6H(TEXC=,F7.1,1H))
+   56     FORMAT (/1H0,8X,18H   E      J   CONF,11X,8H   EP   ,
+     1      12H   JP  CONFP,10X,
+     2      45H DELTA E   LAMBDA(A) S/PMAX**2   GF    LOG GF,
+     3      19H GA(SEC-1) CF,BRNCH/)
+   57     FORMAT (/1H0,8X,18H   E      J   CONF,11X,8H   EP   ,
+     1      12H   JP  CONFP,10X,
+     2      45H DELTA E   LAMBDA(A) S/PMAX**2   GF    LOG GF,
+     3      16H SIGMA(CM2)   CF/)
+          J=JLINES-JNXX
+          JNXX=MIN0(5,JNX)
+        ENDIF
+  575   FNU(I)=DABS(T(I)-TP(I))
+        ERAS1=FNU(I)*UENRGY
+        FLAM(I)=1.0D8/ERAS1
+        IF (S2(I).GT.S2MAX) S2MAX=S2(I)
+        GF=PSQ*S2(I)*ERAS1
+        IF (IGEN.GE.5) GOSS(I,IBK)=GOSS(I,IBK)+GF
+        IF (IGEN.LT.5.AND.II.EQ.2) GF=GF/(FLAM(I)**2)
+        ALGGF=-99.999D0
+        IF (GF.GT.0.D0) ALGGF=DLOG10(GF)
+        GA=0.66698D0*GF*ERAS1*ERAS1
+        IF (TEXCIT.GT.0.D0)
+     1    ALGGF=GA*DEXP(-(DMAX1(T(I),TP(I))-EMEAN)/TEXCIT)
+        JC=NCSERP(I)
+        IF (CSIGMA.GT.0.D0) GA=CSIGMA*GF*DELM1(JC)/(2.D0*FJT(I)+1.D0)
+        IF (GF.GT.GFMAX) GFMAX=GF
+        SUMGF=SUMGF+GF
+        SUMF=SUMF+GF/(2.D0*FJT(I)+1.D0)
+        IF (IPT.EQ.0) GO TO 599
+        IF (ILUND.NE.0) THEN
+c           T(I)     is energy level
+c           FJT(I)   is J-value
+c           NCCC     is configuration number
+c           LLDES(I) is term label
+c           NLEVJ(I) is level number of this level in the J group of first parity
+c           ELEM()   is an array of components of configuration designation
+          NCCC=NCSER(I)
+          IF (IJOE.GT.0) THEN
+            WRITE (IW,1057) T(I),FJT(I),NCCC,LLDES(I),
+     1        NLEVJ(I),(ELEM(L,NCCC,L1),L=1,3)
+ 1057         FORMAT (5X,7H* * *  ,F10.3,F5.1,I4,2H (,A8,I6,1X,3A6,
+     +        6H * * *,/)
+c             debugging
+c           if ((abs(T(I)-50.843).LT.0.001).and.(NLEVJ(I).ne.1)) then
+c              write (IW, *) 'I=',I,', NLEVJ(I)=',NLEVJ(I),
+c    +           ', NLEVJP(I)=',NLEVJP(I)
+c           endif
+          ENDIF
+          IJOE=0
+          IF (T(I).LT.TP(I).AND.NEGTP.EQ.1) GO TO 578
+          IF (GA.LT.DMINGA) GO TO 578
+          WRITE (IW,1058) I,TP(I),FJTP(I),
+c     1      NCSERP(I),LLDESP(I),FNU(I),FLAM(I),ALGGF,GA,SOABSS(I)
+     1      NCSERP(I),LLDESP(I),FNU(I),FLAM(I),ALGGF,GA,SOABSS(I),
+     2      NLEVJP(I)
+ 1058     FORMAT (1H ,I4,F11.3,F5.1,I3,1X,1H(,A8,F11.3,
+c     1      F11.3,F8.3,1PE10.3,0PF6.2)
+     1      F11.3,F8.3,1PE10.3,0PF6.2,I6)
+        ELSE
+  577     WRITE (IW,IFMT2)I,T(I),FJT(I),NCSER(I),LLDES(I),TP(I),FJTP(I),
+c     1    NCSERP(I),LLDESP(I),FNU(I),FLAM(I),S2(I),GF,ALGGF,GA,SOABSS(I)
+     1    NCSERP(I),LLDESP(I),FNU(I),FLAM(I),S2(I),GF,ALGGF,GA,
+     +      SOABSS(I),NLEVJP(I)
+   53     FORMAT (1H ,I4,F11.4,F5.1,I3,2H (,A8,F13.4,F5.1,I3,2H (,A8,
+c     1      F13.4,F12.4,F8.3,F9.4,1P2E9.2,0PF8.4)
+     1      F13.4,F12.4,F8.3,F9.4,1P2E9.2,0PF8.4,I6,I6)
+   58     FORMAT (1H ,I4,F11.4,F5.1,I3,2H (,A7,F13.4,F5.1,I3,2H (,A7,
+c     1      F13.4,F12.4,F8.3,F9.4,F8.3,1PE11.4,0PF10.6)
+     1      F13.4,F12.4,F8.3,F9.4,F8.3,1PE11.4,0PF10.6,I6,I6)
+          J=J-1
+        ENDIF
+  578   IF (T(I).GT.TP(I)) GO TO 580
+        SUMFIU=SUMFIU+GF
+        SUMFJ(JC)=SUMFJ(JC)+GF
+        GO TO 584
+  580   SUMGA=SUMGA+GA
+        SUMFID=SUMFID-GF
+  584   CONTINUE
+        IF (IABS(IW6).LE.6) GO TO 585
+        IF (TP(I).LE.T(I)) GO TO 1584
+        SUMGFPH=SUMGFPH+GF
+ 1584   IF (I.EQ.IMAX) GO TO 2584
+        IF (DABS(TP(I+1)-TP(I)).LT.1.0D-6*TP(I)) GO TO 585
+ 2584   JJJ=NCSER(I)
+        JJJP=NCSERP(I)
+        EPHOTON=ETOT(JJJP,2)-ETOT(JJJ,1)
+        EBD=TP(I)-EE8(JJJP,2)*109737.31D0/UENRGY
+        DELEBDBD=EBD-T(I)
+        EK=EPHOTON-DELEBDBD
+        WRITE (IW,4584) EPHOTON,EBD,DELEBDBD,SUMGFPH,EK
+ 4584   FORMAT (' EPHOTON(AV)=',F9.4,5X,'   EBOUND=',F9.4,8X,
+     1    '   DELE-BDBD=',F9.4,12X,'  SUMGF=',F9.4,6X,'   EKIN=',F9.4)
+        SUMGFPH=0.D0
+  585   IF (I.EQ.IMAX) GO TO 586
+        IF (T(I+1).EQ.T(I)) GO TO 599
+  586   ERAS=2.D0*FJT(I)+1.D0
+        FLIFE=9.9946D33
+        IF (SUMGA.GT.0.D0) FLIFE=ERAS/SUMGA
+        ERAS=1.D0/ERAS
+        SUMFIU=SUMFIU*ERAS
+        SUMFID=SUMFID*ERAS
+        SUMFI=SUMFIU+SUMFID
+        IF (ILUND.NE.0) THEN
+          IJOE=1
+          WRITE (IW,1059) SUMFIU,SUMFID,SUMFI,FLIFE,SUMGA
+ 1059     FORMAT (/1X,6HSUMFI=,F7.4,F8.4,2H =,F8.4,2X,
+     1      9HRAD.LIFE=,1PE10.3,4H SEC,2X,6HSUMGA=,E10.3/)
+        ELSE
+          WRITE (IW,59) T(I),FJT(I),SUMFIU,SUMFID,SUMFI,FLIFE,SUMGA
+   59     FORMAT (5X,F13.4,F5.1,17X,6HSUMFI=,F7.4,F8.4,2H =,F8.4,5X,
+     1      9HLIFETIME=,1PE10.3,4H SEC,5X,6HSUMGA=,E10.3)
+        ENDIF
+  589   DO JC=1,JCX
+          SUMFJ(JC)=SUMFJ(JC)*ERAS
+        ENDDO
+        IF (JCX.GT.1) WRITE (IW,60) (SUMFJ(JC),JC, JC=1,JCX)
+   60   FORMAT (6X,13HSUMF BY CONF=,10(F8.4,I3)/19X,10(F8.4,I3))
+        DO L=I1,I
+          BRNCH(L)=0.D0
+          IF (T(L).LT.TP(L)) GO TO 592
+          BRNCH(L)=GAAT(L)+SUMGA
+          IF (BRNCH(L).LE.0.D0) GO TO 592
+          ERAS1=FNU(L)*UENRGY
+          BRNCH(L)=GAA(L)*0.66698D0*PSQ*S2(L)*(ERAS1**3)/BRNCH(L)
+  592     CONTINUE
+        ENDDO
+        I1=I+1
+        SUMFIU=0.D0
+        SUMFID=-0.D0
+        DO JC=1,JCX
+          SUMFJ(JC)=0.D0
+        ENDDO
+        SUMGA=0.D0
+C       WRITE (IW,61)
+C  61   FORMAT (1H )
+        IF (ILUND.NE.0) THEN
+          IJOE=1
+C         WRITE (IW,2061)
+C2061     FORMAT ('      =  =  =  =  =  =  =  =  =  =  =  =  =  =  ='/)
+        ELSE
+          J=J-2
+          IF (JCX.GT.1) J=J-(JCX+9)/10
+        ENDIF
+  599   CONTINUE
+      ENDDO
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      IF (IW6.LT.0) WRITE (6,2059) DELT
+ 2059 FORMAT (' FINISHED FIRST-PARITY SORT AT TIME=',F9.3,' MIN')
+C
+C          SORT LINES BY LEVELS OF SECOND PARITY
+C
+      IF (CSIGMA.GT.0.D0) ASSIGN 56 TO IFMT1
+      IPT=0
+      IF (ISPECC.GE.8.OR.ICONTIN.NE.0) IPT=1
+      IF (MOD(ISPECC/2,2).NE.0) IPT=2
+      IF (IPT.EQ.0) GO TO 700
+      BRNCHR=0.D0
+      DO I=1,6
+        BRNCHT(I)=0.D0
+      ENDDO
+      BRNCHA=0.D0
+      DO J=1,KEXC
+        DO I=1,KEXC
+          BRNCHX(I,J)=0.D0
+        ENDDO
+        MEXC(J)=J
+        ERAS=DFLOAT(10000)*DFLOAT(JEXC(J))
+        V(J,23)=ERAS+EXC(J)
+      ENDDO
+c     CALL SORT2(IXC1,3,V(1,23),D,MEXC,EXC,JEXC,IDUM,DUM,DUM,DUM,DUM,
+c    1  DUM,DUM,DUM,DUM)
+      CALL SORT2(IXC1,3,V(1,23),IDD,MEXC,EXC,JEXC,IDUM,DUM,DUM,DUM,DUM,
+     1  DUM,DUM,DUM,DUM)
+      DO I=1,IMAX
+        V(I,23)=T(I)+1.0D9*TP(I)
+      ENDDO
+c     CALL SORT2(IMAX,12,V(1,23),D,ISER,T,NCSER,NCSERP,TP,FJT,FJTP,
+c    1  S2,SOABSS,GAA,GAAP,GAAT)
+      CALL SORT2(IMAX,12,V(1,23),IDD,ISER,T,NCSER,NCSERP,TP,FJT,FJTP,
+     1  S2,SOABSS,GAA,GAAP,GAAT)
+      IF (IMAX.GT.1) THEN
+c       CALL ORDER2(IMAX,D,GAAPT)
+c       CALL ORDER2(IMAX,D,BRNCH)
+c       CALL ORDERCH(IMAX,D,LLDES)
+c       CALL ORDERCH(IMAX,D,LLDESP)
+        CALL ORDER2(IMAX,IDD,GAAPT)
+        CALL ORDER2(IMAX,IDD,BRNCH)
+        CALL ORDERCH(IMAX,IDD,LLDES)
+        CALL ORDERCH(IMAX,IDD,LLDESP)
+c         Added by A. Kramida 8/23/2018
+c       CALL ORDERI(IMAX,D,NLEVJ)
+c       CALL ORDERI(IMAX,D,NLEVJP)
+        CALL ORDERI(IMAX,IDD,NLEVJ)
+        CALL ORDERI(IMAX,IDD,NLEVJP)
+c         End of addition by A. Kramida 8/23/2018
+      ENDIF
+  609 SUMFIU=0.D0
+      SUMFID=-0.D0
+      SUMGA=0.D0
+      I1=1
+      J=0
+      JNXX=JNX
+      IJOE=1
+      DO I=1,IMAX
+        FNU(I)=DABS(T(I)-TP(I))
+        ERAS1=FNU(I)*UENRGY
+        FLAM(I)=1.0D8/ERAS1
+        IF (J.GT.0) GO TO 610
+        IF (IPT.LT.2) GO TO 610
+        IF (ILUND.NE.0.AND.I.GT.1) GO TO 610
+        WRITE (IW,55) SPID(II+1),UENRGY,UENREV,
+     1    (JN,(ELEM(L,JN,L1),L=1,3),(ELEM(L,JN,L2),L=1,3),JN=1,JNXX)
+        IF (ILUND.NE.0) THEN
+          WRITE (IW,1056)
+        ELSE
+          IF (TEXCIT.EQ.0.D0) WRITE (IW,IFMT1)
+          IF (TEXCIT.GT.0.D0) WRITE (IW,IFMT1) TEXCIT
+          J=JLINES-JNXX
+          JNXX=MIN0(5,JNX)
+        ENDIF
+  610   GF=PSQ*S2(I)*ERAS1
+        IF (IGEN.LT.5.AND.II.EQ.2) GF=GF/(FLAM(I)**2)
+        ALGGF=-99.999D0
+        IF (GF.GT.0.D0) ALGGF=DLOG10(GF)
+        GA=0.66698D0*GF*ERAS1*ERAS1
+        IF (TEXCIT.GT.0.D0)
+     1    ALGGF=GA*DEXP(-(DMAX1(T(I),TP(I))-EMEAN)/TEXCIT)
+        IF (IPT.LT.2) GO TO 612
+        IF (ILUND.EQ.0) GO TO 611
+        NCCC=NCSERP(I)
+        IF (IJOE.GT.0) WRITE (IW,1057) TP(I),FJTP(I),NCCC,LLDESP(I),
+c     1    (ELEM(L,NCCC,L2),L=1,3)
+     1    NLEVJP(I), (ELEM(L,NCCC,L2),L=1,3)
+        IJOE=0
+CC
+        IF (T(I).GT.TP(I).AND.NEGTP.EQ.1) GO TO 612
+        IF (GA.LT.DMINGA) GO TO 612
+        WRITE (IW,1058) I,T(I),FJT(I),NCSER(I),LLDES(I),
+c     1    FNU(I),FLAM(I),ALGGF,GA,SOABSS(I)
+     1    FNU(I),FLAM(I),ALGGF,GA,SOABSS(I),NLEVJ(I)
+        GO TO 612
+  611   WRITE (IW,IFMT2) I,T(I),FJT(I),NCSER(I),LLDES(I),TP(I),FJTP(I),
+c     1    NCSERP(I),LLDESP(I),FNU(I),FLAM(I),S2(I),GF,ALGGF,GA,SOABSS(I)
+     1    NCSERP(I),LLDESP(I),FNU(I),FLAM(I),S2(I),GF,ALGGF,GA,
+     +      SOABSS(I),NLEVJ(I)
+        J=J-1
+  612   IF (T(I).LT.TP(I)) GO TO 615
+        SUMFIU=SUMFIU+GF
+        GO TO 617
+  615   SUMGA=SUMGA+GA
+        SUMGAR=SUMGAR+GA
+        SUMFID=SUMFID-GF
+  617   CONTINUE
+        IF (I.EQ.IMAX) GO TO 620
+        IF (TP(I+1).EQ.TP(I)) GO TO 640
+  620   ERAS=2.D0*FJTP(I)+1.D0
+        FLIFE=9.9946D33
+        IF (SUMGA.GT.0.D0) FLIFE=ERAS/SUMGA
+        ERAS=1.D0/ERAS
+        SUMFIU=SUMFIU*ERAS
+        SUMFID=SUMFID*ERAS
+        SUMFI=SUMFIU+SUMFID
+        IF (ILUND.EQ.0) GO TO 621
+        IJOE=1
+        IF (IPT.GE.1)
+     1    WRITE (IW,1059) SUMFIU,SUMFID,SUMFI,FLIFE,SUMGA
+        GO TO 1621
+  621   IF (IPT.GE.1)
+     1    WRITE (IW,62) TP(I),FJTP(I),SUMFIU,SUMFID,SUMFI,FLIFE,SUMGA
+   62   FORMAT (12X,F13.3,F6.1,9X,6HSUMFI=,F7.4,F8.4,2H =,F8.4,5X,
+     1    14HRAD. LIFETIME=,1PE10.3,4H SEC,5X,6HSUMGA=,E10.3)
+ 1621   BRNCH(I)=GAAPT(I)+SUMGA
+        IF (BRNCH(I).LE.0.D0) GO TO 630
+        BRNCHA=BRNCHA+GAAP(I)*(GAAPT(I)-GAAP(I))/BRNCH(I)
+        BRION=GAAPT(I)/BRNCH(I)
+        IF (IPT.LT.1.OR.BRION.LE.0.D0) GO TO 622
+        FLIFE=1.D0/(ERAS*(SUMGA+GAAPT(I)))
+        WRITE (IW,63) BRION,FLIFE,GAAPT(I)
+   63   FORMAT (55X,6HBRION=,1PE10.3,5X,14HTOT. LIFETIME=,E10.3,
+     1    4H SEC,4X,7HGAATOT=,E10.3)
+        J=J-1
+  622   IF (IXC.EQ.0) GO TO 625
+        J2=ISER(I)
+        DO JJ=1,IXC
+          M1=MEXC(JJ)
+          JEXC1(JJ)=JEXC(JJ)
+          EXC1(JJ)=EXC(JJ)
+          DO JK=1,IXC
+            M2=MEXC(JK)
+            BRNCHX(JJ,JK)=BRNCHX(JJ,JK)+GAAXC(J2,M1)*GAAXC(J2,M2)
+     1        /BRNCH(I)
+          ENDDO
+        ENDDO
+  625   ERAS=0.D0
+        DO L=I1,I
+          GA=0.D0
+          IF (T(L).GT.TP(L)) BRNCH(L)=0.D0
+          IF (T(L).GT.TP(L)) GO TO 627
+          GA=0.66698D0*PSQ*S2(L)*((FNU(L)*UENRGY)**3)
+          BRNCH(L)=GAAP(I)*GA/BRNCH(I)
+          BRNCHR=BRNCHR+BRNCH(L)
+          ERAS=ERAS+BRNCH(L)
+  627     CONTINUE
+        ENDDO
+C            PRINT T-DEPENDENCE OF BRNCH, SUMMED OVER BOTH
+C                 UPPER AND LOWER LEVELS
+        IF (NTKEV.EQ.0) GO TO 630
+        NC=NCSERP(I)
+        LL=NPAV(NC)
+        ERAS1=VPAR(LL,L2)-TP(I)
+        NP1=NTKEV+1
+        DO L=1,NP1
+          BRNCHL(L)=ERAS*DEXP(ERAS1/TUNRGY(L))
+          BRNCHT(L)=BRNCHT(L)+BRNCHL(L)
+        ENDDO
+        IF (NPTKEV.GT.1) WRITE (IW,64) (TKEV(L),BRNCHL(L), L=1,NP1)
+   64   FORMAT (18H T(KEV), BRNCH=   ,6(0PF6.1,1PE11.4))
+        J=J-1
+  630   CONTINUE
+        I1=I+1
+        SUMFIU=0.D0
+        SUMFID=-0.D0
+        SUMGA=0.D0
+        IF (ILUND.EQ.0) GO TO 639
+        IJOE=1
+C       WRITE (IW,2061)
+        GO TO 640
+C 639   WRITE (IW,61)
+  639   CONTINUE
+        J=J-2
+  640   CONTINUE
+      ENDDO
+      JNXX=JNX
+      IF (NPTKEV.GT.0.AND.BRNCHR.GT.0.D0)
+     1  WRITE (IW,55) SPID(II+1),UENRGY,UENREV,
+     2  (JN, (ELEM(L,JN,L1),L=1,3), (ELEM(L,JN,L2),L=1,3), JN=1,JNXX)
+C
+      WRITE (IW,65) BRNCHR,BRNCHA
+   65 FORMAT (//14X,10H GM*FRBAR=,1PE11.4,10X,9HGM*FABAR=,E11.4)
+      NP1=NTKEV+1
+      IF (NTKEV.GT.0) WRITE (IW,64) (TKEV(L),BRNCHT(L), L=1,NP1)
+      IF (NPTKEV.EQ.0.OR.NPTKEV.EQ.2) GO TO 670
+      JNXX=MIN0(JNXX,3)
+      WRITE (33,71) (ELEM(L,1,1),L=1,3),((ELEM(L,JN,2),L=1,3),JN=1,JNXX)
+   71 FORMAT (4(3A6,2X))
+      WRITE (33,72) (TKEV(L), L=2,NP1)
+   72 FORMAT (37X,11HT(KEV)=INF.,2X,5F6.2)
+      GM=1.D0
+      NN=NSCONF(2,2)
+      LL=0
+      DO I=1,NOSUBC
+        MM=NOSUBC-I+1
+        ERAS=NIJK(MM,NN,2)
+        IF (ERAS.GT.0.D0) LL=LL+1
+        IF (LL.EQ.1) GO TO 642
+        ERAS1=4.D0*FLLIJK(MM,NN,2)+2.D0
+        GM=GM*FCTRL(ERAS1)/(FCTRL(ERAS)*FCTRL(ERAS1-ERAS))
+  642   CONTINUE
+      ENDDO
+C     DECODE (6,73,ELEM(2,NN,2)) EK
+      READ(ELEM(2,NN,2),73) EK
+   73 FORMAT (F6.2)
+      EK=EK*0.0136058D0
+      DO L=2,NP1
+        BRNCHT(L)=BRNCHT(L)/BRNCHT(1)
+      ENDDO
+      BRNCHT(1)=BRNCHT(1)/GM
+C     ENCODE (10,74,IDFG) BRNCHT(1)
+      WRITE (IDFG,74) BRNCHT(1)
+   74 FORMAT (1PE10.3)
+C     DECODE (10,75,IDFG) A1,A2
+      READ (IDFG,75) A1,A2
+   75 FORMAT (A6,1X,A3)
+C     ENCODE (9,76,A3) A1,A2
+      WRITE (BR1,76) A1,A2
+   76 FORMAT (A6,A3)
+      NC=NCSERP(IMAX)
+      LL=NPAV(NC)
+      EKEV=VPAR(LL,L2)*UENRGY/8065479.D0
+      DEKEV=0.D0
+      IF (EIONRY.NE.0.D0) DEKEV=EIONRY*0.0136058D0+EK-EKEV
+      EKEV=EKEV+DEKEV
+      IF (BRNCHT(NP1).GE.1.D0) WRITE (33,77) (ELEM(L,1,1),L=1,2),
+     1  EKEV,GM,(ELEM(L,1,2),L=2,3),EK,BR1,(BRNCHT(L),L=2,NP1)
+   77 FORMAT (2A6,F8.4,F4.1,1X,A6,A3,F7.3,A9,5F6.3)
+      IF (BRNCHT(NP1).LT.1.D0) WRITE (33,78) (ELEM(L,1,1),L=1,2),
+     1  EKEV,GM,(ELEM(L,1,2),L=2,3),EK,BR1,(BRNCHT(L),L=2,NP1)
+   78 FORMAT (2A6,F8.4,F4.1,1X,A6,A3,F7.3,A9,5F6.4)
+C          SUM BRNCH OVER UPPER LEVELS
+C               (FOR VARIOUS T, AND FOR EACH LOWER LEVEL)
+      DO I=1,IMAX
+        V(I,23)=T(I)
+      ENDDO
+c     CALL SORT2(IMAX,12,V(1,23),D,ISER,T,NCSER,NCSERP,TP,FJT,FJTP,
+c    1  S2,SOABSS,GAA,GAAP,BRNCH)
+      CALL SORT2(IMAX,12,V(1,23),IDD,ISER,T,NCSER,NCSERP,TP,FJT,FJTP,
+     1  S2,SOABSS,GAA,GAAP,BRNCH)
+      IF (IMAX.LE.1) GO TO 646
+c     CALL ORDERCH(IMAX,D,LLDES)
+c     CALL ORDERCH(IMAX,D,LLDESP)
+      CALL ORDERCH(IMAX,IDD,LLDES)
+      CALL ORDERCH(IMAX,IDD,LLDESP)
+c       Bug fix A. Kramida 12/3/2025      
+      CALL ORDERI(IMAX,IDD,NLEVJ)
+      CALL ORDERI(IMAX,IDD,NLEVJP)
+c       End of bug fix A. Kramida 12/3/2025
+  646 WRITE (IW,66) (TKEV(L),L=2,6)
+   66 FORMAT (/8X,11HLOWER LEVEL, 13H  T(KEV)=INF.,5F17.2)
+      DO L=1,6
+        BRNCHL(L)=1.0D-20
+      ENDDO
+      DO I=1,IMAX
+        FNU(I)=DABS(T(I)-TP(I))
+        NC=NCSERP(I)
+        LL=NPAV(NC)
+        ERAS1=VPAR(LL,L2)-TP(I)
+        IF (T(I).GE.TP(I)) GO TO 656
+        DO L=1,NP1
+          BRNCHL(L)=BRNCHL(L)+BRNCH(I)*DEXP(ERAS1/TUNRGY(L))
+        ENDDO
+  656   IF (I.EQ.IMAX) GO TO 658
+        IF (T(I+1).EQ.T(I)) GO TO 665
+  658   WRITE (IW,67) NCSER(I),T(I),FJT(I), (BRNCHL(L), L=1,NP1)
+   67   FORMAT (I5,F13.4,F5.1,1PE12.4,5E17.4)
+        DO L=2,NP1
+          BRNCHL(L)=BRNCHL(L)/BRNCHL(1)
+        ENDDO
+        BRNCHL(1)=BRNCHL(1)/GM
+C       ENCODE (10,74,IDFG) BRNCHL(1)
+        WRITE (IDFG,74) BRNCHL(1)
+C       DECODE (10,75,IDFG) A1,A2
+        READ (IDFG,75) A1,A2
+C       ENCODE (9,76,A3) A1,A2
+        WRITE (BR1,76) A1,A2
+        EKEV=T(I)*UENRGY/8065479.D0+DEKEV
+        NC=NCSER(I)
+        IF (BRNCHL(NP1).GE.1.D0) WRITE (33,77) (ELEM(L,NC,1),L=1,2),
+     1    EKEV,FJT(I),(ELEM(L,1,2),L=2,3),EK,BR1,(BRNCHL(L),L=2,NP1)
+        IF (BRNCHL(NP1).LT.1.D0) WRITE (33,78) (ELEM(L,NC,1),L=1,2),
+     1    EKEV,FJT(I),(ELEM(L,1,2),L=2,3),EK,BR1,(BRNCHL(L),L=2,NP1)
+        DO L=1,6
+          BRNCHL(L)=1.0D-20
+        ENDDO
+  665   CONTINUE
+      ENDDO
+      ERAS=-1.D0
+      WRITE (33,77) H1,H1,ERAS
+C          WRITE BRANCHING FACTORS FOR AUTOIONIZATION
+C               CONTRIBUTIONS TO COLLISIONAL EXCITATION
+  670 IF (IXC.EQ.0) GO TO 699
+      WRITE (IW,81) (JEXC(J),EXC(J), J=1,IXC)
+   81 FORMAT (//25X,3HEXC,6X,6HBRNCHX//(32X,10(I3,F7.2)))
+      WRITE (IW,82)
+      DO I=1,IXC
+        J=JEXC(I)
+        WRITE (IW,82) J, (ELEM(M,J,2),M=1,2), EXC(I),(BRNCHX(I,L),
+     1    L=1,IXC)
+      ENDDO
+   82 FORMAT (I3,2X,2A6,F12.4,3X,1P10E10.2/(32X,1P10E10.2))
+      IF (IXC.LE.1) GO TO 699
+      IXC2=0
+      IF (NSCONF(2,2).LE.2) GO TO 690
+C          SUM OVER L OF CONTINUUM ELECTRON
+      DO J=1,IXC
+        N=JEXC(J)
+        ELEMJ(J)=ELEM(2,N,2)
+      ENDDO
+      NETOT=0
+      DO N=1,NOSUBC
+        NETOT=NETOT+NIJK(N,1,2)
+      ENDDO
+      NC=JEXC(IXC)-JEXC(1)
+      IF (NC.LE.0) GO TO 690
+      IXC1=IXC
+      MIXC=JEXC(IXC)
+      I=0
+  676 I=I+1
+      IF (I.GE.IXC1) GO TO 684
+      MI=JEXC1(I)
+      IF (MI.EQ.MIXC) GO TO 684
+      J=I
+  678 J=J+1
+      IF (J.GT.IXC1) GO TO 676
+      MJ=JEXC1(J)
+      IF (MJ.EQ.MI) GO TO 678
+      IF (DABS(EXC1(J)-EXC1(I)).GT.0.01D0) GO TO 678
+      NE=0
+      DO N=1,NOSUBC
+        NE=NE+MAX0(NIJK(N,MI,2),NIJK(N,MJ,2))
+        IF (NE.GE.NETOT) GO TO 681
+        IF (NIJK(N,MI,2).NE.NIJK(N,MJ,2)) GO TO 678
+      ENDDO
+  681 DO N1=1,IXC
+        BRNCHX(N1,I)=BRNCHX(N1,I)+BRNCHX(N1,J)
+      ENDDO
+      IXC1=IXC1-1
+      DO N=J,IXC1
+        JEXC1(N)=JEXC1(N+1)
+        EXC1(N)=EXC1(N+1)
+        ELEMJ(N)=ELEMJ(N+1)
+        DO N1=1,IXC
+          BRNCHX(N1,N)=BRNCHX(N1,N+1)
+        ENDDO
+      ENDDO
+      J=J-1
+      GO TO 678
+  684 IF (IXC1.EQ.IXC) GO TO 690
+  685 WRITE (IW,81) (JEXC1(J),EXC1(J), J=1,IXC1)
+  686 WRITE (IW,82)
+      DO I=1,IXC
+        J=JEXC(I)
+        WRITE (IW,82) J,(ELEM(M,J,2),M=1,2), EXC(I),(BRNCHX(I,L),
+     1    L=1,IXC1)
+      ENDDO
+      IF (IXC2.GT.0) GO TO 699
+C          SUM OVER LEVELS WITHIN THE CORE
+  690 I=0
+      IXC2=IXC1
+  691 I=I+1
+      IF (I.EQ.IXC2) GO TO 695
+      MI=JEXC1(I)
+      J=I+1
+  692 MJ=JEXC1(J)
+      IF (MJ.NE.MI) GO TO 691
+      DO N=1,IXC
+        BRNCHX(N,I)=BRNCHX(N,I)+BRNCHX(N,J)
+      ENDDO
+      IXC2=IXC2-1
+      IF (I.EQ.IXC2) GO TO 695
+      DO J1=J,IXC2
+        JEXC1(J1)=JEXC1(J1+1)
+        EXC1(J1)=EXC1(J1+1)
+        DO N=1,IXC
+          BRNCHX(N,J1)=BRNCHX(N,J1+1)
+        ENDDO
+      ENDDO
+      GO TO 692
+  695 IF (IXC2.EQ.IXC1) GO TO 699
+      DO 1212 J=1,IXC2
+      N=JEXC1(J)
+  697 ELEMJ(J)=ELEM(2,N,2)
+ 1212 CONTINUE
+      WRITE (IW,87) (JEXC1(J),ELEMJ(J), J=1,IXC2)
+   87 FORMAT(//25X,3HEXC,6X,6HBRNCHX//(32X,10(I3,2X,A5)))
+      IXC1=IXC2
+      GO TO 686
+  699 CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      IF (IW6.LT.0) WRITE (6,2069) DELT
+ 2069 FORMAT (' FINISHED SECOND-PARITY SORT AT TIME=',F9.3,' MIN')
+C
+C          SORT LINES BY WAVENUMBER
+C
+  700 IPT=0
+      IF (ISPECC.GE.4) IPT=2
+      IF (ISPECC.EQ.9) IPT=1
+      IF (IPT.EQ.0) GO TO 980
+c     CALL SORT2(IMAX,12,FNU,D,ISER,T,NCSER,NCSERP,TP,FJT,FJTP,
+c    1  S2,SOABSS,GAA,GAAP,BRNCH)
+      CALL SORT2(IMAX,12,FNU,IDD,ISER,T,NCSER,NCSERP,TP,FJT,FJTP,
+     1  S2,SOABSS,GAA,GAAP,BRNCH)
+      IF (IMAX.GT.1) THEN
+c       CALL ORDERCH(IMAX,D,LLDES)
+c       CALL ORDERCH(IMAX,D,LLDESP)
+        CALL ORDERCH(IMAX,IDD,LLDES)
+        CALL ORDERCH(IMAX,IDD,LLDESP)
+c         Added by A. Kramida 8/23/2018
+c       CALL ORDERI(IMAX,D,NLEVJ)
+c       CALL ORDERI(IMAX,D,NLEVJP)
+        CALL ORDERI(IMAX,IDD,NLEVJ)
+        CALL ORDERI(IMAX,IDD,NLEVJP)
+c         End of addition by A. Kramida 8/23/2018
+      END IF
+      FNUNP=DMIN1(FNUNP,FNU(1))
+      FNUXP=DMAX1(FNUXP,FNU(IMAX))
+      IF (ISPECC.GE.8) WRITE (20) IMAX,PSQ, (FNU(I),S2(I),
+     1  BRNCH(I), I=1,IMAX)
+C
+  708 J=0
+      JNXX=JNX
+      DO I=1,IMAX
+        ERAS1=FNU(I)*UENRGY
+        FLAM(I)=1.0D8/ERAS1
+        GF=PSQ*S2(I)*ERAS1
+        IF (IGEN.LT.5.AND.II.EQ.2) GF=GF/(FLAM(I)**2)
+        ALGGF=-99.999D0
+        IF (GF.GT.0.D0) ALGGF=DLOG10(GF)
+        GA=0.66698D0*GF*ERAS1*ERAS1
+        IF (TEXCIT.GT.0.D0)
+     1    ALGGF=GA*DEXP(-(DMAX1(T(I),TP(I))-EMEAN)/TEXCIT)
+        IF (ILUND.GT.0.AND.I.GT.1) GO TO 710
+        IF (GA.LT.DMINGA) GO TO 710
+        IF (J.GT.0) GO TO 710
+        IF (IPT.NE.1) THEN
+          WRITE (IW,55) SPID(II+1),UENRGY,UENREV,
+     1      (JN,(ELEM(L,JN,L1),L=1,3), (ELEM(L,JN,L2),L=1,3),JN=1,JNXX)
+          IF (TEXCIT.EQ.0.D0) WRITE (IW,IFMT1)
+          IF (TEXCIT.GT.0.D0) WRITE (IW,IFMT1) TEXCIT
+        ENDIF
+  709   J=JLINES-JNXX
+        JNXX=MIN0(5,JNX)
+  710   J=J-1
+        IF (IPT.LT.2) GO TO 720
+        IF (GA.LT.DMINGA) GO TO 720
+        IF (IBRNCH.EQ.0) GO TO 715
+        WRITE (IW,88) I,T(I),FJT(I),NCSER(I),LLDES(I),TP(I),FJTP(I),
+     1    NCSERP(I),LLDESP(I),FNU(I),FLAM(I),S2(I),GF,ALGGF,GA,BRNCH(I),
+     +    NLEVJ(I),NLEVJP(I)
+   88 FORMAT (1H ,I4,F11.4,F5.1,I3,2H (,A8,F13.4,F5.1,I3,2H (,A7,F13.4,
+     1  F12.4,F8.3,F9.4,F8.3,1PE10.3,E9.2,I6,I6)
+        GO TO 720
+  715   WRITE (IW,IFMT2) I,T(I),FJT(I),NCSER(I),LLDES(I),TP(I),FJTP(I),
+     1    NCSERP(I),LLDESP(I),FNU(I),FLAM(I),S2(I),GF,ALGGF,GA,
+     +    SOABSS(I),NLEVJ(I),NLEVJP(I)
+c        write (*,*) IFMT2
+c        stop(0)    
+  720   CONTINUE
+      ENDDO
+C
+C
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      IF (IPTG.EQ.1) WRITE (IW,95) DELT
+   95 FORMAT (//' FINISHED WAVELENGTH SORT AT TIME=',F9.3,4H MIN//)
+      IF (IW6.LT.0) WRITE (6,2095) DELT
+ 2095 FORMAT (' FINISHED WAVELENGTH SORT AT TIME=',F9.3,4H MIN//)
+  980 IF (SCRJ8.LT.0.D0) GO TO 985
+      I=0
+      IF (IMAX.NE.ITRUNC) GO TO 180
+C     IREAD=IREAD-1
+      BACKSPACE IC
+C **************************************************** A.KRAMIDA
+      IREAD=IREAD-2
+      BACKSPACE IC
+      ICPTR=ICPTR-2
+C ****************************************************
+      GO TO 200
+C
+C 985 READ (IC) SOPI2
+C **************************************************** A.KRAMIDA
+  985 IMSQ=KC*KC
+c     write (*,*) 'unpk1(IC) call 6'
+      CALL UNPK1(IC,KC,KC,SOPI2,KC,KC,IMSQ,MAXBC)
+      ICPTR=ICPTR+1
+C ****************************************************
+      IREAD=IREAD+1
+      SSOPX2=0.D0
+      DO I=1,JNX1
+        DO J=1,JNX2
+          SSOPX2=SSOPX2+SOPI2(I,J)*(PMUP(I,J)**2)
+        ENDDO
+      ENDDO
+      SSOPX2=SSOPX2*(A**2)
+      IF (ISPECC.LT.8) GO TO 988
+      IF (IMAX.EQ.0) GO TO 988
+      IRAS=5
+      ERAS=-1.D0
+      WRITE (20) IRAS,ERAS, (ERAS,ERAS,ERAS, I=1,IRAS)
+      CALL WNDIST(II)
+  988 CONTINUE
+C
+      IF (IPTG.EQ.0) GO TO 991
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      IF (IMINGA.EQ.0) THEN
+        WRITE (IW,96) DELT,TIME,PMAX,SSOPX2,SUMS2N,SUMS2,SUMS2M,SUMGF,
+     1   SUMF,SUMGAR,DMIN,I0,D0MAX,I0N,FLBDX,I0X,FLBDN,
+     +   I0E1,E0MAX(1),I0E2,E0MAX(2),ILOSTT,ICDLT,NCK
+   96   FORMAT (//6H TIME=,F9.2,4H MIN,1X,10H(ABS TIME=,F9.2,1H),1X,
+     1   9HFOR PMAX=,F8.5,1H,,F12.4,F12.4/37X,12HSUMS2,SUMGF=,F12.4,
+     2   F12.4,F11.4/44X,5HSUMF=,F30.4,9X,7HSUMGAR=,1PE11.4/37X,6HS2MIN=,
+     3   0PF27.5// 5X,I9,28H LINES OMITTED, WITH MAX S2=,F28.5// 5X,I9,
+     4   31H LINES OMITTED, WITH LAMBDA  > ,F14.4,8H ANGSTR./ 5X,I9,
+     5   31H LINES OMITTED, WITH LAMBDA  < ,F14.4,8H ANGSTR./ 5X,I9,
+     +   31H LINES OMITTED, WITH E(par1) > ,F14.5,3H kK/ 5X,I9,
+     +   31H LINES OMITTED, WITH E(par2) > ,F14.5,3H kK/ 5X,I9,
+     6   31H LINES OMITTED, INSUFF STORAGE / 5X,I9,
+     7   33H LINES OMITTED, CONF SERIAL NOS >,I5,1H,,I5)
+        IF (IW6.LT.0) WRITE (6,96) DELT,TIME,PMAX,SSOPX2,SUMS2N,SUMS2,
+     1    SUMS2M,SUMGF,SUMF,SUMGAR,DMIN,I0,D0MAX,I0N,FLBDX,I0X,FLBDN,
+     2    I0E1,E0MAX(1),I0E2,E0MAX(2),ILOSTT,ICDLT,NCK
+      ELSE            ! A.KRAMIDA
+        WRITE (IW,961) DELT,TIME,PMAX,SSOPX2,SUMS2N,SUMS2,SUMS2M,SUMGF,
+     1   SUMF,SUMGAR,DMINGA,I0,D0MAX1,I0N,FLBDX,I0X,FLBDN,
+     2   I0E1,E0MAX(1),I0E2,E0MAX(2),ILOSTT,ICDLT,NCK
+  961   FORMAT (//6H TIME=,F9.2,4H MIN,1X,10H(ABS TIME=,F9.2,1H),1X,
+     1   9HFOR PMAX=,F8.5,1H,,F12.4,F12.5/37X,12HSUMS2,SUMGF=,F12.4,
+     2   F12.5,F11.4/44X,5HSUMF=,F30.4,9X,7HSUMGAR=,1PE11.4/37X,6HGAMIN=,
+     3   1PE27.3// 5X,I9,28H LINES OMITTED, WITH MAX GA=,0PE28.5// 5X,
+     4   I9,
+     5   31H LINES OMITTED, WITH LAMBDA  > ,F14.4,8H ANGSTR./ 5X,I9,
+     6   31H LINES OMITTED, WITH LAMBDA  < ,F14.4,8H ANGSTR./ 5X,I9,
+     +   31H LINES OMITTED, WITH E(par1) > ,F14.5,3H kK/ 5X,I9,
+     +   31H LINES OMITTED, WITH E(par2) > ,F14.5,3H kK/ 5X,I9,
+     7   31H LINES OMITTED, INSUFF STORAGE / 5X,I9,
+     8   33H LINES OMITTED, CONF SERIAL NOS >,I5,1H,,I5)
+        IF (IW6.LT.0) WRITE (6,961) DELT,TIME,PMAX,SSOPX2,SUMS2N,SUMS2,
+     1    SUMS2M,SUMGF,SUMF,SUMGAR,DMINGA,I0,D0MAX1,I0N,FLBDX,I0X,FLBDN,
+     2    I0E1,E0MAX(1),I0E2,E0MAX(2),ILOSTT,ICDLT,NCK
+      ENDIF
+      WRITE (IW,97) (COUPL(I), I=1,7)
+   97 FORMAT (///13H AVE PURITIES,29X,9(A6,2X)/)
+      DO K1=L1,L2
+        J1X=NSCONF(2,K1)             ! Number of configs in Config. Set
+        IF (J1X.LT.2) J1X=2
+        J1=J1X-1
+        WRITE(IW,98) ((ELEM(I,JN,K1), I=1,3), JN=1,J1X,J1),
+     1    (AVP(I,K1), I=1,7), AVCG(K1),AVEIG(K1)
+   98   FORMAT (1X,3A6,3H---,3A6,7F8.3,5X,6H  EAV=,F10.4/101X,6HAVEIG=,
+     1    F10.4)
+      ENDDO
+C
+c  991 IF (II.EQ.0) RETURN
+  991 IF (II.EQ.0) GOTO 999
+      IF (IGEN.LT.5) GO TO 100
+      IF (IGEN.GT.7.OR.MOD(IBK-1,5).NE.0) GO TO 100
+      IMAX=MIN0(IMAX,30)
+  992 WRITE (IW,99) IBK,BIGKS(IBK),IPWR,IMAX, (GOSS(I,IBK), I=1,IMAX)
+   99 FORMAT (/46H0WEIGHTED GENERALIZED OSC. STRENGTHS AT BIGKS(,I3,
+     1  2H)=,F12.7,8H   IPWR=,I1,12H   FOR FIRST,I3,6H LINES//(10F12.8))
+      GO TO 100
+C
+  999 CONTINUE
+      CALL DALLOC(IDD_PTR)
+      CALL DALLOC(C_PTR)
+      RETURN
+      END
+      SUBROUTINE WNDIST(II)
+C
+C          PLOT WAVENUMBER DISTRIBUTION ON MICROFILM
+C               (SPECIAL VERSION FOR GAUSSIAN SMEAR)
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C3B/T(KLAM),TP(KLAM),S2(KLAM),SOABSS(KLAM),
+     1  AA(KMX),AAP(KMX),GAA(KLAM),GAAP(KLAM),BRNCH(KLAM),
+     2  ICUT(66),SGFCUT(66),SFCUT(66),DIDGF(66),DSGFDGF(66),TITLE(20),
+     3  FICUT(66),FNUCUT(66),FNUPLT(82),DUM(66),FIPLT(82),SGFPLT(82),
+     4  NCSER(KLAM),AADUM(KMX),AAPT(KMX)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/C6/EMIN,EMAX,SUMWT,FLBDN,FLBDX,FNUNP,FNUXP,NLEV,IEWR
+      DIMENSION V(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,V)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4),(CT4_PTR,FLAM)
+c
+      integer*8 C3LC4_PTR
+      COMMON/C3LC4/C3LC4_PTR,i_C3LC4_size
+      DIMENSION CTA(KMX,KMX)
+      pointer (C3LC4_PTR,CTA)
+c
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE3/FJT(KLAM),FJTP(KLAM),NCSERP(KLAM),
+     1  GAAT(KLAM),GAAPT(KLAM)
+C
+      DIMENSION X(KLAM),FNU(KLAM),FLAM(KLAM)
+      integer*8 X_PTR
+      pointer (X_PTR,X),(X_PTR,FNU)
+      DIMENSION GAMMA(7)
+      DIMENSION EPLT(KLAM),SGF(KLAM)
+      EQUIVALENCE (TP,EPLT),(SOABSS,SGF)
+      COMMON/C7/G1,SUMGAA,SUMGAR,SUMGAAT
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,AA,COUPL,IEL
+      CHARACTER*4 LSYMB
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+C     A. Kramida 2026: IGF, IDI and ID were implicitly INTEGER; IGF and
+C     IDI were initialised from Hollerith constants and copied into ID,
+C     which is only ever written out under an A2 edit descriptor
+C     (formats 91, 92 and 94).  ID is local to this routine, so all
+C     three become CHARACTER*2 and the output is byte for byte what the
+C     Hollerith version produced.
+      CHARACTER*2 IGF,IDI,ID
+      DATA IGF,IDI/'GF','DI'/
+C
+C          DELE IN KEV,  FNUN AND FNUNP IN CM-1
+C
+      call ALLOC(X_PTR,KLAM,8)
+      DELE=DELEKEV
+      IF (DELE.LE.0.D0) DELE=0.0005D0
+  100 DEL=0.0005D0*(1.002D0*FNUXP-FNUNP)
+      FNUN=FNUNP-DEL
+      FNUX=FNUXP+DEL
+  105 DELNU=8065479.D0*DELE/UENRGY
+      IERAS=(FNUX-FNUN)/DELNU
+      NP2=IERAS+3
+      IF (NP2.LE.KLAM/2) GO TO 110
+      IF (IERAS.GT.KLAM-5) WRITE (2,10) ((ELEM(I,1,J),I=1,3),J=1,2),
+     1  FNUXP,FNUNP,DELE
+   10 FORMAT (///5H*****,3A6,3H - ,3A6,2F15.1,6H DELE=,F7.5,
+     1  10H TOO SMALL///)
+      DELE=2.D0*DELE
+      GO TO 105
+  110 IMIN=FNUNP/DELNU
+      FIMIN=IMIN
+      EPLT(1)=FIMIN*DELE
+      DO 1213 J=1,NP2
+      EPLT(J+1)=EPLT(J)+DELE
+  150 SGF(J)=0.D0
+ 1213 CONTINUE
+C
+      REWIND 20
+      ITOT=0
+      GFTOT=0.D0
+      SBR=0.D0
+  200 READ (20) IMAX,PSQ, (FNU(I),S2(I), BRNCH(I), I=1,IMAX)
+      IF (PSQ.LT.0.D0) GO TO 300
+      DO 1214 I=1,IMAX
+  205 SBR=SBR+BRNCH(I)
+ 1214 CONTINUE
+      DO 1215 I=1,IMAX
+      ERAS1=FNU(I)*UENRGY
+      GF=PSQ*S2(I)*ERAS1
+      IF (II.EQ.2.AND.IGEN.LT.5) GF=GF*((1.D-8*ERAS1)**2)
+      IF (SBR.GT.0.D0) GF=BRNCH(I)
+      J=FNU(I)/DELNU+1.5D0
+      J=J-IMIN
+      IF (J.LT.1.OR.J.GT.NP2) WRITE (2,20) NP2,J, FNU(I),DELNU
+   20 FORMAT (10X,2I10,2F15.1)
+      SGF(J)=SGF(J)+GF
+      ITOT=ITOT+1
+  230 GFTOT=GFTOT+GF
+ 1215 CONTINUE
+      GO TO 200
+C
+  300 FITOT=ITOT
+  305 DO 310 J=1,NP2
+      SGF(J)=SGF(J)/(GFTOT+1.D-10)
+  310 CONTINUE
+      III=1
+      GAMMA(1)=0.D0
+      IMX=NP2
+      ID=IGF
+      IF (SBR.GT.0.D0) ID=IDI
+C     ENCODE (8,91,IEL) ELEM(1,1,1),ID
+      WRITE (IEL,91) ELEM(1,1,1),ID
+   91 FORMAT (A6,A2)
+      BRFAC=0.D0
+      IF (SBR.GT.0.D0) BRFAC=GFTOT/SUMGAA
+      WRITE (IW,92) (ELEM(J,1,1),J=1,3), ID,GAMMA(III),G1,GFTOT,
+     1  EPLT(1),DELE,IMX,BRFAC
+   92 FORMAT (//1H0,3A6,2X,A2,2F5.0,10X,1PE10.3,0P2F10.6,I10,10X,
+     1  6HBRFAC=,F10.6)
+      WRITE (11,94) (ELEM(J,1,1),J=1,3), ID,GAMMA(III),G1,GFTOT,
+     1  EPLT(1),DELE,IMX
+   94 FORMAT (3A6,A2,2F5.0,10X,1PE10.3,0P2F10.6,I10)
+      JX=0
+      I=0
+  865 JN=JX+1
+      JX=MIN0(JN+6,IMX)
+      I=I+1
+  866 WRITE (IW,93) IEL,I, (SGF(J), J=JN,JX)
+   93 FORMAT (1X,A8,I4,7F10.7)
+      WRITE (11,95) IEL,I, (SGF(J), J=JN,JX)
+   95 FORMAT (A8,I2,7F10.7)
+      IF (JX.LT.IMX) GO TO 865
+  868 CONTINUE
+C
+C
+      IF (SBR.EQ.0.D0) GO TO 900
+      NOSUBC=NSCONF(1,2)
+      GJ=1.D0
+      DO 1216 I=1,NOSUBC
+      W=NIJK(I,1,2)
+      FLL=FLLIJK(I,1,2)
+      WF=4.D0*FLL+2.D0
+  880 GJ=GJ*FCTRL(WF)/(FCTRL(W)*FCTRL(WF-W))
+ 1216 CONTINUE
+      AAT=SUMGAA/GJ
+      ART=SUMGAR/GJ
+      PAPP=AAT*ART/(AAT+ART)
+      PDET=GFTOT/GJ
+      BAPP=AAT/(AAT+ART)
+      BDET=GFTOT/(SUMGAR+1.D-10)
+      RR=BDET/BAPP
+      AATEFF=ART/(1.D0/BDET-1.D0)
+      WRITE (IW,88) ((ELEM(I,1,J),I=1,3), J=1,2), GJ,AAT,ART,PAPP,PDET,
+     1  BAPP,BDET,RR,AATEFF
+C     WRITE (3,88) ((ELEM(I,1,J),I=1,3), J=1,2), GJ,AAT,ART,PAPP,PDET,
+C    1  BAPP,BDET,RR,AATEFF
+   88 FORMAT (1H0,44X,2HGJ,5X,3HAAT,8X,3HART,5X,9HAA*AR/SUM,4X,
+     1  6HP(DET),4X,6HB(APP),4X,6HB(DET),4X,7HDET/APP,3X,8HAAT(EFF)/
+     2  1X,3A6,3H---,2X,3A6,F5.0,1P4E11.3,0P3F10.7,1PE11.3)
+      IF (SUMGAA.GE.SUMGAAT) GO TO 883
+      AATT=SUMGAAT/GJ
+      PAPP=AAT*ART/(AATT+ART)
+      BAPP=PAPP/ART
+      RR=BDET/BAPP
+      WRITE (IW,88) ((ELEM(I,1,J),I=1,3), J=1,2), GJ,AATT,ART,PAPP,PDET,
+     1  BAPP,BDET,RR,AATEFF
+C     WRITE (3,88) ((ELEM(I,1,J),I=1,3), J=1,2), GJ,AATT,ART,PAPP,PDET,
+C    1  BAPP,BDET,RR,AATEFF
+  883 JX=MAX0(NSCONF(2,1),NSCONF(2,2))
+      IF (JX.LT.2) GO TO 900
+      DO 885 JJ=2,JX
+      WRITE (IW,89) ((ELEM(I,JJ,J),I=1,3), J=1,2)
+C     WRITE (3,89) ((ELEM(I,JJ,J),I=1,3), J=1,2)
+   89 FORMAT (1X,3A6,3H---,2X,3A6)
+  885 CONTINUE
+c
+  900 call DALLOC(X_PTR)
+      RETURN
+      END
+C     OVERLAY(G9,10,5)
+      SUBROUTINE BORN
+C
+C     A ROUTINE TO INTEGRATE GENERALISED OSCILLATOR STRENGTHS
+C              TO GIVE PLANE-WAVE BORN COLLISION STRENGTHS
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE3/FJT(KLAM),FJTP(KLAM),NCSERP(KLAM),
+     1  GAAT(KLAM),GAAPT(KLAM)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/C3B/T(KLAM),TP(KLAM),S2(KLAM),SOABSS(KLAM),
+     1  AA(KMX),AAP(KMX),GAA(KLAM),GAAP(KLAM),BRNCH(KLAM),
+     2  ICUT(66),SGFCUT(66),SFCUT(66),DIDGF(66),DSGFDGF(66),TITLE(20),
+     3  FICUT(66),FNUCUT(66),FNUPLT(82),SGF(66),FIPLT(82),SGFPLT(82),
+     4  NCSER(KLAM),AAT(KMX),AAPT(KMX)
+      COMMON/AKN/XBAR,N,M,YBAR
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/C9/L1,L2,CFLAG(KC,2),CGENGY(KC,2),SWT(KC,2),IMAX
+      COMMON/PWBORN/NBIGKS,NENRGS,EKMINL,EKMAXL,DELEKL,BIGKS(KBGKS),
+     1  XMIN,XMAX,TEV(25),CORR(KENRGS),IBK,IPWR,I1
+      DIMENSION FST(KBGKS),EN(KENRGS),NCS(KCASE,2)
+      DIMENSION XS(KBGKS),CS(KENRGS,KCASE),CSM(KENRGS,KCASE),
+     1  GFST(KCASE),CSM2(KENRGS),DECSWT(KCASE),CSWT(KCASE),C1(KBGKS),
+     2  C2(KENRGS),FK(51),YK(51),FMXEL(51),SUMI(51),RATEM2(KENRGS)
+      EQUIVALENCE (CS,GAA),(CSM,GAAP),(FST,AA),
+     1  (DECSWT,AAP)
+      CHARACTER*8 T1,T2,T3,T4,T5
+      DATA T1,T2,T3,T4,T5/' COWAN',' MPWB ',' TOTAL',' MOD2 ','  PWB '/
+C
+C      SET PUNCH QUANTITIES
+C
+C     KCASE=50
+      M1=-NENRGS
+      M2=30
+      M3=0
+      M4=1
+      M5=-M1
+      AN=DFLOAT(NENRGS-1)
+      M=3
+      NPTS=NBIGKS-1
+      NK=NENRGS+1
+      NK2=NK/2
+      MM=1
+C
+C         INITIALIZE ARRAYS
+C
+      ICS=1
+      NCS(ICS,1)=NCSER(1)
+      NCS(ICS,2)=NCSERP(1)
+      DO 1218 K=1,KCASE
+      GFST(K)=0.D0
+      DECSWT(K)=0.D0
+      CSWT(K)=0.D0
+      DO 1217 I=1,NENRGS
+      CSM(I,K)=0.D0
+  110 CS(I,K)=0.D0
+ 1217 CONTINUE
+ 1218 CONTINUE
+      ENMAX=DEXP(2.D0*EKMAXL)
+      DO 1219 I=1,NBIGKS
+  120 FST(I)=DEXP(BIGKS(I))
+ 1219 CONTINUE
+      WRITE (IW,12) NBIGKS,ENMAX, (FST(I),I=1,NBIGKS)
+   12 FORMAT (1H1//20H K-VALUES,   NBIGKS=,I3,8H  ENMAX=,F14.7//
+     1  (10F12.7))
+C
+C      LOOP OVER THE TRANSITIONS
+C
+      IPWR=MOD(IPWR,2)
+      TEN=10.D0
+      SWT0=0.D0
+      TR0=-9999999.D0
+      FJTR0=-1.D0
+      DO 490 IT=1,IMAX
+      TR=T(IT)
+      TPR=TP(IT)
+      FJTR=FJT(IT)
+      FJTPR=FJTP(IT)
+      IF (TR.NE.TR0.OR.FJTR.NE.FJTR0) SWT0=SWT0+2.D0*FJTR+1.D0
+      TR0=TR
+      FJTR0=FJTR
+      DO 1220 I=1,IBK
+  200 FST(I)=GOSS(IT,I)
+ 1220 CONTINUE
+      FNU=DABS(TPR-TR)
+      ERAS1=FNU*UENRGY
+      DELTAE=ERAS1/109737.31D0
+      C=3.D0/DELTAE
+      IF (IPWR.EQ.0) C=15.D0*C
+      FLAM=1.0D8/ERAS1
+      NC1=NCSER(IT)
+      NC2=NCSERP(IT)
+      ICT=0
+      DO 220 ID=1,ICS
+      NI1=NCS(ID,1)
+      NI2=NCS(ID,2)
+      IF (NC1.EQ.NI1.AND.NC2.EQ.NI2) ICT=ID
+  220 CONTINUE
+      IF (ICT.GT.0) GO TO 230
+      ICS=ICS+1
+      NCS(ICS,1)=NC1
+      NCS(ICS,2)=NC2
+      ICT=ICS
+  230 CONTINUE
+C
+C     INTEGRATE THE GOS OVER A LOGARITHMIC MESH FOR
+C              VARIOUS INCIDENT ELECTRON ENERGIES
+C
+      GF=GOSS(IT,1)
+      GFST(ICT)=GFST(ICT)+GF
+      E1=XMIN*DELTAE
+      E2=XMAX*DELTAE
+      E1L=DLOG(E1)
+      E2L=DLOG(E2)
+      EI=(E2L-E1L)/AN
+      DO 1221 K=1,NENRGS
+      EL=E1L+(K-1)*EI
+  300 EN(K)=DEXP(EL)
+ 1221 CONTINUE
+      WRITE (IW,30)
+   30 FORMAT (/1H0,14X,7H   E   , 4X,2HJ ,10X,8H   EP   , 3X,3H JP,12X,
+     1  8H DELTA E,3X,9HLAMBDA(A),2X,9HS/PMAX**2,4X,2HGF,5X,6HLOG GF,3X,
+     2  9HGA(SEC-1)/)
+      ALGGF=-99.999D0
+      IF (GF.GT.0.D0) ALGGF=DLOG10(GF)
+      GA=0.66698D0*GF*ERAS1*ERAS1
+      WRITE (IW,32) IT,NC1,NC2,TR,FJTR,TPR,FJTPR,FNU,FLAM,
+     1  S2(IT),GF,ALGGF,GA
+   32 FORMAT (1H ,I4,2I2,F13.3, F6.1,F18.3, F6.1,F20.2,F11.3,F11.5,
+     1  F9.4,F9.4,1PE12.3)
+      IF (IGEN.LT.9) WRITE (IW,33) (GOSS(IT,K), K=1,NBIGKS)
+   33 FORMAT (36H0WEIGHTED GENERALIZED OSC. STRENGTHS/(10F12.8))
+      WRITE (IW,34)
+   34 FORMAT (//16X,2H X,11X,5HE(RY),10X,5HOMEGA,7X,8HOMEGA*FX,
+     1  7X,7HOMEGAM2,10X,5HT(EV),3X,15HRATEM2(CM3/SEC),2X,9HCORR(PCT)/)
+      N=NBIGKS
+      EK0=DELTAE*3.D0
+      DO 480 KEN=1,NK
+      KEN1=KEN-1
+      IF (KEN.GT.1) EK0=EN(KEN1)
+      EKN=EK0-DELTAE
+      AK0=DSQRT(EK0)
+      AKN=DSQRT(EKN)
+      AKMAX=AK0+AKN
+      AKMIN=AK0-AKN
+      AKMAXL=DLOG(AKMAX)
+      AKMINL=DLOG(AKMIN)
+      AKINTL=(AKMAXL-AKMINL)/DFLOAT(NPTS)
+      XBAR=AKMINL-AKINTL
+      AKXX=1.000001D0*AKMAXL
+      AM=1.D0
+      SUM=0.D0
+      II=0
+  350 XBAR=XBAR+AKINTL
+      IF (XBAR.GT.AKXX) GO TO 390
+      CALL AKNINT(BIGKS,FST)
+      SUM=SUM+YBAR*AM
+      IF (AM.GT.3.D0) GO TO 370
+      AM=4.D0
+      IF (KEN.NE.NK) GO TO 350
+      II=II+1
+      FK(II)=DEXP(XBAR)
+      YK(II)=YBAR
+      ERAS=C*YBAR
+      IF (IPWR.EQ.0) ERAS=ERAS/(FK(II)**2)
+      FMXEL(II)=0.D0
+      IF (ERAS.GT.0.D0) FMXEL(II)=DSQRT(ERAS)
+      IF (ERAS.LT.0.D0) FMXEL(II)=-DSQRT(-ERAS)
+      SUMI(II)=SUM-YBAR
+      GO TO 350
+  370 AM=2.D0
+      GO TO 350
+  390 SUM=SUM-YBAR
+      SUM=SUM*AKINTL/3.D0
+C
+C     EVALUATE STORE AND MODIFY THE PWB COLLISION STRENGTH
+C
+      COLLS=8.D0*SUM/DELTAE
+      XE=EK0/DELTAE
+      IF (KEN.EQ.1) COLLM=COLLS
+      XE1=(1.D0-XE)*0.07702D0
+      FX=1.D0-0.2D0*DEXP(XE1)
+      COLLSM=COLLS*FX
+      IF (XE.LT.3.D0) COLLSM=COLLM*FX
+      IF (KEN.EQ.1) GO TO 480
+      XS(KEN1)=XE
+      C1(KEN1)=COLLS
+      C2(KEN1)=COLLSM
+      CS(KEN1,ICT)=CS(KEN1,ICT)+COLLS
+      CSM(KEN1,ICT)=CSM(KEN1,ICT)+COLLSM
+  480 CONTINUE
+      DECSWT(ICT)=DECSWT(ICT)+DELTAE*C1(NK2)
+      CSWT(ICT)=CSWT(ICT)+C1(NK2)
+      N=NENRGS
+      DO 485 I=1,NENRGS
+      CSM2(I)=0.D0
+      IF ((C1(I)+C2(I)).EQ.0.D0) GO TO 485
+      XBAR=XS(I)+3.D0/(1.D0+XS(I))
+      CALL AKNINT(XS,C1)
+      CSM2(I)=YBAR
+  485 CONTINUE
+      ERAS=2.D0*FJTR+1.D0
+      CALL RCOEFF(XS,CSM2,RATEM2,DELTAE,ERAS,UENRGY)
+      DO 1222 I=1,NENRGS
+      I2=I+I1
+  486 WRITE (IW,48) XS(I),EN(I),C1(I),C2(I),CSM2(I),TEV(I2),RATEM2(I),
+     1  CORR(I)
+ 1222 CONTINUE
+   48 FORMAT (8X,5F14.7,F15.1,1PE15.4,0PF11.1)
+      IF (IGEN.GT.5) GO TO 490
+      III=1
+      IF (II.GT.ILA) III=2
+      DO 1223 I=1,II,III
+  488 SUMI(I)=SUMI(I)/(SUMI(II)+1.0D-15)
+ 1223 CONTINUE
+      WRITE (IW,49) AKMIN,AKMAX,(FK(I),YK(I),FMXEL(I),SUMI(I),I=1,II)
+   49 FORMAT (//2F12.6,16X,1HK,12X,2HGF,10X,6HMXELEM,9X,3HINT/
+     1  (30X,4F14.8))
+  490 CONTINUE
+C
+C     PUNCH THE TOTAL COLLISION STRENGTH
+C
+      N=NENRGS
+      DO 890 JTN=1,ICS
+      NC1=NCS(JTN,1)
+      NC2=NCS(JTN,2)
+      FPRT=0.D0
+      IF (L1.NE.L2) FPRT=GFST(JTN)/SWT(NC1,1)
+      DEAV=DABS(CGENGY(NC2,L2)-CGENGY(NC1,L1))
+      DE1=DABS(CGENGY(NC2,L2)-T(1)*UENRGY/109737.31D0)
+      DE2=0.D0
+      IF (CSWT(JTN).GT.0.D0) DE2=DECSWT(JTN)/CSWT(JTN)
+      DO 1224 I=1,NENRGS
+      XBAR=XS(I)+3.D0/(1.D0+XS(I))
+      CALL AKNINT(XS,CS(1,JTN))
+  810 CSM2(I)=YBAR
+ 1224 CONTINUE
+      DELTAE=DMAX1(DEAV,DE2)
+      IF (DELTAE.EQ.0.D0) DELTAE=DE1
+      CALL RCOEFF(XS,CSM2,RATEM2,DELTAE,SWT0,UENRGY)
+      WRITE (IW,60)
+   60 FORMAT (1H1,//20X,44H ****     TOTAL COLLISION STRENGTHS     ****
+     1  ////)
+      WRITE (IW,81) M1,M2,M3,M4,T1,T2,(ELEM(L,NC1,L1),L=1,3),
+     1  CFLAG(NC1,L1),CFLAG(NC2,L2),(ELEM(L,NC2,L2),L=1,3),T3
+   81 FORMAT (4I5,5A6,A1,4H -- ,A1,4A6)
+      WRITE (IW,84) DEAV,FPRT,DE1,DE2,DELTAE
+   84 FORMAT (/6H DEAV=,F15.8,12H RY,    FAV=,F14.10,3F15.8///
+     1  13X,1HX,13X,2HCS,13X,3HCSM,6X,14HXEFF=X+3/(1+X),
+     2  10X,5HT(EV),3X,15HRATEM2(CM3/SEC),2X,9HCORR(PCT)/)
+      DO 1225 I=1,NENRGS
+      I2=I+I1
+  850 WRITE (IW,86) XS(I),CS(I,JTN),CSM(I,JTN),CSM2(I),
+     1  TEV(I2),RATEM2(I),CORR(I)
+ 1225 CONTINUE
+   86 FORMAT (3X,4F15.9,F17.1,1PE15.4,0PF11.1)
+      WRITE (11,81) M5,M2,M3,M3,T1,T5,(ELEM(L,NC1,L1),L=1,3),
+     1  CFLAG(NC1,L1),CFLAG(NC2,L2),(ELEM(L,NC2,L2),L=1,3),T3
+      WRITE (11,88) (XS(I),I=1,NENRGS)
+      WRITE (11,88) (CS(I,JTN),I=1,NENRGS)
+   88 FORMAT (5E16.8)
+      WRITE (11,81) M5,M2,M3,M3,T1,T2,(ELEM(L,NC1,L1),L=1,3),
+     1  CFLAG(NC1,L1),CFLAG(NC2,L2),(ELEM(L,NC2,L2),L=1,3),T3
+      WRITE (11,88) (XS(I),I=1,NENRGS)
+      WRITE (11,88) (CSM(I,JTN),I=1,NENRGS)
+      WRITE (11,81) M1,M2,M3,M4,T1,T4,(ELEM(L,NC1,L1),L=1,3),
+     1  CFLAG(NC1,L1),CFLAG(NC2,L2),(ELEM(L,NC2,L2),L=1,3),T3
+      WRITE (11,88) DEAV,FPRT,DE1,DE2
+      WRITE (11,88) (XS(I),I=1,NENRGS)
+      WRITE (11,88) (CSM2(I),I=1,NENRGS)
+  890 CONTINUE
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      WRITE (IW,89) DELT
+   89 FORMAT (//6H TIME=,F9.3,4H MIN//)
+      RETURN
+      END
+C
+      SUBROUTINE AKNINT(X,Y)
+C                                                                       002
+C AITKEN REPEATED INTERPOLATION                                         003
+C                                                                       004
+C   XBAR = ABSCISSA AT WHICH INTERPOLATION IS DESIRED                   005
+C   IABS(IN) = NO. OF VALUES IN TABLE                                   006
+C   IM   = DEGREE OF APPROXIMATING POLYNOMIAL                           009
+C   X    = VECTOR OF IABS(IN) VALUES OF ABSCISSA                        010
+C   Y    = VECTOR OF IABS(IN) VALUES OF ORDINATE                        011
+C   T    = TEMPORARY STORAGE VECTOR OF 4*(M+1) LOCATIONS)               012
+C                                                                       013
+      INCLUDE 'RCGPAR.F'
+C
+      DIMENSION X(KBGKS),Y(KBGKS),T(80)
+      COMMON/AKN/XBAR,N,M,YB                                            015
+C                                                                       018
+      DO 10 J=1,N                                                       035
+      IF (XBAR.LE.X(J)) GO TO 11                                        036
+   10 CONTINUE
+      J=N                                                               037
+   11 K=M+1                                                             044
+      J=J-K/2                                                           045
+      J=MIN0(J,N-M)                                                     047
+      J=MAX0(J,1)                                                       046
+      MEND=J+M                                                          048
+      DO 1226 I=J,MEND                                                    049
+      KK=I-J+1                                                          050
+      T(KK) = Y(I)                                                      051
+   12 T(KK+K)=X(I)-XBAR                                                 052
+ 1226 CONTINUE
+      DO 1227 I=1,M                                                       053
+      KK=I+1                                                            054
+      DO 13 JJ=KK,K                                                     055
+      T(JJ)=(T(I)*T(JJ+K) -T(JJ)*T(I+K))/(X(JJ+J-1) - X(I+J-1))         056
+   13 CONTINUE                                                          057
+ 1227 CONTINUE
+      YB=T(K)
+      RETURN                                                            059
+      END                                                               068
+C
+      SUBROUTINE RCOEFF(X,Y,Z,DELTAE,SWT0,UENRGY11)
+C
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE3/FJT(KLAM),FJTP(KLAM),NCSERP(KLAM),
+     1  GAAT(KLAM),GAAPT(KLAM)
+c
+      COMMON/C3B/T(KLAM),TP(KLAM),S2(KLAM),SOABSS(KLAM),
+     1  AA(KMX),AAP(KMX),GAA(KLAM),GAAP(KLAM),BRNCH(KLAM),
+     2  ICUT(66),SGFCUT(66),SFCUT(66),DIDGF(66),DSGFDGF(66),TITLE(20),
+     3  FICUT(66),FNUCUT(66),FNUPLT(82),SGF(66),FIPLT(82),SGFPLT(82),
+     4  NCSER(KLAM),AAT(KMX),AAPT(KMX)
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/C9/L1,L2,CFLAG(KC,2),CGENGY(KC,2),SWT(KC,2),IMAX
+      COMMON/PWBORN/NBIGKS,NENRGS,EKMINL,EKMAXL,DELEKL,BIGKS(KBGKS),
+     1  XMIN,XMAX,TEV(25),CORR(KENRGS),IBK,IPWR,I1
+      DIMENSION X(KENRGS),Y(KENRGS),Z(KENRGS)
+C
+      I1=0
+      ERAS=(TP(IMAX)-T(1))*UENRGY1/8065.479D0
+      IF ((NCSER(1).EQ.NCSERP(IMAX).AND.IARG1.EQ.2).AND.ERAS.GT.25.D0)
+     1  I1=4
+      IF ((NCSER(1).NE.NCSERP(IMAX).OR.IARG1.EQ.1).AND.ERAS.GT.250.D0)
+     1  I1=4
+      D1=DLOG(X(2)/X(1))/3.D0
+C
+      DO 900 I=1,NENRGS
+      I2=I+I1
+      TRYD=TEV(I2)/13.605D0
+      C1=DELTAE/TRYD
+      C2=2.1717D-8/(SWT0*DSQRT(TRYD))
+      C3=C1*C2
+C          INTEGRATE TO XMAX VIA SIMPSONS RULE
+      SUM=(X(1)-1.D0)*Y(1)*DEXP(-C1*X(1))/D1
+      SUM0=C3*D1*SUM
+      A1=1.D0
+      J=0
+  150 J=J+1
+      IF (J.GT.NENRGS) GO TO 190
+      ERAS=Y(J)*X(J)*DEXP(-C1*X(J))
+      SUM=SUM+A1*ERAS
+      IF (A1.EQ.4.D0) GO TO 160
+      A1=4.D0
+      GO TO 150
+  160 A1=2.D0
+      GO TO 150
+  190 SUM=SUM-ERAS
+      SUM=C3*SUM*D1
+C          ADD INTEGRAL FROM XMAX TO INFINITY
+      ALN1=DLOG(C1*X(NENRGS-2))
+      X0=C1*X(NENRGS)
+      ALN2=DLOG(X0)
+      A=(Y(NENRGS)-Y(NENRGS-2))/(ALN2-ALN1)
+      IF (A.LT.0.D0) A=0.D0
+      B=Y(NENRGS)-A*ALN2
+      ERAS=Y(NENRGS)*DEXP(-X0)+A*E1(X0)
+      Z(I)=SUM+C2*ERAS
+      SUM2=C2*ERAS
+      CORR(I)=100.D0*(SUM0+SUM2)/(Z(I)+1.0D-50)
+  900 CONTINUE
+      RETURN
+      END
+C
+      FUNCTION E1(X)
+C
+C COMPUTES THE EXPONENTIAL INTEGRAL E1(X).
+C
+C JULY 1977 EDITION.  W. FULLERTON, C3, LOS ALAMOS SCIENTIFIC LAB.
+C     MODIFIED MARCH 1982 BY R.D. COWAN FOR X.GT.-1 ONLY
+C          AND WITH ABBREVIATED SERIES FOR ONLY 5 FIGURE ACCURACY
+C
+C
+C
+C SERIES FOR E12        ON THE INTERVAL -1.LE.X.LE.+1
+C
+C SERIES FOR AE13       ON THE INTERVAL  +1.LE.X.LE.4
+C
+C SERIES FOR AE14       ON THE INTERVAL  4.LE.X.LE.100
+C
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      DIMENSION E12CS(7),AE13CS(7),AE14CS(7)
+      COMMON/IDSKNO/IR,IW,ID2,ID3,ID4,ILA,ILB,IL,IC,IE
+C
+      DATA E12 CS( 1) /  -0.0373902147D0 /
+      DATA E12 CS( 2) /   0.0427239860D0 /
+      DATA E12 CS( 3) /   -.1303182079D0 /
+      DATA E12 CS( 4) /    .0144191240D0 /
+      DATA E12 CS( 5) /   -.0013461707D0 /
+      DATA E12 CS( 6) /    .0001073102D0 /
+      DATA E12 CS( 7) /   -.0000074299D0 /
+      DATA AE13CS( 1) /   -.6057732466D0 /
+      DATA AE13CS( 2) /   -.1125352434D0 /
+      DATA AE13CS( 3) /    .0134322662D0 /
+      DATA AE13CS( 4) /   -.0019268451D0 /
+      DATA AE13CS( 5) /    .0003091183D0 /
+      DATA AE13CS( 6) /   -.0000535641D0 /
+      DATA AE13CS( 7) /    .0000098278D0 /
+      DATA AE14CS( 1) /   -.1892918000D0 /
+      DATA AE14CS( 2) /   -.0864811785D0 /
+      DATA AE14CS( 3) /    .0072241015D0 /
+      DATA AE14CS( 4) /   -.0008097559D0 /
+      DATA AE14CS( 5) /    .0001099913D0 /
+      DATA AE14CS( 6) /   -.0000171733D0 /
+      DATA AE14CS( 7) /    .0000029856D0 /
+      DATA XMAX /0.D0/
+C
+      IF (XMAX.NE.0.D0) GO TO 40
+      NTE12=7
+      NTAE13=7
+      NTAE14=7
+      XMAX=100.D0
+C
+ 40   IF (X.GT.1.D0) GO TO 50
+      IF (X.EQ.0.D0) WRITE (IW,1)
+    1 FORMAT (24H *****ERROR IN E1, X=0.0)
+C
+C E1(X) = -EI(-X) FOR -1.D0 .LT. X .LE. 1.D0,  X .NE. 0.D0
+C
+      E1=(-DLOG(DABS(X))-0.6875D0+X)+CSEVL(X,E12CS,NTE12)
+      RETURN
+C
+ 50   IF (X.GT.4.D0) GO TO 60
+C
+C E1(X) = -EI(-X) FOR 1.D0 .LT. X .LE. 4.D0
+C
+      E1=DEXP(-X)/X*(1.D0+CSEVL((8.D0/X-5.D0)/3.D0,AE13CS,NTAE13))
+      RETURN
+C
+ 60   IF (X.GT.XMAX) GO TO 70
+C
+C E1(X) = -EI(-X) FOR 4. .LT. X .LE. XMAX
+C
+      E1 = DEXP(-X)/X * (1.D0 + CSEVL(8.D0/X-1.D0,AE14CS,NTAE14))
+      RETURN
+C
+C E1(X) = -EI(-X) FOR X .GT. XMAX
+C
+   70 E1=0.D0
+      RETURN
+      END
+C
+      FUNCTION CSEVL (X,CS,N)
+C APRIL 1977 VERSION. W.FULLERTON, C-3, LOS ALAMOS SCIENTIFIC LABORATORY
+C
+C EVALUATE THE N-TERM CHEBYSHEV SERIES CS AT X. ADAPTED FROM
+C R BROUCKE, ALGORITHM 446, C.A.C.M., 16, 254 (1973). ALSO SEE FOX
+C AND PARKER, CHEBYSHEV POLYS IN NUMERICAL ANALYSIS, OXFORD PRESS, P.56.
+C
+C       INPUT ARGUMENTS --
+C X    VALUE AT WHICH THE SERIES IS TO BE EVALUATED.
+C CS   ARRAY OF N TERMS OF A CHEBYSHEV SERIES. IN EVAL-
+C      UATING CS, ONLY HALF THE FIRST COEF IS SUMMED.
+C N    NUMBER OF TERMS IN ARRAY CS.
+C
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      DIMENSION CS(1)
+      COMMON/IDSKNO/IR,IW,ID2,ID3,ID4,ILA,ILB,IL,IC,IE
+C
+      IF (N.LT.1.OR.N.GT.1000) WRITE (IW,1) N
+    1 FORMAT (24H *****ERROR IN CSEVL, N=,I7)
+      IF (X.LT.-1.D0.OR.X.GT.1.D0) WRITE (IW,2) X
+    2 FORMAT (24H *****ERROR IN CSEVL, X=,F10.5)
+C
+       B1=0.D0
+       B0=0.D0
+       TWOX=2.D0*X
+       DO 10 I=1,N
+       B2=B1
+       B1=B0
+       NI=N+1-I
+       B0=TWOX*B1-B2+CS(NI)
+ 10    CONTINUE
+C
+       CSEVL = 0.5D0 * (B0-B2)
+C
+       RETURN
+      END
+C
+C     OVERLAY(G9,10,6)
+      SUBROUTINE RCEINP
+C
+C        SET UP TAPE2E FOR BINARY INPUT TO RCE,
+C             AND FILE OUTGINE FOR BCD INPUT TO RCE
+C
+C         IF NLSMAX.GT.0, NLS.LE.NLSMAX, KCPLD(I)=0, AND ALL OTHER
+C              KCPLD=1, THEN COEF MATRICES WILL BE WRITTEN ON TAPE 2 IN
+C              COUPLING I AND TRANSFORMATION MATRIX WILL BE TMX(I,LS).
+C         OTHERWISE, IF KCPL=1, COEF MATRICES WILL BE IN LS, TMX(LS,JJ),
+C              IF KCPL=2, COEF MATRICES WILL BE IN JJ, TMX(JJ,LS).
+C
+C
+      INCLUDE 'RCGPAR.F'
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS), MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      COMMON/C6/EMIN,EMAX,SUMWT,FLBDN,FLBDX,FNUNP,FNUXP,NLEV,IEWR
+C     A. Kramida 2026: true-jj switch, its unit, and the jj column labels.
+      COMMON/LSJJBK/IJJROT,IJJU,IBSJJ(KNSJK),NBKJJ(KS,KNSJK)
+      INCLUDE 'LSJJID.F'
+C     Magic and version of the true jj trailer appended to TAPE2E at
+C     label 850.  RCE must check both before believing what follows;
+C     the version changes if the trailer layout ever does.
+      PARAMETER (IJJM2E=20260802, IJJV2E=1)
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4)
+c
+      integer*8 NPARJ_PTR,ISER_PTR,PCI_PTR
+      COMMON/C3LC41/NPARJ_PTR,ISER_PTR,PCI_PTR,ISER_size
+      DIMENSION NPARJ(KC,KC),ISER(KISER),PCI(KISER)
+      pointer(NPARJ_PTR,NPARJ),(ISER_PTR,ISER),(PCI_PTR,PCI)
+c
+      COMMON/CGOSS/GOSS(KTRAN,KBGKS)
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      COMMON/EE2/EIG(KMX),ELEM1(3),FNT(9,2),I1,I2,
+     1  IFACT(4),FACT(4),LCSER(KMX),X(KMX)
+c     +  ,DUMEE2(KEE2)                                                    ! A. Kramida 7/31/2012: if KEE2 <= 0,
+c                                                                        ! comment the line with DUMEE2
+c      DIMENSION NPARJ(KC,KC)
+c      EQUIVALENCE (DUMLC4(KLC4),NPARJ)
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,AA,COUPL,SJ8
+      CHARACTER*10 YIDEN(KMX,2)
+      CHARACTER LSYMB*4,LHS4,LHS41,PARNM(KPR)*10
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      CHARACTER CVPAR(KPR)*10
+      INTEGER*1 KK1,KK2
+C     A. Kramida 2026: support of each row of the coupling-3-7 matrix,
+C     computed once per J block by RCEBND and used by RCETRB.  SAVEd so
+C     that they stay out of the stack; see the header of RCETRB.
+      DIMENSION JLOT(KMX),JHIT(KMX)
+      SAVE JLOT,JHIT
+C
+C
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      IF (IW6.LT.0) WRITE (6,95) DELT
+   95 FORMAT (//' START RCEINP AT TIME=',F9.3,4H MIN/)
+      REWIND 2
+      NOCSET = IABS(NOCSET)
+      IF (NOCSET.EQ.0) NOCSET=1
+      K=1
+      IL=ILA
+  100 J1X = NSCONF(2,K)
+      NPAR = 0
+      DO 1228 MZQ=1,J1X
+        NPAR = NPAR+NPARJ(MZQ,MZQ)
+        DO 140 NZQ=MZQ,J1X
+          IF (NZQ.NE.MZQ) NPAR = NPAR+NPARJ(MZQ,NZQ)
+  140 CONTINUE
+ 1228 CONTINUE
+      WRITE (2) NOCSET,NSCRJ8,NPAR,J1X,((NPARJ(L,LP),LP=L,J1X),
+     1 L=1,J1X)
+      NPAR = NPAR-J1X
+      NORD=0
+      ISPACE=0
+      ITRANS=0
+      KCPRCE=0
+      IF (NOSUBC.EQ.1) GO TO 151
+      II=7
+      IF (NOSUBC.LT.3) II=4
+      DO 150 I=3,II
+        IF (KCPLD(I).NE.0) GO TO 150
+        ISPACE=ISPACE+1
+        JJJ=I
+  150 CONTINUE
+      IF (ISPACE.EQ.1) THEN
+        ITRANS=1
+        KCPRCE=JJJ
+      ENDIF
+C
+  151 DO 400 MZQ=1,NSCRJ8
+C               READ TMX(LS,JJ)
+C     READ (IC) SCRJ8,NLS, ((TMX(L,LP),L=1,NLS), LP=1,NLS),
+C    1  ((NALS(L,I),SCRL(L,I),SCRS(L,I),
+C    2  I=1,NOSUBC), NCFG(L),FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+C ****************************************************  A.KRAMIDA  v
+c      write (*,*) 'MZQ,C_PTR,CFGP1_PTR=',MZQ,C_PTR,CFGP1_PTR
+      READ (IC) SCRJ8,NLS, ((NALS(L,I),SCRL(L,I),SCRS(L,I),
+     1  I=1,NOSUBC), NCFG(L),FIDLS(L,1),FIDJJ(L,1), L=1,NLS)
+      IMSQ=NLS*NLS
+c      write (*,*) 'MZQ,NLS=',MZQ,NLS
+c     write (*,*) 'unpk1(IC) call 7'
+      CALL UNPK1(IC,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+c      write (*,*) 'UNPK1 Ok',MZQ,NLS
+      ICPTR=ICPTR+2
+C ****************************************************  A.KRAMIDA  ^
+C     A. Kramida 2026: nothing is substituted here either.  Every record
+C     of TAPE2E written in this loop is exactly what it was before the
+C     rotation existed, so an RCE that knows nothing about true jj reads
+C     this file as it always did.  The true jj matrices and labels go on
+C     the end of the file instead, after the last thing RCE reads -- see
+C     the trailer at label 850.
+      I1=KCPL
+      I2=3-I1
+c      write (*,*) 'C_PTR,CFGP1_PTR=',C_PTR, CFGP1_PTR
+  152 DO L=1,NLS
+C       YIDEN(L,I1)=FIDLS(L,1)
+C       YIDEN(L,I2)=FIDJJ(L,1)
+        WRITE (YIDEN(L,I1),14) FIDLS(L,1)
+        WRITE (YIDEN(L,I2),14) FIDJJ(L,1)
+   14   FORMAT (1H(,A7)
+C       ENCODE (8,18,SJ8) SCRJ8
+        WRITE (SJ8,18) SCRJ8
+   18   FORMAT (2X,2HJ=,F4.1)
+C               CALC G-MATRIX, AND TRANSFORM IF KCPL=2
+c        write (*,*) 'L=',L
+        DO LP=1,NLS
+           C(L,LP)=0.D0
+        ENDDO
+c        write (*,*) 'C(L,..) OK'
+        IF (SCRJ8.EQ.0.D0) GO TO 160
+        SS=SCRS(L,NOSUBC)
+        SL=SCRL(L,NOSUBC)
+        C(L,L)=0.50116D0*(SS**2+SS-SL**2-SL)/(SCRJ8**2+SCRJ8)+1.50116D0
+  160   CONTINUE
+      ENDDO
+c      write (*,*) 'C OK,KCPL=',KCPL
+      IF (KCPL.EQ.1) GO TO 165
+      DO L=1,NLS
+        DO LP=1,NLS
+          SS=0.D0
+          DO LPP=1,NLS
+c            write (*,*) '      L,LPP =',L,LPP
+c            write (*,*) '      C     =',C(L,LPP)
+c            write (*,*) '      TMX   =',TMX(L,LPP)
+            SS=SS+C(L,LPP)*TMX(LPP,LP)
+          ENDDO
+          CT4(L,LP)=SS
+C     A. Kramida 2026: a debugging WRITE was left live here.  It printed
+C     one line per element of an NLS*NLS matrix on the KCPL=2 path, so a
+C     KCPL=2 run spent essentially all of RCEINP in list-directed output.
+c          write (*,*) '    L,LP,CT4=',L,LP,CT4(L,LP)
+        ENDDO
+      ENDDO
+c      write (*,*) 'CT4 OK'
+C               TRANSPOSE FROM TMX(LS,JJ) TO TMX(JJ,LS)
+      DO L=1,NLS
+        DO LP=L,NLS
+          A=TMX(L,LP)
+          TMX(L,LP)=TMX(LP,L)
+          TMX(LP,L)=A
+        ENDDO
+      ENDDO
+c      write (*,*) 'TMX OK'
+      DO L=1,NLS
+        DO LP=1,NLS
+          A=0.D0
+          DO LPP=1,NLS
+            A=A+TMX(L,LPP)*CT4(LPP,LP)
+          ENDDO
+          C(L,LP)=A
+        ENDDO
+      ENDDO
+c      write (*,*) 'C OK (1)'
+C               WRITE G-MATRIX ON 15
+  165 REWIND 15
+c      write (*,*) 'packing C to 15...'
+      IMSQ=NLS*(NLS+1)/2
+      CALL PK1(15,NLS,NLS,C,KMX,KMX,IMSQ,MAXBC)   !,13,IW)
+C     WRITE (15) ((C(L,LP),L=LP,NLS), LP=1,NLS)
+c      write (*,*) 'C packed Ok, ITRANS=',ITRANS
+      IF (ITRANS.EQ.0) GO TO 188
+      IF (NLS.GT.NLSMAX) GO TO 188
+      DO L=1,NLS
+        YIDEN(L,2)=YIDEN(L,1)
+      ENDDO
+      I2=I1
+      I1=KCPRCE
+      IF (NLS.EQ.1) GO TO 188
+      DO I=1,NPAR
+        READ (IC) DUMDCG
+      ENDDO
+      ICPTR=ICPTR+NPAR
+C               READ TMX(I,KCPL)
+C     READ (IC) ((TMX(LP,L),LP=1,NLS),FK(L),FKJ(L),SCRJ(L,1),SCRJ(L,2),
+C    1 SCRL6(L),FK6(L),SCRS6(L),LHQQ(L),MULTQQ(L),L=1,NLS)
+C **************************************************** A.KRAMIDA v
+c      write (*,*) 'reading TMX...'
+      READ (IC) (FK(L),FKJ(L),SCRJ(L,1),SCRJ(L,2),
+     1 SCRL6(L),FK6(L),SCRS6(L),LHQQ(L),MULTQQ(L),L=1,NLS)
+      IMSQ=NLS*NLS
+c     write (*,*) 'unpk1(IC) call 8'
+      CALL UNPK1(IC,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+      ICPTR=ICPTR+2
+C **************************************************** A.KRAMIDA ^
+c      write (*,*) 'TMX unpacked Ok, KCPRCE=',KCPRCE
+      GO TO (176,176,176,178,180,182,184) KCPRCE
+  176 DO L=1,NLS
+        KK1=0
+        LP1=0
+        DO LP=1,L-1       ! MAKE THE TERM NAME UNIQUE (FOR RCE)
+          READ (YIDEN(LP,1),2101) RD1,KK2,RD2
+          IF (RD1.EQ.SCRJ(L,1).AND.RD2.EQ.FKJ(L)) THEN
+            KK1=KK2
+            LP1=LP
+          ENDIF
+        ENDDO
+        IF (KK1.NE.0) THEN
+          IF (KK1.EQ.32) THEN
+            KK1=97                     ! REPLACE ' ' FOR 'a'
+            WRITE(YIDEN(LP1,1),21) SCRJ(LP1,1),KK1,FKJ(LP1)
+          ENDIF
+          KK1=KK1+1
+          IF (KK1.GT.122) KK1=65 ! 'A' CHARACTER
+          IF (KK1.EQ.91) KK1=90  ! TOO MANY EQUAL TERMS: FAIL
+        ELSE
+          KK1=32
+        ENDIF
+        WRITE (YIDEN(L,1),21) SCRJ(L,1),KK1,FKJ(L)
+   21   FORMAT(F4.1,1HK,A1,F4.1)
+ 2101   FORMAT(F4.1,1X,A1,F4.1)
+      ENDDO
+      GO TO 186
+  178 DO L=1,NLS
+        LP1=SCRL(L,NOSUBC)+1.D0
+        LHS4=LSYMB(LP1)
+        KK1=0
+        LP1=0
+        DO LP=1,L-1       ! MAKE THE TERM NAME UNIQUE (FOR RCE)
+          READ (YIDEN(LP,1),2201) KK2,LHS41,RD1
+          IF (LHS41.EQ.LHS4.AND.RD1.EQ.FK(L)) THEN
+            KK1=KK2
+            LP1=LP
+          ENDIF
+        ENDDO
+        IF (KK1.NE.0) THEN
+          IF (KK1.EQ.32) THEN
+            KK1=97                     ! REPLACE ' ' FOR 'a'
+            LP2=SCRL(LP1,NOSUBC)+1
+            LHS41=LSYMB(LP2)
+            WRITE(YIDEN(LP1,1),22) KK1,LHS41,FK(LP1)
+          ENDIF
+          KK1=KK1+1
+          IF (KK1.GT.122) KK1=65 ! 'A' CHARACTER
+          IF (KK1.EQ.91) KK1=90  ! TOO MANY EQUAL TERMS: FAIL
+        ELSE
+          KK1=32
+        ENDIF
+        WRITE (YIDEN(L,1),22) KK1,LHS4,FK(L)
+   22   FORMAT(2A1,1H(,F4.1,1H))
+ 2201   FORMAT(2A1,1X,F4.1)
+      ENDDO
+      GO TO 186
+  180 DO L=1,NLS
+        KK1=0
+        LP1=0
+        DO LP=1,L-1       ! MAKE THE TERM NAME UNIQUE (FOR RCE)
+          READ (YIDEN(LP,1),2101) RD1,KK2,RD2
+          IF (RD1.EQ.SCRJ(L,1).AND.RD2.EQ.FK(L)) THEN
+            KK1=KK2
+            LP1=LP
+          ENDIF
+        ENDDO
+        IF (KK1.NE.0) THEN
+          IF (KK1.EQ.32) THEN
+            KK1=97                     ! REPLACE ' ' FOR 'a'
+            WRITE(YIDEN(LP1,1),21) SCRJ(LP1,1),KK1,FK(LP1)
+          ENDIF
+          KK1=KK1+1
+          IF (KK1.GT.122) KK1=65 ! 'A' CHARACTER
+          IF (KK1.EQ.91) KK1=90  ! TOO MANY EQUAL TERMS: FAIL
+        ELSE
+          KK1=32
+        ENDIF
+        WRITE (YIDEN(L,1),21) SCRJ(L,1),KK1,FK(L)
+      ENDDO
+      GO TO 186
+  182 DO L=1,NLS
+        WRITE (YIDEN(L,1),23) SCRJ(L,2),LHQQ(L),FK6(L),MULTQQ(L)
+   23   FORMAT(F4.1,A1,F4.1,I1)
+      ENDDO
+      GO TO 186
+  184 DO L=1,NLS
+        WRITE (YIDEN(L,1),24) SCRJ(L,2),MULTQQ(L),LHQQ(L),SCRJ(L,1)
+   24   FORMAT(F4.1,I1,A1,F4.1)
+      ENDDO
+C 186 NPARS=NPAR+1
+  186 NPARS=NPAR+2
+C     DO 187 I=1,NPARS
+C 187 BACKSPACE IC
+      CALL BACKIC(IC,NPARS,ICPTR)
+C     REWIND IC
+C     NORD=NOIC(K)+2+(MZQ-1)*(NPAR+2)
+C     NORD=NOIC(K)+3+(MZQ-1)*(NPAR+4)   ! 3 and 4 instead of 2 due to PK1
+C     DO 187 I=1,NORD
+C 187 READ (IC) DUMDCG
+C        WRITE (6,1125) NPARS,NOIC,NOICMUP,NORD
+C1125 FORMAT (' NPARS,NOIC,NOICMUP,NORD=',I5,2X,2I5,2X,2I5,2X,I5)
+C               WRITE TMX(I,KCPL), OR (IF ITRANS=0 OR NLS.GT.NLSMAX)
+C   TMX(LS,JJ) IF KCPL=1 OR TMX(JJ,LS) IF KCPL=2.
+C 188 WRITE (2) SJ8,NLS, ((TMX(L,LP),L=1,NLS), LP=1,NLS),
+C    1 (NCFG(L),L=1,NLS),((YIDEN(L,NZQ),L=1,NLS),NZQ=1,2)
+C  ******************************************************** A.KRAMIDA v
+  188 WRITE (2) I1,I2,SJ8,NLS,
+     1 (NCFG(L),L=1,NLS),((YIDEN(L,NZQ),L=1,NLS),NZQ=1,2)
+c      write (*,*) 'packing TMX(188)...'
+      IMSQ=NLS*NLS
+      CALL PK1(2,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)  !,10,IW)
+C  ******************************************************** A.KRAMIDA ^
+      NPARS=NPAR+1
+c      write (*,*) 'TMX packed Ok,NPARS=',NPARS
+C
+C     A. Kramida 2026: THE COUPLING-3-7 TRANSFORM, ONCE PER PARAMETER.
+C
+C     The loop below transforms every one of the NPARS coefficient
+C     matrices of this J block into coupling KCPRCE, and it used to do it
+C     with two full NLS**3 products each.  That is what makes RCEINP the
+C     whole run when NLSMAX lets couplings 3-7 through: on Pr III with
+C     NLSMAX=999 and KCPLD=011101 1, RCEINP took 8.9 minutes of a 9.1
+C     minute run, and the J=3.5 block alone (NLS=617, NPARS=525) took 2.
+C
+C     TMX is block diagonal.  CPL37 leaves TMX(L,LP) at zero unless
+C     NCFG(L)=NCFG(LP) and the subshell quantum numbers that the coupling
+C     does not touch agree, and PLEV numbers the basis states one
+C     configuration at a time, so the support of row L is an interval.
+C     RCEBND measures that interval -- it does not assume it -- and
+C     RCETRB sums only inside it.  The terms dropped are exactly 0.D0, so
+C     nothing moves by a bit; the cost falls from NLS**3 to NLS**2 times
+C     the mean block width, about a factor of the number of
+C     configurations in the block.
+C
+C     The band is a property of TMX, which is read once per J block, so
+C     it is measured once per J block rather than once per parameter.
+C
+      ITRB=0
+      IF (ITRANS.NE.0.AND.NLS.GT.1.AND.NLS.LE.NLSMAX) THEN
+        CALL RCEBND (TMX,KMX,NLS,JLOT,JHIT)
+        ITRB=1
+      ENDIF
+      DO 250 NZQ=1,NPARS  ! WRITE MATRIX OF dC(L,LP)/dPAR
+C  ******************************************************** A.KRAMIDA v
+        IF (NZQ.NE.NPARS) THEN            ! READ COEFF MATRIX
+c          write (*,*) 'unpacking C from IC, NZQ,C_PTR,MAXBC=',
+c     1      NZQ,C_PTR,MAXBC
+c          if (NZQ.NE.8) THEN
+c         write (*,*) 'unpk1(IC) call 9'
+          CALL UNPK1(IC,NLS,NLS,C,KMX,KMX,0,MAXBC)
+c          else
+c            CALL UNPK1_dbg(IC,NLS,NLS,C,KMX,KMX,0,MAXBC)
+c          endif
+c          write (*,*) 'C unpacked Ok'
+          ICPTR=ICPTR+1
+        ELSE                              ! READ G MATRIX
+          REWIND 15
+          CALL UNPK1(15,NLS,NLS,C,KMX,KMX,0,MAXBC)
+        ENDIF
+C  ******************************************************** A.KRAMIDA ^
+  210   IF (ITRB.EQ.0) GO TO 240
+C               IF ITRANS.GT.0 AND NLS.LE.NLSMAX, TRANSF MATRIX TO I.
+        DO 1231 L=2,NLS
+          LS=L-1
+          DO 1229 LP=1,LS
+  220   C(LP,L)=C(L,LP)
+ 1229     CONTINUE
+ 1231   CONTINUE
+        CALL RCETRB (NLS,JLOT,JHIT)
+C
+C 240   WRITE (2) ((C(L,LP),L=LP,NLS), LP=1,NLS)
+C  ******************************************************** A.KRAMIDA
+  240   IMSQ=NLS*(NLS+1)/2
+c        write (*,*) 'packing C to 2, NZQ=',NZQ
+        CALL PK1(2,NLS,NLS,C,KMX,KMX,IMSQ,MAXBC)  !,11,IW)
+c        write (*,*) 'C packed Ok, NZQ=',NZQ
+C  ********************************************************
+  250 CONTINUE
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      IF (IW6.LT.0) WRITE (6,15) MZQ,NSCRJ8,DELT,NLS,NPARS
+   15 FORMAT (' END CALC OF MATRIX',I3,' OF',I3,';   TIME=',
+     1  F9.2,',   SIZE=',I5,',   NPARS=',I5)
+      IF (ISPACE.EQ.0) GO TO 400
+      IF (NLS.EQ.1) GO TO 400
+      IF (NLS.GT.NLSMAX) GO TO 400
+      DO 1232 I=1,ISPACE
+        ICPTR=ICPTR+2
+        READ (IC) DUMDCG     ! ADDITIONAL READ BECAUSE OF USE OF PK1
+  399 READ (IC) DUMDCG
+ 1232 CONTINUE
+  400 CONTINUE
+      CALL CLOCK(TIME)
+      DELT=TIME-TIME0
+      WRITE (IW,40) NOCSET,DELT,COUPL(I1),COUPL(I2)
+   40 FORMAT (12H0CSET NUMBER,I4,27H WRITTEN ON TAPE 2 AT TIME=,F9.2,
+     1  17H  FOR COUPLINGS  ,A8,7H  AND  ,A8//)
+      IF (IW6.LT.0) WRITE (6,40) NOCSET,DELT,COUPL(I1),COUPL(I2)
+C
+C          WRITE INPUT FOR RCE ON DISK 11, USING (IF A DIAGONALIZATION
+C               HAS BEEN MADE) COMPUTED INSTEAD OF EXPERIMENTAL LEVELS,
+C               AND USING THE THEORETICAL PARAMETER VALUES
+C               AS PRELIMINARY ESTIMATES; IF NO DIAGONALIZATION,
+C               THEN USE ZEROES FOR THE ABOVE QUANTITIES.
+C
+  500 NOCYPR=1
+      NOCYCR=30
+      NOCYCE=5
+      INVECT=0
+      IORDER=0
+      ISAMPLE=0
+      WRITE (11,51) NOCYPR,NOCYCR,NOCYCE,IW6,INVECT,IORDER,ISAMPLE
+   51 FORMAT (7I5)
+      NCDES=NOCSET
+      IDENOM=0
+      IPRNV=1
+      IPRNA=1
+      WMAX=0.D0
+      IPRNX=1
+      IPRNSQ=3
+      SCALE=1.D0
+      WRITE (11,52) NCDES,IDENOM,IPRNV,IPRNA,WMAX,IPRNX,IPRNSQ,SCALE
+   52 FORMAT (4I5,F10.3,2I5,F10.4)
+C     WRITE (11,53) ELEM(1,1,K),(ELEM(2,I,K),ELEM(3,I,K), I=1,J1X)
+C  53 FORMAT (A8,2X,6(A6,A4)/7(A6,A4))
+      WRITE (11,53) ELEM(1,1,K),(ELEM(2,I,K),ELEM(3,I,K), I=1,6)
+   53 FORMAT (A8,2X,6(A6,A4))
+      NL1=J1X/7                                                         ! 7    13
+      DO 522 I1=1,NL1
+        IM1=6
+        IF (I1.EQ.NL1) IM1=MOD(J1X,7)                                   ! 0    6
+        IF (IM1.GE.0)
+     1    WRITE (11,521) (ELEM(2,I1*7+I,K),ELEM(3,I1*7+I,K), I=0,IM1)
+  522 CONTINUE
+  521 FORMAT (7(A6,A4))
+      NPAR=NPAR+J1X
+      J=0
+      DO 530 I=1,NPAR
+        WRITE (PARNM(I),523) PARNAM(I,K)
+  523   FORMAT (A8,2X)
+        IF (PARNM(I)(1:3).EQ.'EAV') THEN
+          J=J+1
+          WRITE (PARNM(I),524) ELEM(2,J,K)
+  524     FORMAT (4HEAV ,A6)
+        ENDIF
+  530 CONTINUE
+      WRITE (11,54) (PARNM(I), I=1,NPAR)
+   54 FORMAT (7A10)
+      REWIND IL
+      IF (IEWR.GT.0) GO TO 550
+      DO 1233 LP=1,KMX
+  540 EIG(LP)=0.D0
+ 1233 CONTINUE
+      DO 1234 I=1,KPR
+  545 VPAR(I,K)=0.D0
+ 1234 CONTINUE
+      READ (IL)
+  550 GRE=0.D0
+      DO 1235 I=1,NPAR
+  552 GRE=DMAX1(abs(VPAR(I,K)),GRE)
+ 1235 CONTINUE
+      DO 1236 N=1,NSCRJ8
+      IF (IEWR.GT.0) GO TO 558
+      READ (IL) SJ,NLS
+      GO TO 559
+  558 READ (IL) SJ,NLS, (EIG(LP), (ERAS,L=1,NLS), LP=1,NLS)
+C 558 READ (IL) SJ,NLS, (EIG(LP), LP=1,NLS)
+C     READ (IL)
+      READ (IL)
+  559 IF (GRE.LE.7.0D3) WRITE (11,55) (EIG(LP), LP=1,NLS)
+   55 FORMAT (7F10.4)
+      IF (GRE.GT.7.0D3.AND.GRE.LE.7.0D4) WRITE(11,56) (EIG(LP),LP=1,NLS)
+   56 FORMAT (7F10.3)
+      IF (GRE.GT.7.0D4) WRITE (11,57) (EIG(LP), LP=1,NLS)
+   57 FORMAT (7F10.2)
+  560 WRITE (11,58) (LP, LP=1,NLS)
+ 1236 CONTINUE
+   58 FORMAT (7I10)
+      NPAR=0
+      DO 1237 MZQ=1,J1X
+  565 NPAR=NPAR+NPARJ(MZQ,MZQ)
+ 1237 CONTINUE
+      J=-50
+      DO 570 I=1,NPAR
+      MULTQQ(I)=0
+      IF (IEWR.EQ.0.OR.I.EQ.1.OR.VPAR(I,K).GT.0.D0) GO TO 570
+      MULTQQ(I)=-99
+  570 CONTINUE
+      IF (J1X.EQ.1) GO TO 600
+      J1X1=J1X-1
+      DO 1240 MZQ=1,J1X1
+      MZQ1=MZQ+1
+      NPAR2=0
+      DO 1238 MP=MZQ1,J1X
+  585 NPAR2=NPAR2+NPARJ(MZQ,MP)
+ 1238 CONTINUE
+      NPAR2=NPAR+NPAR2
+      NPAR=NPAR+1
+      J=J-1
+      DO 1239 I=NPAR,NPAR2
+  588 MULTQQ(I)=J
+ 1239 CONTINUE
+  590 NPAR=NPAR2
+ 1240 CONTINUE
+c         Added by A. Kramida 7/19/2006
+  600 do I=1,NPAR
+        if (MULTQQ(I).EQ.0) MULTQQ(I) = 100
+        if (MULTQQ(I).LT.0) MULTQQ(I) = -100
+c            Added by A. Kramida 3/21/2012
+c       Format parameter values in text strings in array CVPAR
+        VP=VPAR(I,K)
+c           If parameter is too small, use exponential format
+c           to avoid loss of precision, except for Eav
+        if (VP.GE.-1D-3 .and. VP.LE.1D-3 .and. I.GT.1) then
+          write(CVPAR(I),601) VP
+  601     FORMAT (1PE10.2)
+        else
+c           If parameter is too large, use various floating-point formats
+c           to avoid overflow
+c          if (VP .GE. 7.0D4) then
+c            write(CVPAR(I),602) VP
+c  602       FORMAT (F10.2)
+c          else
+            if (VP .GE. -9999.99D0 .AND. VP .LE. 99999.99D0) then
+              write(CVPAR(I),602) VP
+  602         FORMAT (F10.4)
+            else
+              if (i.eq.1) then
+                write(CVPAR(I),603) VP
+              else
+                write(CVPAR(I),604) VP
+              endif
+  603         FORMAT (F10.1)
+  604         FORMAT (F10.2)
+            endif
+          endif
+c        endif
+c            End A. Kramida 3/21/2012
+      enddo
+c         End 7/19/2006
+      WRITE (11,58) (MULTQQ(I), I=1,NPAR)
+      XMAX=0.D0
+      WRITE (11,55) (XMAX, I=1,NPAR)
+c            Changed by A. Kramida 3/21/2012
+c      IF (GRE.LE.7.0D3) WRITE (11,55) (VPAR(I,K), I=1,NPAR)
+c      IF (GRE.GT.7.0D3.AND.GRE.LE.7.0D4)
+c     1  WRITE (11,56) (VPAR(I,K), I=1,NPAR)
+c      IF (GRE.GT.7.0D4) WRITE (11,57) (VPAR(I,K), I=1,NPAR)
+      write (11,605) (CVPAR(I), I=1,NPAR)
+  605 FORMAT (7A10)
+      F0=1.D0
+      FM=0.D0
+      F1=-1.D0
+      DELF=0.D0
+      NOFMAX=1000
+      GMAX=1.D0
+      DXMAX=10000.D0
+      CRIT1=-0.3D0
+      CRIT=0.D0
+      ICRIT2=-1
+      WRITE (11,60) F0,FM,F1,DELF,NOFMAX,GMAX,DXMAX,CRIT1,CRIT,ICRIT2
+   60 FORMAT (3F10.1,F5.2,I5,F10.3,F10.2,2F5.2,I2)
+      NCDES=-1
+      WRITE (11,52) NCDES
+C
+C     A. Kramida 2026: both exits now go through 850, which appends the
+C     true jj trailer and falls into 900.  Without KCPLD(8)=8 that is one
+C     comparison.
+      IF (K.EQ.2) GO TO 850
+      K=2
+      IL=ILB
+C        WRITE (6,1125) NPARS,NOIC,NOICMUP,NORD
+      IF (NSCONF(1,K).EQ.0) GO TO 850
+      IF (NOICMUP(1).NE.0) THEN
+        ISPACE=NOICMUP(1)
+        DO 1241 I=1,ISPACE
+          ICPTR=ICPTR+1
+  700   READ (IC) DUMDCG
+ 1241   CONTINUE
+      ENDIF
+  710 NOCSET=NOCSET+1
+      READ (IC) NOTSJ1,NSCRJ8,SJ8MN,SJ8MX,NPAR,NPARJ,PARNAM
+      ICPTR=ICPTR+1
+      GO TO 100
+C
+C     A. Kramida 2026: THE TRUE jj TRAILER OF TAPE2E.
+C
+C     Everything RCE has ever read from unit 2 has now been written, so
+C     what follows is invisible to a reader that stops when it has what
+C     it came for.  That is the point: a TAPE2E from a KCPLD(8)=8 run is
+C     still a valid TAPE2E for an RCE that predates all of this, and an
+C     RCE that does know about true jj finds the extra data by reading
+C     on until the magic record.
+C
+C     One record pair per J block, in the order CALCFC produced them:
+C
+C       IOK, J, NLS, NOSUBC, ((NJJST(1..4,c,i), i=1..NOSUBC),
+C                             FIDJ2(c), c=1..NLS)
+C       the transformation matrix, PK1-packed as everywhere else
+C
+C     IOK=0 marks a block whose rotation failed; its matrix is Cowan's
+C     J1J2 one and its labels are blank.  NJJST and FIDJ2 are described
+C     in LSJJID.F, and the key to the FIDJ2 codes is written by LSJJKP
+C     into the file true-jj_keys.txt.
+C
+C     The block count is wanted in the header, and the only way to get
+C     it is to read the scratch file through once -- it is small (a few
+C     MB packed) and this happens once per run.
+C
+  850 IF (IJJROT.EQ.0) GO TO 900
+      REWIND IJJU
+      NBKJ2=0
+  860 READ (IJJU,END=870) IOKJJ,SCRJ8J,NLSJ,NSBJ,
+     1  (((NJJST(K1,L,I),K1=1,4), I=1,NSBJ), FIDJ2(L), L=1,NLSJ)
+      IMSQ=NLSJ*NLSJ
+      CALL UNPK1(IJJU,NLSJ,NLSJ,TMX,KMX,KMX,IMSQ,MAXBC)
+      NBKJ2=NBKJ2+1
+      GO TO 860
+  870 WRITE (2) IJJM2E,IJJV2E,NBKJ2
+      REWIND IJJU
+      DO 880 MZQ=1,NBKJ2
+        READ (IJJU) IOKJJ,SCRJ8J,NLSJ,NSBJ,
+     1    (((NJJST(K1,L,I),K1=1,4), I=1,NSBJ), FIDJ2(L), L=1,NLSJ)
+        IMSQ=NLSJ*NLSJ
+        CALL UNPK1(IJJU,NLSJ,NLSJ,TMX,KMX,KMX,IMSQ,MAXBC)
+        WRITE (2) IOKJJ,SCRJ8J,NLSJ,NSBJ,
+     1    (((NJJST(K1,L,I),K1=1,4), I=1,NSBJ), FIDJ2(L), L=1,NLSJ)
+        CALL PK1(2,NLSJ,NLSJ,TMX,KMX,KMX,IMSQ,MAXBC)
+  880 CONTINUE
+      WRITE (IW,89) NBKJ2
+   89 FORMAT (/' TRUE jj DATA FOR',I5,' J BLOCKS APPENDED TO TAPE2E'/)
+      IF (IW6.LT.0) WRITE (6,89) NBKJ2
+C
+  900 RETURN
+      END
+C
+C
+      SUBROUTINE RCEBND (TMX,LDT,NLS,JLO,JHI)
+C
+C          A. Kramida 2026.  SUPPORT OF EACH ROW OF THE COUPLING-3-7
+C          TRANSFORMATION MATRIX, AS AN INTERVAL OF COLUMNS.
+C
+C          JLO(L) AND JHI(L) COME BACK AS THE FIRST AND THE LAST COLUMN
+C          OF ROW L THAT IS NOT EXACTLY ZERO, OR AS 1 AND 0 IF THE WHOLE
+C          ROW IS ZERO, WHICH MAKES AN EMPTY DO LOOP.  NOTHING IS
+C          ASSUMED ABOUT TMX: IF IT WERE DENSE EVERY ROW WOULD COME BACK
+C          AS 1..NLS AND RCETRB WOULD DO EXACTLY THE WORK THE ORIGINAL
+C          TRIPLE LOOPS DID.  IT IS NOT DENSE -- SEE THE COMMENT IN
+C          RCEINP AT THE CALL -- BUT THE SAVING IS MEASURED, NOT TAKEN
+C          ON TRUST.
+C
+C          COST IS ONE NLS**2 SCAN PER J BLOCK, AGAINST THE NPARS
+C          TRANSFORMS IT SERVES.
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      IMPLICIT INTEGER*4 (I-N)
+      DIMENSION TMX(LDT,*),JLO(*),JHI(*)
+C
+      DO L=1,NLS
+        JLO(L)=1
+        JHI(L)=0
+      ENDDO
+      DO LP=1,NLS
+        DO L=1,NLS
+          IF (TMX(L,LP).NE.0.D0) THEN
+            IF (JHI(L).EQ.0) JLO(L)=LP
+            JHI(L)=LP
+          ENDIF
+        ENDDO
+      ENDDO
+      RETURN
+      END  ! RCEBND
+C
+C
+      SUBROUTINE RCETRB (NN,JLO,JHI)
+C
+C          A. Kramida 2026.  C <- TMX * C * TMX(TRANSPOSE), THE
+C          TRANSFORMATION OF ONE COEFFICIENT MATRIX OF A J BLOCK INTO
+C          COUPLING KCPRCE.  THIS IS WHAT USED TO STAND INLINE IN
+C          RCEINP BETWEEN LABELS 210 AND 240.
+C
+C          TWO CHANGES, NEITHER OF WHICH MOVES A BIT:
+C
+C          1.  THE SUM OVER LPP RUNS ONLY OVER JLO..JHI OF THE ROW OF
+C              TMX THAT MULTIPLIES IT.  EVERY TERM LEFT OUT HAS
+C              TMX=0.D0 EXACTLY, BY CONSTRUCTION OF JLO/JHI IN RCEBND,
+C              AND ADDING 0.D0 TO A SUM THAT STARTED AT +0.D0 CHANGES
+C              NOTHING.  THE SURVIVING TERMS ARE STILL VISITED IN
+C              INCREASING LPP.
+C
+C          2.  THE INTERMEDIATE IS HELD TRANSPOSED: CT4(LP,L) IS THE OLD
+C              CT4(L,LP).  THE OLD SECOND PRODUCT READ CT4 ALONG A ROW
+C              OF A COLUMN-MAJOR KMX BY KMX ARRAY, ONE CACHE LINE PER
+C              TERM; NOW BOTH PRODUCTS READ AND WRITE DOWN COLUMNS.
+C              THE TRANSPOSE IS PURE ADDRESSING AND CHANGES NO
+C              ARITHMETIC.
+C
+C          BOTH LOOPS ARE THREADED OVER THE INDEX THAT OWNS A WHOLE
+C          COLUMN OF THE OUTPUT, SO NO SUM IS EVER SPLIT ACROSS THREADS
+C          AND ANY THREAD COUNT GIVES THE SAME BITS.  THE SECOND LOOP IS
+C          TRIANGULAR, HENCE THE DYNAMIC SCHEDULE.
+C
+C          ONLY THE LOWER TRIANGLE OF C IS PRODUCED, WHICH IS WHAT PK1
+C          WRITES; THE CALLER HAS ALREADY MIRRORED C INTO A FULL
+C          SYMMETRIC MATRIX BEFORE CALLING.
+C
+      INCLUDE 'RCGPAR.F'
+      DIMENSION JLO(*),JHI(*)
+      DIMENSION C(KMX,KMX)
+      integer*8 C_PTR
+      COMMON/CC/C_PTR
+      pointer (C_PTR,C)
+c
+      DIMENSION TMX(KMX,KMX)
+      integer*8 CFGP1_PTR,PC_PTR
+      COMMON/C3LC2/ CFGP1_PTR,PC_PTR,i_CFGP1_size,i_PC_size
+      pointer (CFGP1_PTR,TMX),(PC_PTR,PC)
+c
+      COMMON/C3LC31/CT4_PTR
+      integer*8 CT4_PTR
+      DIMENSION CT4(KMX,KMX)
+      pointer (CT4_PTR,CT4)
+C
+C          NN IS THE BLOCK SIZE.  IT IS PASSED RATHER THAN TAKEN FROM
+C          /C1/NLS, WHICH RCGPAR.F BRINGS IN HERE UNDER THAT NAME.
+C
+C          CT4(LP,L) = SUM(LPP) TMX(L,LPP)*C(LPP,LP)
+C
+!$OMP PARALLEL DO IF(NN.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,LPP,DELT) SCHEDULE(STATIC)
+      DO L=1,NN
+        DO LP=1,NN
+          DELT=0.D0
+          DO LPP=JLO(L),JHI(L)
+            DELT=DELT+TMX(L,LPP)*C(LPP,LP)
+          ENDDO
+          CT4(LP,L)=DELT
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+C
+C          C(L,LP) = SUM(LPP) CT4(LPP,L)*TMX(LP,LPP),  LP.LE.L
+C
+!$OMP PARALLEL DO IF(NN.GT.400) DEFAULT(SHARED)
+!$OMP&  PRIVATE(L,LP,LPP,DELT) SCHEDULE(DYNAMIC,8)
+      DO LP=1,NN
+        DO L=LP,NN
+          DELT=0.D0
+          DO LPP=JLO(LP),JHI(LP)
+            DELT=DELT+CT4(LPP,L)*TMX(LP,LPP)
+          ENDDO
+          C(L,LP)=DELT
+        ENDDO
+      ENDDO
+!$OMP END PARALLEL DO
+      RETURN
+      END  ! RCETRB
+C
+      SUBROUTINE SENIOR(I1,J,MI,LI,CHH)         ! WRITTEN BY Yu. Ralchenko
+      INCLUDE 'RCGPAR.F'
+      CHARACTER*1 LL(8),D,F,CHH,LI,LI1
+      CHARACTER CH1*2,CH2*3,CH1R*2,CH2R*3,CHH1*2
+      DIMENSION CH2R(20),NN(8)
+      DATA D/'D'/
+      DATA F/'F'/
+
+C     Modified by A. Kramida 6/23/04
+C         LLIJK(I1,J,KK) holds the spotted subshell's name
+C         NIJK(I1,J,KK)  holds the occupation number
+      LLI=LLIJK(I1,J,KK)
+      WRITE (LI1,'(A1)') LLI
+      NNI=NIJK(I1,J,KK)
+      if (LI1 .ne. D .or. NNI .LT. 3 .or. NNI .gt. 7) return
+
+c       REWIND 21
+c C       Locate the current conf set KK and conf number J
+c 11   READ (21,10) KK1,J1,(LL(I),NN(I), I=1,8)  ! Read saved conf. set #, conf. #, and all shells of this conf.
+c 10   FORMAT(I4,I4,7X,8(A1,I2,3X))
+c       IF(KK1.NE.KK.OR.J1.NE.J) GO TO 11
+c C       Search for the d subshell; if there are any f subshells then exit
+c       I=0
+c   20  I=I+1
+c       IF (I.GT.8) RETURN
+c       IF (LL(I).EQ.'F') RETURN
+c C     IF(LL(I).EQ.D) GO TO 30
+c C     GO TO 20
+c C 30  NNI=NN(I)
+c       IF(LL(I).EQ.D) THEN
+c         NNI=NN(I)
+c       ELSE
+c         GO TO 20
+c       ENDIF
+c C     GO TO (20,20,20,4,4,4,4,4,20,20,20) NNI+1
+c       if (NNI .LT. 3 .or. NNI .GT. 7) go to 20
+c C
+c 4   WRITE (CH1,40) LL(I),NNI   ! Save the found subshell name to CH1
+  4   WRITE (CH1,40) LLI,NNI   ! Save the found subshell name to CH1
+c     End A. Kramida 6/23/04
+c
+  40  FORMAT(A1,I1)
+      WRITE (CH2,50) MI,LI,CHH   ! Save multiplicity, term name, and Cowan's term index to CH2
+  50  FORMAT(I1,A1,A1)
+      REWIND 22
+C      Search for the shell name in file SENIOR
+  100 READ (22,60) CH1R
+   60 FORMAT (A2)
+      IF (CH1R.NE.CH1) GO TO 100
+C
+      READ (22,'(20A3)') (CH2R(L), L=1,20)
+      DO 110 II=1,20
+        IF (CH2.EQ.CH2R(II)) THEN
+C           Next to each Cowan's term, the following three chars in SENIOR
+C           hold the seniority of this term
+          READ(CH2R(II+1),70) CHH1,CHH
+   70     FORMAT(A2,A1)
+          GO TO 120
+        ENDIF
+  110 CONTINUE
+  120 CONTINUE
+      RETURN
+      END
+
+
+C
+C=======================================================================
+C
+C          LS -> jj TRANSFORMATION BY RECURSION ON N, FROM CFP ALONE
+C          A. Kramida / Claude, 2026
+C
+C     RCG's KCPL=2 is J1J2 coupling of LS subshell terms, not true jj
+C     coupling: CALCFC builds TMX as a product of 9j symbols, which
+C     vanishes unless every subshell keeps the same alpha-L-S term
+C     index, and which is the identity for a single open shell.  What is
+C     missing is
+C
+C         < l^n a L S J | ( j-^N1 v1 J1 , j+^N2 v2 J2 ) J >,
+C
+C     which is not a 9j: antisymmetrization mixes the two schemes.
+C
+C     The routines below compute it by recursion on n from coefficients
+C     of fractional parentage alone -- no Slater determinants, no
+C     null-space solver, no eigensolver (f^7 alone has 3432
+C     determinants).  Peel one creation operator off a jj subshell and
+C     use
+C
+C       a_(jm) | l^n a L S J M >
+C         = sqrt(n) sum_(ab,Jb) cfp(ab|a) Y(ab;j,Jb) < j m, Jb Mb | J M
+C                               | l^(n-1) ab Jb Mb >,
+C       Y = < ( (l s) j , (Lb Sb) Jb ) J | ( (Lb l) L , (Sb s) S ) J >,
+C
+C     which gives
+C
+C       T_n = sqrt(n/Nk) * sigma_k * sum_(ck-bar) cfp_jj( ck-bar | ck )
+C                 * sum_Jb R_k(Jb)
+C                 * sum_ab cfp_LS( ab | a ) Y( ab ; jk, Jb ) * T_(n-1),
+C
+C       R_1 = < ( j1, (J1b J2) Jb ) J | ( (j1 J1b) J1, J2 ) J >,
+C       R_2 = < ( j2, (J1 J2b) Jb ) J | ( J1, (j2 J2b) J2 ) J >,
+C       sigma_1 = 1,  sigma_2 = (-1)^N1,
+C
+C     the last sign coming from carrying a+ of subshell 2 left past the
+C     N1 operators of subshell 1.
+C
+C     Peeling off subshell 1 and peeling off subshell 2 are EACH, BY
+C     THEMSELVES, a complete rewriting of the jj state -- the two
+C     subshells are separate factors, so there is no sum over "which
+C     subshell the last electron came from" as there is over "which
+C     electron" inside one shell.  Either route gives the whole column;
+C     adding them double-counts.  LSJJU uses route 1 wherever subshell
+C     1 is occupied and route 2 otherwise; LSJJCK redoes the columns by
+C     the other route, a free and very sharp check on the recoupling
+C     coefficients and on the (-1)^N1.
+C
+C     Conventions.  Both cfp definitions put the creation operator on
+C     the left and the parent first in the angular coupling:
+C
+C       | l^n a L S; ML MS > = (1/sqrt n) sum_ab cfp
+C           sum_(m,mu) < Lb MLb, l m | L ML > < Sb MSb, 1/2 mu | S MS >
+C                      a+_(m,mu) | l^(n-1) ab; MLb MSb >
+C       | j^n v J; M >       = (1/sqrt n) sum_vb cfp
+C           sum_m < j m, Jb Mb | J M >  a+_(j,m) | j^(n-1) vb Jb; Mb >
+C
+C     The first is Cowan's own, so his cfp cards are used unchanged; the
+C     second fixes the jj phases and is what LSJJ.DAT carries.
+C
+C     Data: LSJJ.DAT, written by LSJJ/mkdeck.py, holds Cowan's LS cfp
+C     for p, d, f (every n) and g, h (n <= 2), and the jj cfp for
+C     j = 1/2 ... 7/2 (every n) and j = 9/2, 11/2 (n <= 2).
+C
+C     Angular momenta are carried DOUBLED throughout (J2 = 2J) as
+C     integers; only S6J and S9J ever see halves.
+C
+C     Entry points
+C       LSJJIN(IU,IERR)        read LSJJ.DAT from unit IU (once)
+C       LSJJU(LQ,NEL,IERR)     build U(l^NEL) into /LSJJU/
+C       LSJJOR(DEV)            orthogonality residual of the last U
+C       LSJJCK(DEV,IERR)       the 1-vs-2 route residual of the last U
+C       LSJJSF(IU,IW1,LQ,NEL)  self test / dump
+C
+C=======================================================================
+C
+      SUBROUTINE LSJJIN(IU,IERR)
+C
+C          READ LSJJ.DAT.  IERR = 0 OK, 1 CANNOT READ, 2 TOO BIG,
+C          3 NOT AN LSJJ.DAT OF THE VERSION THIS CODE EXPECTS.
+C
+C     A. Kramida 2026: the deck is an UNFORMATTED SEQUENTIAL file.  It
+C     was list-directed text to begin with, which was convenient while
+C     the recursion was being written, but a megabyte of 12-digit cfp is
+C     not something anyone reads, and list-directed input of it costs
+C     more than the whole rotation.  Nothing about the file is meant for
+C     human eyes, so it is now binary -- and therefore machine specific:
+C     it holds native INTEGER*4 and REAL*8 in native byte order, wrapped
+C     in the record markers of the compiler that wrote it.
+C
+C     THE FILE IS REGENERATED, NOT REPAIRED.  If it is lost, corrupted,
+C     or carried to a machine of the other endianness, run
+C
+C         cd LSJJ
+C         python mkdeck.py ../LSJJ.DAT
+C
+C     which rebuilds it from Cowan's own cfp tables and from the jj cfp
+C     recursion in LSJJ/recur.py -- see LSJJ/README.txt.  mkdeck.py -t
+C     writes the old text form instead, for inspection.  The first
+C     record carries a magic number and a version so that a stale, a
+C     foreign, or a still-text file is refused here rather than read as
+C     garbage.
+C
+      INCLUDE 'LSJJPAR.F'
+C
+C          MAGIC AND VERSION.  BUMP ILSVER WHENEVER THE RECORD LAYOUT
+C          BELOW CHANGES, AND BUMP IT IN mkdeck.py TO MATCH.
+      PARAMETER (ILSMAG=20260801, ILSVER=1)
+C
+      IERR=0
+      IF (ILSJRD.NE.0) RETURN
+      REWIND IU
+      READ (IU,ERR=900,END=900) MAGIC,IVERS,NLREC,NJREC
+      IF (MAGIC.NE.ILSMAG.OR.IVERS.NE.ILSVER) GO TO 920
+      IF (NLREC.GT.MXLR.OR.NJREC.GT.MXJR) GO TO 910
+      NOF=0
+      DO IR=1,NLREC
+        READ (IU,ERR=900,END=900) LRL(IR),LRN(IR),LRNT(IR),LRNP(IR)
+        NT=LRNT(IR)
+        NP=LRNP(IR)
+        IF (NT.GT.MXTM.OR.NP.GT.MXTM) GO TO 910
+        READ (IU,ERR=900,END=900) ((LRTRM(K,M,IR),K=1,4),M=1,NT)
+        READ (IU,ERR=900,END=900) (LRPAR(M,IR),M=1,NP)
+        IF (NOF+NT*NP.GT.MXCF) GO TO 910
+        LROF(IR)=NOF
+        READ (IU,ERR=900,END=900) (LRCFP(NOF+M),M=1,NT*NP)
+        NOF=NOF+NT*NP
+      ENDDO
+C
+      DO IJ=1,MXJJ
+        DO N=0,MXJN
+          JNLV(N,IJ)=0
+        ENDDO
+      ENDDO
+      DO IR=1,NJREC
+        READ (IU,ERR=900,END=900) J2,N,NC,NPJ
+        IJ=(J2+1)/2
+        IF (IJ.GT.MXJJ.OR.N.GT.MXJN.OR.NC.GT.MXJL.OR.NPJ.GT.MXJL)
+     1    GO TO 910
+        READ (IU,ERR=900,END=900)
+     1    (JLJ(K,N-1,IJ),JLV(K,N-1,IJ),K=1,NPJ)
+        JNLV(N-1,IJ)=NPJ
+        DO M=1,NC
+          READ (IU,ERR=900,END=900) JLJ(M,N,IJ),JLV(M,N,IJ)
+          READ (IU,ERR=900,END=900) (JCFP(M,K,N,IJ),K=1,NPJ)
+        ENDDO
+        JNLV(N,IJ)=NC
+      ENDDO
+      ILSJRD=1
+      IULQ=-1
+      IUNEL=-1
+      RETURN
+C
+  900 IERR=1
+      RETURN
+  910 IERR=2
+      RETURN
+  920 IERR=3
+      RETURN
+      END
+C
+      FUNCTION LSJJFR(LQ,N)
+C
+C          LS CFP RECORD NUMBER FOR l**N, 0 IF THERE IS NONE
+C
+      INCLUDE 'LSJJPAR.F'
+      LSJJFR=0
+      IF (N.LE.0) RETURN
+      DO IR=1,NLREC
+        IF (LRL(IR).EQ.LQ.AND.LRN(IR).EQ.N) LSJJFR=IR
+      ENDDO
+      RETURN
+      END
+C
+      FUNCTION LSJJY(L2,LB2,SB2,LX2,SX2,JT2,JB2,JK2)
+C
+C          Y = < ( (l s) j , (Lb Sb) Jb ) J | ( (Lb l) L , (Sb s) S ) J
+C
+C            = (-1)**(j+Jb-J) sqrt((2Jb+1)(2j+1)(2L+1)(2S+1))
+C                  * 9j{ Lb Sb Jb ; l s j ; L S J }
+C
+C          The phase undoes the order of the two momenta in the bra,
+C          which is  j  first here and  Jb  first in the standard 9j
+C          recoupling.  All arguments doubled.
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      IMPLICIT INTEGER*4 (I-N)
+      REAL*8 LSJJY
+      INTEGER SB2,SX2
+      HALF=0.5D0
+      IPH=(JK2+JB2-JT2)/2
+      A=DSQRT(DFLOAT((JB2+1)*(JK2+1)*(LX2+1)*(SX2+1)))
+      B=S9J(HALF*LB2,HALF*SB2,HALF*JB2, HALF*L2,HALF,HALF*JK2,
+     1      HALF*LX2,HALF*SX2,HALF*JT2)
+      LSJJY=A*B
+      IF (MOD(IABS(IPH),2).NE.0) LSJJY=-LSJJY
+      RETURN
+      END
+C
+      FUNCTION LSJJR1(JK2,JBK2,JOT2,J12,JB2,JT2)
+C
+C          R1 = < ( j1, (J1b J2) Jb ) J | ( (j1 J1b) J1, J2 ) J >
+C             = (-1)**(j1+J1b+J2+J) sqrt((2J1+1)(2Jb+1))
+C                   * 6j{ j1 J1b J1 ; J2 J Jb }
+C
+C          the standard  < (a,(b c)f)J | ((a b)g,c)J >  with a=j1,
+C          b=J1b, c=J2, f=Jb, g=J1.
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      IMPLICIT INTEGER*4 (I-N)
+      REAL*8 LSJJR1
+      HALF=0.5D0
+      IPH=(JK2+JBK2+JOT2+JT2)/2
+      A=DSQRT(DFLOAT((J12+1)*(JB2+1)))
+      B=S6J(HALF*JK2,HALF*JBK2,HALF*J12, HALF*JOT2,HALF*JT2,HALF*JB2)
+      LSJJR1=A*B
+      IF (MOD(IABS(IPH),2).NE.0) LSJJR1=-LSJJR1
+      RETURN
+      END
+C
+      FUNCTION LSJJR2(JK2,J12,JBK2,JS22,JB2,JT2)
+C
+C          R2 = < ( j2, (J1 J2b) Jb ) J | ( J1, (j2 J2b) J2 ) J >
+C
+C          With a=j2, b=J2b, c=J1, f=Jb, g=J2 the bra is (a,(c b)f)J
+C          and the ket is (c,(a b)g)J.  Reordering the inner pair of the
+C          bra, (c b) -> (b c), costs (-1)**(b+c-f); reordering the
+C          outer pair of the ket, (c,X) -> (X,c), costs (-1)**(c+g-J).
+C          What is left is the same standard recoupling as in LSJJR1,
+C              < (a,(b c)f)J | ((a b)g,c)J >
+C                 = (-1)**(a+b+c+J) sqrt((2g+1)(2f+1)) 6j{a b g; c J f}
+C          The three exponents are added before being halved because
+C          each may be half-integral on its own; their sum is not.
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      IMPLICIT INTEGER*4 (I-N)
+      REAL*8 LSJJR2
+      HALF=0.5D0
+      IPH=(JK2+2*JBK2+3*J12+JS22-JB2)/2
+      A=DSQRT(DFLOAT((JS22+1)*(JB2+1)))
+      B=S6J(HALF*JK2,HALF*JBK2,HALF*JS22, HALF*J12,HALF*JT2,HALF*JB2)
+      LSJJR2=A*B
+      IF (MOD(IABS(IPH),2).NE.0) LSJJR2=-LSJJR2
+      RETURN
+      END
+C
+      FUNCTION LSJJKY(N1,K1,N2,K2,J2)
+C
+C          PACKED KEY OF A jj BASIS STATE, FOR THE KMAP LOOKUP
+C
+      INCLUDE 'LSJJPAR.F'
+      LSJJKY=(((N1*MXJL+K1)*(MXJN+1)+N2)*MXJL+K2)*(MXJI+1)+J2+1
+      RETURN
+      END
+C
+      SUBROUTINE LSJJU(LQ,NEL,IERR)
+C
+C          BUILD THE LS -> jj TRANSFORMATION FOR l**NEL INTO /LSJJU/.
+C
+C          IERR = 0 OK, 1 DECK NOT READ, 3 NO CFP FOR THIS SHELL,
+C                 4 A DIMENSION IS TOO SMALL
+C
+      INCLUDE 'LSJJPAR.F'
+      REAL*8 LSJJY,LSJJR1,LSJJR2
+      INTEGER SB2,SX2
+      LOGICAL LANY
+C
+      IERR=0
+      IF (ILSJRD.EQ.0) THEN
+        IERR=1
+        RETURN
+      ENDIF
+      IF (IULQ.EQ.LQ.AND.IUNEL.EQ.NEL) RETURN
+      IULQ=-1
+      IUNEL=-1
+C
+C          s SUBSHELLS AND EMPTY SHELLS: THE TWO BASES COINCIDE
+C
+      IF (LQ.EQ.0.OR.NEL.EQ.0) THEN
+        NUROW=1
+        NUCOL=1
+        IUROW(1,1)=1
+        IUROW(2,1)=0
+        IUCOL(1,1)=0
+        IUCOL(2,1)=1
+        IUCOL(3,1)=NEL
+        IUCOL(4,1)=1
+        IUCOL(5,1)=0
+        DO IJ2=0,MXJI
+          NUJR(IJ2)=0
+          IUOFR(IJ2)=0
+          NUJC(IJ2)=0
+          IUOFC(IJ2)=0
+        ENDDO
+        IF (LQ.EQ.0.AND.NEL.EQ.1) THEN
+          IUROW(2,1)=1
+          IUCOL(5,1)=1
+          NUJR(1)=1
+          NUJC(1)=1
+        ELSE
+          NUJR(0)=1
+          NUJC(0)=1
+        ENDIF
+        UMAT(1,1)=1.D0
+        IULQ=LQ
+        IUNEL=NEL
+        IUJM2=2*LQ-1
+        IUJP2=2*LQ+1
+        IUREC=LSJJFR(LQ,NEL)
+        RETURN
+      ENDIF
+      IF (LSJJFR(LQ,NEL).EQ.0) THEN
+        IERR=3
+        RETURN
+      ENDIF
+      JM2=2*LQ-1
+      JP2=2*LQ+1
+      IJM=(JM2+1)/2
+      IJP=(JP2+1)/2
+      L2=2*LQ
+C
+C          n = 0 IN SLOT IP
+C
+      IC=1
+      IP=2
+      NROW(IP)=1
+      IRT(1,IP)=1
+      IRJ(1,IP)=0
+      NCOL(IP)=1
+      ICL(1,1,IP)=0
+      ICL(2,1,IP)=1
+      ICL(3,1,IP)=0
+      ICL(4,1,IP)=1
+      ICL(5,1,IP)=0
+      DO IJ2=0,MXJI
+        NRJ(IJ2,IP)=0
+        IOFR(IJ2,IP)=0
+        NCJ(IJ2,IP)=0
+        IOFC(IJ2,IP)=0
+      ENDDO
+      NRJ(0,IP)=1
+      NCJ(0,IP)=1
+      TT(1,1,IP)=1.D0
+C
+      DO 800 N=1,NEL
+        IR=LSJJFR(LQ,N)
+        IRM=LSJJFR(LQ,N-1)
+        IF (IR.EQ.0) THEN
+          IERR=3
+          RETURN
+        ENDIF
+        NT=LRNT(IR)
+        NP=LRNP(IR)
+        NOF=LROF(IR)
+C
+C            LS STATES OF l**N, GROUPED BY TOTAL J, ORDERED BY TERM
+C
+        L=0
+        DO IJ2=0,MXJI
+          IOFR(IJ2,IC)=L
+          DO M=1,NT
+            LX2=LRTRM(2,M,IR)
+            SX2=LRTRM(1,M,IR)-1
+            IF (IJ2.GE.IABS(LX2-SX2).AND.IJ2.LE.LX2+SX2 .AND.
+     1          MOD(IJ2-IABS(LX2-SX2),2).EQ.0) THEN
+              L=L+1
+              IF (L.GT.MXST) GO TO 950
+              IRT(L,IC)=M
+              IRJ(L,IC)=IJ2
+            ENDIF
+          ENDDO
+          NRJ(IJ2,IC)=L-IOFR(IJ2,IC)
+        ENDDO
+        NROW(IC)=L
+C
+C            jj STATES OF l**N, GROUPED BY TOTAL J
+C
+        L=0
+        DO IJ2=0,MXJI
+          IOFC(IJ2,IC)=L
+          DO N1=0,MIN0(JM2+1,N)
+            N2=N-N1
+            IF (N2.LE.JP2+1) THEN
+              DO K1=1,JNLV(N1,IJM)
+                JA2=JLJ(K1,N1,IJM)
+                DO K2=1,JNLV(N2,IJP)
+                  JC2=JLJ(K2,N2,IJP)
+                  IF (IJ2.GE.IABS(JA2-JC2).AND.IJ2.LE.JA2+JC2 .AND.
+     1                MOD(IJ2-IABS(JA2-JC2),2).EQ.0) THEN
+                    L=L+1
+                    IF (L.GT.MXST) GO TO 950
+                    ICL(1,L,IC)=N1
+                    ICL(2,L,IC)=K1
+                    ICL(3,L,IC)=N2
+                    ICL(4,L,IC)=K2
+                    ICL(5,L,IC)=IJ2
+                  ENDIF
+                ENDDO
+              ENDDO
+            ENDIF
+          ENDDO
+          NCJ(IJ2,IC)=L-IOFC(IJ2,IC)
+        ENDDO
+        NCOL(IC)=L
+        IF (NROW(IC).NE.NCOL(IC)) GO TO 950
+C
+C            DIRECT-ADDRESS MAP OF THE PARENT COLUMNS
+C
+        DO K=1,NCOL(IP)
+          KMAP(LSJJKY(ICL(1,K,IP),ICL(2,K,IP),ICL(3,K,IP),
+     1                ICL(4,K,IP),ICL(5,K,IP)))=0
+        ENDDO
+        DO K=1,NCOL(IP)
+          KMAP(LSJJKY(ICL(1,K,IP),ICL(2,K,IP),ICL(3,K,IP),
+     1                ICL(4,K,IP),ICL(5,K,IP)))=K
+        ENDDO
+C
+        DO K=1,NCOL(IC)
+          DO I=1,NROW(IC)
+            TT(I,K,IC)=0.D0
+          ENDDO
+        ENDDO
+C
+C            ONE TOTAL J AT A TIME
+C
+        DO 700 IJ2=0,MXJI
+          NR=NRJ(IJ2,IC)
+          IF (NR.LE.0) GO TO 700
+          NC=NCJ(IJ2,IC)
+          I0=IOFR(IJ2,IC)
+          J0=IOFC(IJ2,IC)
+C
+          DO 690 KS=1,2
+            JK2=JM2
+            IJK=IJM
+            IF (KS.EQ.2) THEN
+              JK2=JP2
+              IJK=IJP
+            ENDIF
+            LANY=.FALSE.
+            DO K=1,NC
+              IF (LSJJRC(ICL(1,J0+K,IC),ICL(3,J0+K,IC),N,NEL).EQ.KS)
+     1          LANY=.TRUE.
+            ENDDO
+            IF (.NOT.LANY) GO TO 690
+C
+            DO 680 JB2=IABS(IJ2-JK2),MIN0(IJ2+JK2,MXJI),2
+              NRP=NRJ(JB2,IP)
+              NCP=NCJ(JB2,IP)
+              IF (NRP.LE.0.OR.NCP.LE.0) GO TO 680
+              IP0=IOFR(JB2,IP)
+              JP0=IOFC(JB2,IP)
+C
+C                A = cfp_LS * Y, ROWS OF l**N J, COLUMNS OF l**(N-1) Jb
+C
+              DO M=1,MXTM
+                IPOSR(M)=0
+              ENDDO
+              DO M=1,NRP
+                IPOSR(IRT(IP0+M,IP))=M
+              ENDDO
+              DO M=1,NRP
+                DO I=1,NR
+                  AMAT(I,M)=0.D0
+                ENDDO
+              ENDDO
+              DO I=1,NR
+                MT=IRT(I0+I,IC)
+                LX2=LRTRM(2,MT,IR)
+                SX2=LRTRM(1,MT,IR)-1
+                DO K=1,NP
+                  C=LRCFP(NOF+(MT-1)*NP+K)
+                  IF (DABS(C).GE.1.D-12) THEN
+                    MP=LRPAR(K,IR)
+                    JPOS=IPOSR(MP)
+                    IF (JPOS.NE.0) THEN
+                      IF (N.EQ.1) THEN
+                        LB2=0
+                        SB2=0
+                      ELSE
+                        LB2=LRTRM(2,MP,IRM)
+                        SB2=LRTRM(1,MP,IRM)-1
+                      ENDIF
+                      Y=LSJJY(L2,LB2,SB2,LX2,SX2,IJ2,JB2,JK2)
+                      AMAT(I,JPOS)=AMAT(I,JPOS)+C*Y
+                    ENDIF
+                  ENDIF
+                ENDDO
+              ENDDO
+C
+C                B = A * T_(n-1)
+C
+              DO K=1,NCP
+                DO I=1,NR
+                  SUM=0.D0
+                  DO M=1,NRP
+                    SUM=SUM+AMAT(I,M)*TT(IP0+M,JP0+K,IP)
+                  ENDDO
+                  BMAT(I,K)=SUM
+                ENDDO
+              ENDDO
+C
+C                ACCUMULATE THE COLUMNS
+C
+              DO 660 K=1,NC
+                KC=J0+K
+                N1=ICL(1,KC,IC)
+                K1=ICL(2,KC,IC)
+                N2=ICL(3,KC,IC)
+                K2=ICL(4,KC,IC)
+                IF (LSJJRC(N1,N2,N,NEL).NE.KS) GO TO 660
+                NK=N1
+                KLEV=K1
+                IF (KS.EQ.2) THEN
+                  NK=N2
+                  KLEV=K2
+                ENDIF
+                J12=JLJ(K1,N1,IJM)
+                JS22=JLJ(K2,N2,IJP)
+                JOT2=JS22
+                IF (KS.EQ.2) JOT2=J12
+                SIG=1.D0
+                IF (KS.EQ.2.AND.MOD(N1,2).NE.0) SIG=-1.D0
+                PREF=SIG*DSQRT(DFLOAT(N)/DFLOAT(NK))
+                DO 650 KB=1,JNLV(NK-1,IJK)
+                  CJ=JCFP(KLEV,KB,NK,IJK)
+                  IF (DABS(CJ).LT.1.D-12) GO TO 650
+                  JBK2=JLJ(KB,NK-1,IJK)
+                  IF (JB2.LT.IABS(JBK2-JOT2).OR.JB2.GT.JBK2+JOT2)
+     1              GO TO 650
+                  IF (MOD(JB2-IABS(JBK2-JOT2),2).NE.0) GO TO 650
+                  IF (KS.EQ.1) THEN
+                    KEY=LSJJKY(N1-1,KB,N2,K2,JB2)
+                    R=LSJJR1(JK2,JBK2,JOT2,J12,JB2,IJ2)
+                  ELSE
+                    KEY=LSJJKY(N1,K1,N2-1,KB,JB2)
+                    R=LSJJR2(JK2,J12,JBK2,JS22,JB2,IJ2)
+                  ENDIF
+                  IF (DABS(R).LT.1.D-12) GO TO 650
+                  KG=KMAP(KEY)
+                  IF (KG.EQ.0) GO TO 650
+                  KP=KG-JP0
+                  IF (KP.LE.0.OR.KP.GT.NCP) GO TO 650
+                  F=PREF*CJ*R
+                  DO I=1,NR
+                    TT(I0+I,KC,IC)=TT(I0+I,KC,IC)+F*BMAT(I,KP)
+                  ENDDO
+  650           CONTINUE
+  660         CONTINUE
+  680       CONTINUE
+  690     CONTINUE
+  700   CONTINUE
+C
+        IT=IC
+        IC=IP
+        IP=IT
+  800 CONTINUE
+C
+C          THE LAST "PREVIOUS" SLOT IS THE ANSWER
+C
+      NUROW=NROW(IP)
+      NUCOL=NCOL(IP)
+      DO I=1,NUROW
+        IUROW(1,I)=IRT(I,IP)
+        IUROW(2,I)=IRJ(I,IP)
+      ENDDO
+      DO K=1,NUCOL
+        DO M=1,5
+          IUCOL(M,K)=ICL(M,K,IP)
+        ENDDO
+      ENDDO
+      DO IJ2=0,MXJI
+        NUJR(IJ2)=NRJ(IJ2,IP)
+        IUOFR(IJ2)=IOFR(IJ2,IP)
+        NUJC(IJ2)=NCJ(IJ2,IP)
+        IUOFC(IJ2)=IOFC(IJ2,IP)
+      ENDDO
+      DO K=1,NUCOL
+        DO I=1,NUROW
+          UMAT(I,K)=TT(I,K,IP)
+        ENDDO
+      ENDDO
+      IULQ=LQ
+      IUNEL=NEL
+      IUJM2=JM2
+      IUJP2=JP2
+      IUREC=LSJJFR(LQ,NEL)
+      RETURN
+C
+  950 IERR=4
+      RETURN
+      END
+C
+      FUNCTION LSJJRC(N1,N2,N,NEL)
+C
+C          WHICH SUBSHELL A COLUMN IS PEELED FROM.  EITHER ROUTE GIVES
+C          THE WHOLE COLUMN, SO ONE IS PICKED AND THE OTHER IS A CHECK:
+C          WITH IUALT SET, THE COLUMNS OF THE LAST STEP THAT HAVE BOTH
+C          SUBSHELLS OCCUPIED TAKE THE OTHER ROUTE.
+C
+      INCLUDE 'LSJJPAR.F'
+      LSJJRC=1
+      IF (N1.LE.0) LSJJRC=2
+      IF (N1.LE.0.AND.N2.LE.0) LSJJRC=0
+      IF (IUALT.NE.0.AND.N.EQ.NEL.AND.N1.GT.0.AND.N2.GT.0)
+     1  LSJJRC=3-LSJJRC
+      RETURN
+      END
+C
+      SUBROUTINE LSJJCK(DEV,IERR)
+C
+C          REBUILD U BY THE OTHER PEELING ROUTE AND RETURN THE LARGEST
+C          DIFFERENCE OVER THE COLUMNS THAT HAVE BOTH SUBSHELLS
+C          OCCUPIED.  U IS LEFT REBUILT BY THE STANDARD ROUTE.
+C
+      INCLUDE 'LSJJPAR.F'
+      DEV=0.D0
+      IERR=0
+      LQ=IULQ
+      NEL=IUNEL
+      IF (LQ.LT.0.OR.NEL.LE.0) RETURN
+      DO K=1,NUCOL
+        DO I=1,NUROW
+          UALT(I,K)=UMAT(I,K)
+        ENDDO
+      ENDDO
+      IUALT=1
+      IULQ=-1
+      CALL LSJJU(LQ,NEL,IERR)
+      IUALT=0
+      IULQ=-1
+      IF (IERR.NE.0) RETURN
+      DO K=1,NUCOL
+        IF (IUCOL(1,K).GT.0.AND.IUCOL(3,K).GT.0) THEN
+          DO I=1,NUROW
+            DEV=DMAX1(DEV,DABS(UMAT(I,K)-UALT(I,K)))
+          ENDDO
+        ENDIF
+      ENDDO
+      CALL LSJJU(LQ,NEL,IERR)
+      RETURN
+      END
+C
+      SUBROUTINE LSJJOR(DEV)
+C
+C          LARGEST DEVIATION OF U*U(T) FROM THE UNIT MATRIX, BLOCK BY
+C          BLOCK IN J
+C
+      INCLUDE 'LSJJPAR.F'
+      DEV=0.D0
+      DO IJ2=0,MXJI
+        NR=NUJR(IJ2)
+        IF (NR.GT.0) THEN
+          I0=IUOFR(IJ2)
+          J0=IUOFC(IJ2)
+          DO I=1,NR
+            DO M=1,NR
+              SUM=0.D0
+              DO K=1,NUJC(IJ2)
+                SUM=SUM+UMAT(I0+I,J0+K)*UMAT(I0+M,J0+K)
+              ENDDO
+              IF (I.EQ.M) SUM=SUM-1.D0
+              DEV=DMAX1(DEV,DABS(SUM))
+            ENDDO
+          ENDDO
+        ENDIF
+      ENDDO
+      RETURN
+      END
+C
+      SUBROUTINE LSJJSF(IU,IW1,LQMN,LQMX)
+C
+C          SELF TEST.  BUILD U FOR EVERY SHELL OF l = LQMN..LQMX AND
+C          WRITE THE ORTHOGONALITY RESIDUAL AND THE MATRIX ITSELF ON
+C          UNIT IW1, IN THE FORM recur.py DUMPS IT.
+C
+      INCLUDE 'LSJJPAR.F'
+      CHARACTER*1 LSY(0:9)
+      DATA LSY/'s','p','d','f','g','h','i','k','l','m'/
+C
+      CALL LSJJIN(IU,IERR)
+      IF (IERR.NE.0) THEN
+        WRITE (IW1,10) IERR
+   10   FORMAT (' LSJJIN FAILED, IERR=',I3)
+        RETURN
+      ENDIF
+      DO LQ=LQMN,LQMX
+        NMX=4*LQ+2
+        DO NEL=1,NMX
+          IF (LSJJFR(LQ,NEL).NE.0) THEN
+            CALL LSJJU(LQ,NEL,IERR)
+            IF (IERR.NE.0) THEN
+              WRITE (IW1,20) LSY(LQ),NEL,IERR
+   20         FORMAT (' SHELL ',A1,'^',I2,'  LSJJU IERR=',I3)
+            ELSE
+              CALL LSJJOR(DEV)
+              CALL LSJJCK(DEV2,IE2)
+              WRITE (IW1,30) LSY(LQ),NEL,NUROW,DEV,DEV2
+   30         FORMAT (' SHELL ',A1,'^',I2,I6,' STATES   ORTH',1PE10.2,
+     1          '   1V2',1PE10.2)
+              DO IJ2=0,MXJI
+                NR=NUJR(IJ2)
+                IF (NR.GT.0) THEN
+                  I0=IUOFR(IJ2)
+                  J0=IUOFC(IJ2)
+                  WRITE (IW1,40) IJ2,NR
+   40             FORMAT (' 2J=',I3,I5)
+                  DO I=1,NR
+                    WRITE (IW1,50) (IUROW(M,I0+I),M=1,2)
+   50               FORMAT (' R',2I5)
+                  ENDDO
+                  DO K=1,NUJC(IJ2)
+                    WRITE (IW1,60) (IUCOL(M,J0+K),M=1,5)
+   60               FORMAT (' C',5I5)
+                  ENDDO
+                  DO K=1,NUJC(IJ2)
+                    WRITE (IW1,70) (UMAT(I0+I,J0+K),I=1,NR)
+   70               FORMAT (4(1X,1PE22.14))
+                  ENDDO
+                ENDIF
+              ENDDO
+            ENDIF
+          ENDIF
+        ENDDO
+      ENDDO
+      RETURN
+      END
+C
+      BLOCK DATA LSJJBD
+C
+C          THE DECK IS NOT READ AND NO SHELL IS CACHED YET
+C
+      INCLUDE 'LSJJPAR.F'
+      DATA ILSJRD/0/,IULQ/-1/,IUNEL/-1/,IUALT/0/
+      END
+C
+      SUBROUTINE LSJJRT(TMX,LDT,NBLK,MODE,IERR)
+C
+C          ROTATE THE COLUMNS OF TMX FROM COWAN'S J1J2 COUPLING INTO
+C          TRUE jj COUPLING, IN PLACE.
+C
+C          ON ENTRY COLUMN c OF TMX IS
+C
+C            | (t1 J1, t2 J2, ... ) J >
+C
+C          WITH ti AN LS TERM OF SUBSHELL i COUPLED TO Ji.  THE TRUE jj
+C          STATE REPLACES ti BY ( j-**N1 v1 J1', j+**N2 v2 J2' ) Ji AND
+C          LEAVES EVERY Ji AND THE WHOLE INTERMEDIATE J CHAIN ALONE, SO
+C          AT FIXED Ji THE OLD AND NEW LABELS ARE TWO BASES OF ONE
+C          SPACE AND THE CHANGE IS A ROTATION OF THE COLUMNS:
+C
+C            TMX_jj(.,c) = sum_c' TMX(.,c') prod_i U_i( t_i(c'), c_i(c) )
+C
+C          U_i IS WHAT LSJJU(l,N) LEAVES IN /LSJJR/.  THE COLUMNS OF ONE
+C          CAFCDOLP BLOCK ARE A CARTESIAN PRODUCT OVER SUBSHELLS -- SHAPE
+C          NBKJJ(.,IB), SUBSHELL 8 VARYING FASTEST -- SO THE PRODUCT IS
+C          TAKEN ONE SUBSHELL AT A TIME: A FIBRE (COLUMNS DIFFERING ONLY
+C          IN THE TERM OF SUBSHELL i) IS MULTIPLIED BY THE BLOCK OF U_i
+C          BELONGING TO THAT SUBSHELL J.  NOTHING BIGGER THAN ONE FIBRE
+C          IS EVER HELD, WHICH MATTERS AT KMX=20000.
+C
+C          A SUBSHELL IS LEFT ALONE WHEN THE ROTATION CANNOT DO ANYTHING:
+C          l=0, OR N<=1 OR N>=4l+1.  THOSE ARE EXACTLY THE CASES WHERE
+C          RCG ITSELF CARRIES A SINGLE MADE-UP TERM RATHER THAN A DECK
+C          TERM LIST (SEE THE NN.LE.1.OR.NN.GE.NFULL-1 BRANCH IN PLEV),
+C          AND EVERY SUBSHELL J BLOCK IS ONE-DIMENSIONAL THERE, SO THE
+C          TWO BASES COINCIDE.
+C
+C          THE jj LABELS OF THE NEW COLUMNS ARE LEFT IN /LSJJLB/:
+C          NJJST(1..4,c,i) = N1, LEVEL OF j-**N1, N2, LEVEL OF j+**N2,
+C          OR -1 WHERE THE COLUMN STILL CARRIES AN LS TERM.  NOTHING
+C          READS THEM YET; THE OUTPUT LABELS ARE THE NEXT STEP.
+C
+C          MODE = 0  CHECK ONLY.  EVERY TEST BELOW IS RUN AND NOTHING IN
+C                    TMX OR /LSJJLB/ IS TOUCHED.  CALL THIS FIRST: THE
+C                    TESTS ARE PER BLOCK AND PER SUBSHELL, SO A FAILURE
+C                    RAISED HALFWAY THROUGH A ROTATING PASS WOULD LEAVE
+C                    THE MATRIX PART J1J2 AND PART jj, WHICH IS NEITHER
+C                    USABLE NOR UNDOABLE.  CHECKING THE WHOLE MATRIX
+C                    BEFORE CHANGING ANY OF IT MAKES THE OPERATION ALL
+C                    OR NOTHING, AND MAKES THE "MATRIX LEFT IN J1J2"
+C                    MESSAGE IN CALCFC TRUE.
+C                 1  ROTATE  J1J2 -> TRUE jj.
+C                -1  ROTATE  TRUE jj -> J1J2, THE EXACT INVERSE.  U IS
+C                    ORTHOGONAL, SO THIS IS U TRANSPOSED AND THE ROUND
+C                    TRIP RETURNS THE ORIGINAL TO ROUNDOFF.
+C
+C          IERR = 0 OK
+C                 1 DECK NOT READ           3 NO CFP FOR A SHELL
+C                 5 TERM LIST DISAGREES WITH THE DECK
+C                 6 BLOCK SHAPE INCONSISTENT (KMX OVERFLOW, OR THE
+C                   NLT11 TERM CUTOFF, EITHER OF WHICH LEAVES THE LS
+C                   BASIS INCOMPLETE AND THE ROTATION UNDEFINED)
+C                 7 A FIBRE DOES NOT MATCH THE U BLOCK
+C                 8 A U BLOCK IS NOT ORTHOGONAL (SEE CFCUOR)
+C
+      INCLUDE 'RCGPAR.F'
+      INCLUDE 'LSJJCOM.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS),MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      COMMON/LSJJBK/IJJROT,IJJU,IBSJJ(KNSJK),NBKJJ(KS,KNSJK)
+      INCLUDE 'LSJJID.F'
+      DIMENSION TMX(LDT,*)
+      DIMENSION IRU(MXST),V(MXST),MAPD(MXTM)
+      CHARACTER*4 CH4
+C          NLS (THE ROW COUNT) COMES FROM COMMON/C1/, NOT THE ARGUMENT
+C          LIST -- IT IS ALREADY THERE AND A DUMMY WOULD CLASH.
+C
+      IERR=0
+      IF (ILSJRD.EQ.0) THEN
+        IERR=1
+        RETURN
+      ENDIF
+      JX=NSCONF(2,KK)
+C
+      DO 900 IB=1,NBLK
+        IF (IB.GT.KNSJK) GO TO 900
+        NC=NSJK(IB)
+        IF (NC.LE.0) GO TO 900
+        L0=IBSJJ(IB)
+C
+C            THE BLOCK MUST BE THE FULL CARTESIAN PRODUCT
+C
+        NP=1
+        DO I=1,KS
+          NP=NP*NBKJJ(I,IB)
+        ENDDO
+        IF (NP.NE.NC) THEN
+          IERR=6
+          RETURN
+        ENDIF
+C
+C            WHICH CONFIGURATION THE BLOCK BELONGS TO.  THE SUBSHELL
+C            TERM TABLES ARE CONCATENATED OVER CONFIGURATIONS, SO THE
+C            TERM INDEX ITSELF SAYS WHICH ONE (AS AT LABEL 349 ABOVE).
+C
+        M1=NALSJ(L0+1,1)
+        JC=0
+        DO J1=1,JX
+          IF (M1.GT.NOTSJ1(1,J1).AND.M1.LE.NOTSJ1(1,J1+1)) JC=J1
+        ENDDO
+        IF (JC.EQ.0) THEN
+          IERR=6
+          RETURN
+        ENDIF
+C
+        IF (MODE.NE.0) THEN
+          DO I=1,NOSUBC
+            DO JCL=1,NC
+              NJJST(1,L0+JCL,I)=-1
+              NJJST(2,L0+JCL,I)=0
+              NJJST(3,L0+JCL,I)=0
+              NJJST(4,L0+JCL,I)=0
+            ENDDO
+          ENDDO
+        ENDIF
+C
+C            ONE SUBSHELL AT A TIME.  ISTR IS THE COLUMN STRIDE OF
+C            SUBSHELL I INSIDE THE BLOCK.
+C
+        ISTR=NC
+        DO 800 I=1,NOSUBC
+          NI1=NBKJJ(I,IB)
+          ISTR=ISTR/NI1
+          LQ=FLLIJK(I,JC,KK)+0.5D0
+          NEL=NIJK(I,JC,KK)
+          NFULL=4*LQ+2
+          IF (LQ.LE.0) GO TO 800
+          IF (NEL.LE.1.OR.NEL.GE.NFULL-1) GO TO 800
+          CALL LSJJU(LQ,NEL,IE)
+          IF (IE.NE.0) THEN
+            IERR=IE
+            RETURN
+          ENDIF
+C
+C              IS U ACTUALLY ORTHOGONAL?  THIS IS THE TEST THAT USED TO
+C              BE MADE ON THE ROTATED MATRIX BACK IN CALCFC, AT
+C              NLS**3/2 A J BLOCK; SEE CFCUOR FOR WHY THE FACTOR AND
+C              THE PRODUCT SAY THE SAME THING.  IT BELONGS HERE, WHERE
+C              THE MODE=0 PASS CAN STILL STOP THE ROTATION BEFORE ANY
+C              COLUMN HAS BEEN TOUCHED.  CFCUOR IS CHEAP AND REMEMBERS
+C              WHAT IT HAS SEEN, SO CALLING IT ON EVERY SUBSHELL OF
+C              EVERY BLOCK COSTS A COMPARISON AFTER THE FIRST TIME.
+C
+          CALL CFCUOR (IE)
+          IF (IE.NE.0) THEN
+            WRITE (IW,551) LQ,NEL
+  551       FORMAT (//' *****THE LS -> jj MATRIX FOR l=',I2,'**',I2,
+     1        ' IS NOT ORTHOGONAL.'/)
+            IERR=8
+            RETURN
+          ENDIF
+          IOF=NOTSJ1(I,JC)
+          NT=LRNT(IUREC)
+C
+C              MAP RCG'S TERM ORDER ONTO THE DECK'S.  THE TWO LISTS HOLD
+C              THE SAME TERMS IN DIFFERENT ORDERS -- RCG READS COWAN'S
+C              BINARY CFP DECK, THE LSJJ.DAT RECORD WAS BUILT FROM THE
+C              SOURCE TABLES -- SO A TERM IS MATCHED ON (2S,2L) AND,
+C              WHERE THAT REPEATS (f**3 CARRIES 2D, 2F, 2G AND 2H TWICE
+C              EACH), ON THE ONE NON-BLANK CHARACTER OF COWAN'S ALPHA
+C              FIELD.  TAKING THE FIRST NON-BLANK RATHER THAN A FIXED
+C              COLUMN KEEPS THIS INDIFFERENT TO HOW EITHER SIDE PADS.
+C              THE RESULT MUST BE A BIJECTION; ANYTHING ELSE -- NOT
+C              LEAST THE NLT11 TERM CUTOFF, WHICH LEAVES RCG WITH FEWER
+C              TERMS THAN THE DECK AND SO NO ROTATION AT ALL -- IS AN
+C              ERROR RATHER THAN SOMETHING TO PATCH OVER.
+C
+          IF (NOTSJ1(I,JC+1)-IOF.NE.NT) THEN
+            IERR=5
+            RETURN
+          ENDIF
+          IF (NT.GT.MXTM) THEN
+            IERR=5
+            RETURN
+          ENDIF
+          DO M=1,NT
+            MAPD(M)=0
+          ENDDO
+          DO M=1,NT
+            I2S=NINT(2.D0*S(IOF+M,I))
+            I2L=NINT(2.D0*FL(IOF+M,I))
+            CH4=TRANSFER(IALF(IOF+M,I),CH4)
+            KA=ICHAR(' ')
+            IF (CH4(1:1).NE.' ') THEN
+              KA=ICHAR(CH4(1:1))
+            ELSEIF (CH4(2:2).NE.' ') THEN
+              KA=ICHAR(CH4(2:2))
+            ENDIF
+            NM=0
+            DO MD=1,NT
+              IF (LRTRM(1,MD,IUREC)-1.EQ.I2S .AND.
+     1            LRTRM(2,MD,IUREC).EQ.I2L) THEN
+                KB=ICHAR(' ')
+                IF (CHAR(LRTRM(3,MD,IUREC)).NE.' ') THEN
+                  KB=LRTRM(3,MD,IUREC)
+                ELSEIF (CHAR(LRTRM(4,MD,IUREC)).NE.' ') THEN
+                  KB=LRTRM(4,MD,IUREC)
+                ENDIF
+                IF (KB.EQ.KA) THEN
+                  NM=NM+1
+                  MAPD(M)=MD
+                ENDIF
+              ENDIF
+            ENDDO
+            IF (NM.NE.1) THEN
+              IERR=5
+              RETURN
+            ENDIF
+          ENDDO
+          DO MD=1,NT
+            NM=0
+            DO M=1,NT
+              IF (MAPD(M).EQ.MD) NM=NM+1
+            ENDDO
+            IF (NM.NE.1) THEN
+              IERR=5
+              RETURN
+            ENDIF
+          ENDDO
+          DO JCL=1,NC
+            MD=NALSJ(L0+JCL,I)-IOF
+            IF (MD.LT.1.OR.MD.GT.NT) THEN
+              IERR=5
+              RETURN
+            ENDIF
+          ENDDO
+C
+          DO 700 JCL=1,NC
+            IF (MOD((JCL-1)/ISTR,NI1).NE.0) GO TO 700
+C
+C                FIBRE HEAD.  COLLECT THE U ROWS IT USES.
+C
+            J2=NINT(2.D0*FJ(L0+JCL,I))
+            IF (J2.LT.0.OR.J2.GT.MXJI) THEN
+              IERR=7
+              RETURN
+            ENDIF
+            IF (NUJC(J2).NE.NI1.OR.NUJR(J2).NE.NI1) THEN
+              IERR=7
+              RETURN
+            ENDIF
+            I0=IUOFR(J2)
+            J0=IUOFC(J2)
+            DO M=1,NI1
+              MD=MAPD(NALSJ(L0+JCL+(M-1)*ISTR,I)-IOF)
+              IRU(M)=0
+              DO MRW=1,NI1
+                IF (IUROW(1,I0+MRW).EQ.MD) IRU(M)=I0+MRW
+              ENDDO
+              IF (IRU(M).EQ.0) THEN
+                IERR=7
+                RETURN
+              ENDIF
+            ENDDO
+C
+C                ROTATE THE FIBRE.  IN MODE 0 EVERYTHING ABOVE HAS BEEN
+C                CHECKED AND NOTHING IS WRITTEN.
+C
+            IF (MODE.EQ.0) GO TO 700
+            DO L=1,NLS
+              DO M=1,NI1
+                V(M)=TMX(L,L0+JCL+(M-1)*ISTR)
+              ENDDO
+              IF (MODE.GT.0) THEN
+                DO M=1,NI1
+                  SUM=0.D0
+                  DO M2=1,NI1
+                    SUM=SUM+V(M2)*UMAT(IRU(M2),J0+M)
+                  ENDDO
+                  TMX(L,L0+JCL+(M-1)*ISTR)=SUM
+                ENDDO
+              ELSE
+                DO M=1,NI1
+                  SUM=0.D0
+                  DO M2=1,NI1
+                    SUM=SUM+V(M2)*UMAT(IRU(M),J0+M2)
+                  ENDDO
+                  TMX(L,L0+JCL+(M-1)*ISTR)=SUM
+                ENDDO
+              ENDIF
+            ENDDO
+C
+C                AND RELABEL IT.  GOING BACK, THE COLUMNS CARRY LS TERMS
+C                AGAIN AND THE -1 SET ABOVE IS THE RIGHT LABEL.
+C
+            IF (MODE.GT.0) THEN
+              DO M=1,NI1
+                LC=L0+JCL+(M-1)*ISTR
+                NJJST(1,LC,I)=IUCOL(1,J0+M)
+                NJJST(2,LC,I)=IUCOL(2,J0+M)
+                NJJST(3,LC,I)=IUCOL(3,J0+M)
+                NJJST(4,LC,I)=IUCOL(4,J0+M)
+              ENDDO
+            ENDIF
+  700     CONTINUE
+  800   CONTINUE
+  900 CONTINUE
+      RETURN
+      END
+C
+      SUBROUTINE LSJJID(NLSC)
+C
+C          NAME THE COLUMNS OF THE BLOCK LSJJRT HAS JUST ROTATED.
+C
+C          FIDJ2(c) GETS A TWO-CHARACTER FIELD PER OCCUPIED SUBSHELL:
+C          THE CODE OF THAT SUBSHELL'S jj STATE, THEN 2*Ji IN THE SAME
+C          ALPHABET.  LSJJID.F HAS THE LAYOUT AND THE REASONS; LSJJKP
+C          PRINTS THE KEY.
+C
+C          CALL AFTER LSJJRT(...,+1,...) AND BEFORE ANY MODE=-1: IT
+C          READS NJJST, WHICH MODE=-1 RESETS.
+C
+      INCLUDE 'RCGPAR.F'
+      INCLUDE 'LSJJID.F'
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS),MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      CHARACTER*1 LSJJCC
+      DIMENSION KD(5)
+C
+      NSB=MIN0(NOSUBC,KS)
+      K=KK
+      IF (K.LT.1.OR.K.GT.2) K=1
+      DO 300 L=1,NLSC
+        FIDJ2(L)='        '
+        JC=NCFG(L)
+        IF (JC.LT.1.OR.JC.GT.KC) GO TO 300
+C            HOW MANY SUBSHELLS ARE OCCUPIED DECIDES THE LAYOUT, AND is
+C            A PROPERTY OF THE CONFIGURATION, NOT OF THE COLUMN.  IJJ
+C            SAYS WHETHER THE SUBSHELL J's FIT, ICH WHETHER THE CHAIN
+C            DOES.  LSJJID.F HAS THE TABLE.
+        NOCC=0
+        DO I=1,NSB
+          IF (LSJJOP(I,JC,K).NE.0) NOCC=NOCC+1
+        ENDDO
+        IJJF=1
+        ICHF=1
+        IF (NOCC.GT.3) ICHF=0
+        IF (NOCC.GT.4) IJJF=0
+        IP=1
+        NOC=0
+        DO 200 I=1,NSB
+C              Empty and closed subshells carry no quantum numbers at
+C              all -- one state, J=0, and the running J left where it
+C              was -- so a field for them would say nothing.  Leaving
+C              them out is not just tidier: it is what brings the
+C              configurations of a deck like Pr III, which declare
+C              eight subshells and open two or three, down to a width
+C              the eight characters can name uniquely.
+          IF (LSJJOP(I,JC,K).EQ.0) GO TO 200
+          IF (IP.GT.8) GO TO 200
+          NOC=NOC+1
+          KD(1)=FLLIJK(I,JC,K)+0.5D0
+          IF (NJJST(1,L,I).GE.0) THEN
+            KD(2)=NJJST(1,L,I)
+            KD(3)=NJJST(2,L,I)
+            KD(4)=NJJST(3,L,I)
+            KD(5)=NJJST(4,L,I)
+          ELSE
+C              THE ROTATION LEFT THIS SUBSHELL ALONE, SO ITS jj STATE
+C              IS ITS LS TERM.  KEY ON THE TERM INDEX.
+            KD(2)=-1
+            KD(3)=NALSJ(L,I)
+            KD(4)=0
+            KD(5)=0
+          ENDIF
+          IBASE=(((K-1)*KC+JC-1)*KS+I-1)*KJJCOD
+          NC=0
+          DO 120 M=1,KEYNC(I,JC,K)
+            DO 110 N=1,5
+              IF (KEYDT(N,IBASE+M).NE.KD(N)) GO TO 120
+  110       CONTINUE
+            NC=M
+            GO TO 130
+  120     CONTINUE
+  130     IF (NC.EQ.0) THEN
+            IF (KEYNC(I,JC,K).GE.KJJCOD) THEN
+              NKEYOV=NKEYOV+1
+              NC=0
+            ELSE
+              NC=KEYNC(I,JC,K)+1
+              KEYNC(I,JC,K)=NC
+              DO N=1,5
+                KEYDT(N,IBASE+NC)=KD(N)
+              ENDDO
+            ENDIF
+          ENDIF
+C              Ai, THEN Ji, THEN Ki WHERE THERE IS ONE.  LSJJCC TURNS
+C              CODE 0 INTO '*', SO AN EXHAUSTED KEY NEEDS NO TEST HERE.
+          FIDJ2(L)(IP:IP)=LSJJCC(NC)
+          IP=IP+1
+          IF (IJJF.NE.0.AND.IP.LE.8) THEN
+            FIDJ2(L)(IP:IP)=LSJJCC(NINT(2.D0*FJ(L,I))+1)
+            IP=IP+1
+          ENDIF
+          IF (ICHF.NE.0.AND.NOC.GT.1.AND.NOC.LT.NOCC.AND.IP.LE.8) THEN
+            FIDJ2(L)(IP:IP)=LSJJCC(NINT(2.D0*SCRJ(L,I))+1)
+            IP=IP+1
+          ENDIF
+  200   CONTINUE
+  300 CONTINUE
+      RETURN
+      END
+C
+      FUNCTION LSJJOP(I,JC,K)
+C
+C          1 IF SUBSHELL I OF CONFIGURATION JC OF PARITY K IS OPEN, 0
+C          IF IT IS EMPTY OR CLOSED.  BOTH OF THOSE HAVE ONE STATE WITH
+C          J=0 AND LEAVE THE RUNNING J ALONE, SO THEY CONTRIBUTE
+C          NOTHING TO A jj LABEL AND ARE LEFT OUT OF ONE.  LSJJID AND
+C          LSJJKP MUST AGREE ABOUT THIS, WHICH IS WHY IT IS A FUNCTION.
+C
+      INCLUDE 'RCGPAR.F'
+      LSJJOP=0
+      NEL=NIJK(I,JC,K)
+      IF (NEL.LE.0) RETURN
+      LQ=FLLIJK(I,JC,K)+0.5D0
+      IF (NEL.GE.4*LQ+2) RETURN
+      LSJJOP=1
+      RETURN
+      END
+C
+      CHARACTER*1 FUNCTION LSJJCC(NC)
+C
+C          THE CODE ALPHABET OF THE TRUE jj LABELS: 1..9, THEN A..Z,
+C          THEN a..z, THEN PUNCTUATION.  '0' IS LEFT OUT SO THAT A CODE
+C          IS NEVER TAKEN FOR A BLANK OR A ZERO; '*' IS RESERVED FOR
+C          "NO CODE LEFT"; AND THE BRACKETS AND THE SPACE ARE LEFT OUT
+C          BECAUSE THE FORMATS AROUND THE LABEL USE THEM.
+C
+C          85 CODES.  THE ALPHANUMERICS ALONE (61) COVER EVERY SHELL
+C          THE DECK HAS BUT f**5 THROUGH f**9, WHOSE (N1 v1 J1, N2 v2
+C          J2) COUNT PEAKS AT 70 -- SO THE PUNCTUATION IS NOT DECORATION
+C          AND SHOULD NOT BE TRIMMED BACK.
+C
+      IMPLICIT INTEGER*4 (I-N)
+      CHARACTER*24 PUN
+      DATA PUN/'#%&@+-=?<>~^_|;:!/\.,"${'/
+      IF (NC.LE.0.OR.NC.GT.85) THEN
+        LSJJCC='*'
+      ELSEIF (NC.LE.9) THEN
+        LSJJCC=CHAR(48+NC)
+      ELSEIF (NC.LE.35) THEN
+        LSJJCC=CHAR(55+NC)
+      ELSEIF (NC.LE.61) THEN
+        LSJJCC=CHAR(61+NC)
+      ELSE
+        LSJJCC=PUN(NC-61:NC-61)
+      ENDIF
+      RETURN
+      END
+C
+      SUBROUTINE LSJJKP(IW1)
+C
+C          PRINT THE KEY TO THE TRUE jj LABELS, ONCE, AT THE END OF THE
+C          RUN.  SILENT IF NO BLOCK WAS EVER ROTATED.
+C
+C          A. Kramida 2026: THE KEY GOES INTO A FILE OF ITS OWN,
+C          true-jj_keys.txt, AND OUTG11 GETS NOTHING BUT A POINTER TO
+C          IT.  THE KEY IS NEEDED FOR AS LONG AS THE LEVEL LISTS ARE
+C          KEPT, AND OUTG11 -- BIG, AND THE FIRST FILE A USER DELETES
+C          -- IS THE WRONG PLACE TO KEEP IT.
+C
+      INCLUDE 'RCGPAR.F'
+      INCLUDE 'LSJJID.F'
+      INCLUDE 'LSJJCOM.F'
+      COMMON/EE/ELEM(3,KC,2),VPAR(KPR,2),AVP(9,2),AVEIG(2),AVCG(2),
+     1  NPARK(2),NPAV(KC)
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,COUPL,ELEM
+      CHARACTER*4 LSYMB
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      CHARACTER*1 CD,CJ(2),CLQ,LSJJCC
+      CHARACTER*2 CN,CNS
+      CHARACTER*66 CTX
+      DIMENSION NEL(2),LEV(2),J2S(2),IVS(2)
+      DATA CJ/'-','+'/
+      DATA IWK/24/
+C
+      NANY=0
+      NCUT=0
+      DO K=1,2
+        DO JC=1,KC
+          NOCC=0
+          NSEEN=0
+          DO I=1,KS
+            IF (KEYNC(I,JC,K).GT.0) NSEEN=1
+            IF (LSJJOP(I,JC,K).NE.0) NOCC=NOCC+1
+          ENDDO
+          IF (NSEEN.NE.0) NANY=1
+          IF (NSEEN.NE.0.AND.NOCC.GT.3) NCUT=1
+        ENDDO
+      ENDDO
+      IF (NANY.EQ.0) RETURN
+      OPEN(IWK,FILE='true-jj_keys.txt',STATUS='UNKNOWN')
+      WRITE (IW1,5)
+    5 FORMAT (1H1//' The key to the true jj labels of this run is in',
+     1  ' the file true-jj_keys.txt.')
+      WRITE (IWK,10)
+   10 FORMAT (' Key to the true jj labels'//
+     1  ' A label in the true jj eigenvector sections codes the basis'/
+     2  ' state one character per quantity, taking the occupied'/
+     3  ' subshells in order and leaving the empty ones out:'/
+     4  '     Ai   the jj state of subshell i, keyed below by'/
+     5  '          configuration and subshell'/
+     6  '     Ji   2 * the total J of subshell i'/
+     7  '     Ki   2 * the running J after coupling it in'/
+     8  ' With n occupied subshells the label reads'/
+     9  '     n=1   A1 J1          n=2   A1 J1 A2 J2'/
+     *  '     n=3   A1 J1 A2 J2 K2 A3 J3'/
+     1  ' The first and last running J are never coded: the first is'/
+     2  ' J1 and the last is the J of the block.  So the label names'/
+     3  ' the basis state completely -- within one configuration and'/
+     4  ' one J block, equal labels mean the same column.'//
+     5  ' The alphabet of the codes is 1..9, then A..Z, then a..z,'/
+     6  ' then    #%&@+-=?<>~^_|;:!/\.,"${'/
+     7  ' so a J character reads 1 for 2J=0, 2 for 2J=1, and so on.'/
+     8  ' A ''*'' in a label means the key ran out of codes.'//
+     9  ' An entry below reads (j- part, j+ part), each part giving'/
+     *  ' the subshell, how many electrons are in it, and its J.  A'/
+     1  ' part with no electrons is left out.  A seniority v is shown'/
+     2  ' only where J alone does not tell the states of that j**N'/
+     3  ' apart.'//
+     4  ' A subshell with l=0, with one electron, or with one hole is'/
+     5  ' not rotated, because its J1J2 state already is a jj state:'/
+     6  ' an s subshell has only one j, and one electron or one hole'/
+     7  ' has j fixed by the subshell J -- the electron carries J=j,'/
+     8  ' the hole sits in the part whose j equals J and the other'/
+     9  ' part is then full with J=0.  Such a subshell has one LS term'/
+     *  ' and so one code, which therefore covers both values of J,'/
+     1  ' and its entry gives both, each against the J it belongs to.'/
+     2  ' The Ji character of the label says which one applies.'/)
+      IF (NCUT.NE.0) WRITE (IWK,11)
+   11 FORMAT (' *****Some configuration here occupies more than three'/
+     1  '      subshells, which does not fit in eight characters.'/
+     2  '      With four, the Ki are dropped; with five or more, the'/
+     3  '      Ji as well, leaving the Ai alone.  Those labels need'/
+     4  '      not be unique.'/)
+      DO 400 K=1,2
+        DO 300 JC=1,KC
+          DO 200 I=1,KS
+            NCD=KEYNC(I,JC,K)
+            IF (NCD.LE.0) GO TO 200
+            IBASE=(((K-1)*KC+JC-1)*KS+I-1)*KJJCOD
+            LQ=KEYDT(1,IBASE+1)
+C                THE SUBSHELL LETTER IN LOWER CASE, AS SPECTROSCOPIC
+C                NOTATION HAS IT, AND ITS OCCUPATION WITHOUT THE BLANK
+C                THAT AN I2 WOULD LEAVE IN FRONT OF A SINGLE DIGIT.
+            CLQ=LSYMB(MIN0(LQ+1,24))
+            IF (CLQ.GE.'A'.AND.CLQ.LE.'Z') CLQ=CHAR(ICHAR(CLQ)+32)
+            WRITE (CNS,'(I2)') NIJK(I,JC,K)
+            LNS=2
+            IF (CNS(1:1).EQ.' ') THEN
+              CNS(1:1)=CNS(2:2)
+              LNS=1
+            ENDIF
+            WRITE (IWK,20) (ELEM(M,JC,K),M=1,3), I, CLQ, CNS(1:LNS)
+   20       FORMAT (/1X,3A6,'   subshell',I2,'   (',A1,A,')')
+            DO 150 M=1,NCD
+              CD=LSJJCC(M)
+C                  A SUBSHELL WITH l=0, ONE ELECTRON OR ONE HOLE IS NOT
+C                  ROTATED (SEE LSJJRT AND LSJJ1E): IT HAS A SINGLE LS
+C                  TERM AND SO A SINGLE CODE, AND ITS PARTITION IS NOT
+C                  STORED BUT FOLLOWS FROM ITS J.  ONE CODE THEN COVERS
+C                  BOTH VALUES OF J, SO ITS ENTRY PRINTS BOTH, EACH
+C                  AGAINST THE J IT BELONGS TO.  AN s SUBSHELL HAS ONLY
+C                  ONE j AND SO ONLY ONE LINE.
+              INSPL=0
+              NALT=1
+              IF (KEYDT(2,IBASE+M).LT.0) THEN
+                INSPL=1
+                IF (LQ.GT.0) NALT=2
+              ENDIF
+              DO 149 IA=1,NALT
+                IF (INSPL.NE.0) THEN
+                  J2A=1
+                  IF (LQ.GT.0) J2A=2*LQ+2*IA-3
+                  CALL LSJJ1E(LQ,NIJK(I,JC,K),J2A,NEL,J2S)
+                ELSE
+                  NEL(1)=KEYDT(2,IBASE+M)
+                  LEV(1)=KEYDT(3,IBASE+M)
+                  NEL(2)=KEYDT(4,IBASE+M)
+                  LEV(2)=KEYDT(5,IBASE+M)
+                ENDIF
+                CTX=' '
+                LT=0
+                DO 145 N=1,2
+                  IJ=LQ+N-1
+                  IVS(N)=0
+                  IVN=0
+                  IF (INSPL.NE.0) GO TO 140
+                  J2S(N)=0
+                  IF (IJ.GE.1.AND.IJ.LE.MXJJ.AND.NEL(N).GE.0.AND.
+     1              NEL(N).LE.MXJN.AND.LEV(N).GE.1.AND.LEV(N).LE.MXJL)
+     2              THEN
+                    J2S(N)=JLJ(LEV(N),NEL(N),IJ)
+                    IVS(N)=JLV(LEV(N),NEL(N),IJ)
+C                      THE SENIORITY IS PRINTED ONLY WHERE IT IS NEEDED
+C                      -- THAT IS, WHERE ANOTHER STATE OF THE SAME j**N
+C                      CARRIES THE SAME J.  (THE NIELSON-KOSTER INDICES
+C                      THAT REPLACE SENIORITY IN LS COUPLING ARE
+C                      DEFINED FOR LS TERMS OF d**N AND f**N AND HAVE NO
+C                      MEANING HERE; IN jj COUPLING THE SENIORITY IS
+C                      STILL THE ACCEPTED EXTRA QUANTUM NUMBER, AND FOR
+C                      THE SUBSHELLS THIS DECK CARRIES -- j<=7/2 FOR
+C                      ANY N, 9/2 AND 11/2 FOR N<=2 -- (v,J) IS ALWAYS
+C                      UNIQUE.)
+                    DO L1=1,MIN0(JNLV(NEL(N),IJ),MXJL)
+                      IF (L1.NE.LEV(N).AND.JLJ(L1,NEL(N),IJ).EQ.J2S(N))
+     1                  IVN=1
+                    ENDDO
+                  ENDIF
+  140             IF (NEL(N).LE.0) GO TO 145
+                  WRITE (CN,'(I2)') NEL(N)
+                  LN=2
+                  IF (CN(1:1).EQ.' ') THEN
+                    CN(1:1)=CN(2:2)
+                    LN=1
+                  ENDIF
+                  IF (LT.GT.0) THEN
+                    CTX(LT+1:LT+2)=', '
+                    LT=LT+2
+                  ENDIF
+                  CTX(LT+1:LT+2)=CLQ//CJ(N)
+                  LT=LT+2
+                  CTX(LT+1:LT+LN)=CN(1:LN)
+                  LT=LT+LN
+                  IF (IVN.NE.0) THEN
+                    WRITE (CTX(LT+1:LT+3),'('' v'',I1)') IVS(N)
+                    LT=LT+3
+                  ENDIF
+                  WRITE (CTX(LT+1:LT+7),'('' J='',F4.1)') 0.5D0*J2S(N)
+                  LT=LT+7
+  145           CONTINUE
+                IF (NALT.EQ.1) THEN
+                  WRITE (IWK,23) CD, CTX(1:MAX0(LT,1))
+   23             FORMAT (5X,A1,': (',A,')')
+                ELSEIF (IA.EQ.1) THEN
+                  WRITE (IWK,24) CD, 0.5D0*J2A, CTX(1:MAX0(LT,1))
+   24             FORMAT (5X,A1,': J=',F4.1,': (',A,')')
+                ELSE
+                  WRITE (IWK,25) 0.5D0*J2A, CTX(1:MAX0(LT,1))
+   25             FORMAT (8X,'J=',F4.1,': (',A,')')
+                ENDIF
+  149         CONTINUE
+  150       CONTINUE
+  200     CONTINUE
+  300   CONTINUE
+  400 CONTINUE
+      IF (NKEYOV.GT.0) THEN
+        WRITE (IWK,30) NKEYOV, KJJCOD
+   30   FORMAT (/' *****',I8,' label positions could not be coded: a'/
+     1    '      subshell needed more than the',I4,' codes the key'/
+     2    '      table holds.  Those positions carry ''*'' and the'/
+     3    '      labels around them need not be unique.'/)
+      ENDIF
+      CLOSE(IWK)
+      RETURN
+      END
+C
+      SUBROUTINE LSJJ1E(LQ,NEL,J2,NELP,J2P)
+C
+C          A. Kramida 2026: THE jj PARTITION OF A SUBSHELL THAT LSJJRT
+C          LEAVES ALONE -- l=0, ONE ELECTRON, OR ONE HOLE.  THOSE ARE
+C          SKIPPED NOT BECAUSE THEY DO NOT SPLIT INTO j- AND j+, BUT
+C          BECAUSE THERE IS NOTHING TO ROTATE: THE J1J2 STATE ALREADY
+C          IS A jj STATE, SINCE AN s SUBSHELL HAS ONLY ONE j, AND ONE
+C          ELECTRON OR ONE HOLE HAS ITS j FIXED BY THE SUBSHELL J.  SO
+C          THE PARTITION IS NOT STORED IN NJJST, BUT IT IS DETERMINED,
+C          AND THIS WORKS IT OUT.  ON ENTRY LQ IS l, NEL THE OCCUPATION
+C          AND J2 TWICE THE SUBSHELL J; ON EXIT NELP(1..2) AND J2P(1..2)
+C          ARE THE OCCUPATION AND TWICE THE J OF THE j- AND j+ PARTS.
+C          A PART WITH NO ELECTRONS COMES BACK WITH NELP=0.
+C
+      IMPLICIT REAL*8 (A-H,O-Z)
+      IMPLICIT INTEGER*4 (I-N)
+      DIMENSION NELP(2),J2P(2)
+      NELP(1)=0
+      NELP(2)=0
+      J2P(1)=0
+      J2P(2)=0
+      IF (LQ.LE.0) THEN
+C            l=0: ONLY j+ = 1/2 EXISTS.
+        NELP(2)=NEL
+        J2P(2)=J2
+      ELSEIF (NEL.LE.1) THEN
+C            ONE ELECTRON, IN THE PART WHOSE j IS THE SUBSHELL J.
+        N=2
+        IF (J2.EQ.2*LQ-1) N=1
+        NELP(N)=NEL
+        J2P(N)=J2
+      ELSEIF (J2.EQ.2*LQ-1) THEN
+C            ONE HOLE, IN j-, WHOSE 2l STATES ARE THEN ONE SHORT AND
+C            CARRY J=j-; j+ IS FULL AND CARRIES J=0.
+        NELP(1)=2*LQ-1
+        J2P(1)=J2
+        NELP(2)=2*LQ+2
+      ELSE
+C            ONE HOLE, IN j+.
+        NELP(1)=2*LQ
+        NELP(2)=2*LQ+1
+        J2P(2)=J2
+      ENDIF
+      RETURN
+      END
+C
+      SUBROUTINE GENPRT(MODE,NLSC,SJ)
+C
+C          A. Kramida 2026: PRINT THE GENEALOGY OF THE BASIS STATES OF
+C          ONE J BLOCK -- THE SUBSHELL TERMS, THE SUBSHELL J's, AND THE
+C          CHAIN OF RUNNING QUANTUM NUMBERS THAT COUPLES THEM.  ALL OF
+C          IT IS IN /C3A/ AND NONE OF IT FITS THE EIGHT CHARACTERS OF A
+C          BASIS-STATE LABEL, SO WITHOUT A TABLE LIKE THIS AN EIGEN-
+C          VECTOR COMPOSITION IN OUTG11 CANNOT BE READ BACK TO THE
+C          STATES IT NAMES.  WHAT RCG PRINTED BEFORE IS THE ICFC/IPT
+C          DUMP AT LABEL 405 OF CALCFC, WHICH COVERS SOME SUBSHELL
+C          COUNTS AND NOT OTHERS AND OVERPRINTS TWO LINES WITH 1H+;
+C          THAT IS LEFT EXACTLY AS IT WAS, AS IS EVERY OTHER FORMAT.
+C
+C          ASKED FOR BY COLUMNS 83-84 OF THE MAIN CARD:
+C            IPGEN = 0  NOTHING.  A BLANK FIELD, WHICH IS WHAT EVERY
+C                       EXISTING DECK HAS, SO NOTHING NEW IS PRINTED
+C                       UNLESS IT IS ASKED FOR.
+C                    1  THE TABLES GO INTO OUTG11
+C                    2  THE TABLES GO INTO genealogy.txt, AND OUTG11
+C                       GETS A POINTER TO IT
+C          THE TABLES ARE ONE LINE PER BASIS STATE PER COUPLING, NOT
+C          ONE PER EIGENVECTOR COMPONENT, SO THEY ARE SMALL: 1.5 MB ON
+C          THE Pr III CASE, AGAINST 122 MB OF OUTG11.  2 IS STILL THE
+C          ONE TO USE, FOR THE REASON true-jj_keys.txt HAS A FILE OF
+C          ITS OWN -- THE TABLES ARE NEEDED FOR AS LONG AS THE LEVEL
+C          LISTS ARE KEPT, AND OUTG11 IS THE FIRST FILE A USER DELETES.
+C
+C          MODE=1  THE LS BASIS (THE ROWS OF TMX), AND COWAN'S J1J2
+C                  BASIS (THE COLUMNS) UNLESS NOLSKP TURNED IT OFF.
+C                  CALL FROM CALCFC ONCE THE LABELS ARE FORMED AND
+C                  DE-DUPLICATED.
+C          MODE=2  THE SAME COLUMNS AFTER THE TRUE jj ROTATION.  CALL
+C                  AFTER LSJJID, WHICH FILLS FIDJ2, AND BEFORE ANY
+C                  MODE=-1 OF LSJJRT, WHICH CLEARS NJJST.
+C
+C          THE SUBSHELL J's AND THE RUNNING J's OF THE jj TABLE REPEAT
+C          THOSE OF THE J1J2 TABLE, AND THAT IS NOT AN OVERSIGHT:
+C          LSJJRT MIXES ONLY THE SUBSHELL TERMS WITHIN ONE CAFCDOLP
+C          BLOCK, AND EVERY COLUMN OF SUCH A BLOCK ALREADY CARRIES THE
+C          SAME CHAIN OF J's.  WHAT THE ROTATION REPLACES IS THE
+C          DESCRIPTION OF THE SUBSHELL ITSELF: AN LS TERM BECOMES
+C          (j-**N1 v1 J1, j+**N2 v2 J2).
+C
+C          EMPTY AND CLOSED SUBSHELLS ARE LEFT OUT, AS THEY ARE IN THE
+C          jj LABELS: ONE STATE, J=0, AND THE RUNNING QUANTUM NUMBERS
+C          LEFT WHERE THEY WERE.  LSJJOP DECIDES, SO THE TABLE AND THE
+C          LABELS AGREE ON WHICH SUBSHELL IS WHICH.
+C
+      INCLUDE 'RCGPAR.F'
+      INCLUDE 'LSJJID.F'
+      INCLUDE 'LSJJCOM.F'
+      COMMON/C2/LL(KS),NI(KS),FLL(KS),MULT(KLS2,KS),LBCD(KLS2,KS),
+     1  IALF(KLS2,KS),FL(KLS2,KS),S(KLS2,KS),NTRMK(KLSC),FLLRHOP,FLLSIGP
+      COMMON/C3A/ISUBJ(KC),MULS(KS),LHS(KS),
+     1  NALS(KMX,KS),NCFG(KMX),NALSJ(KMX,KS),SCRL(KMX,KS),SCRS(KMX,KS),
+     2  FJ(KMX,KS),SCRJ(KMX,KS),MUL(KS),LH(KS),LF(KLSC),NSJK(KNSJK),
+     3  FK(KMX),FKJ(KMX),SCRL6(KMX),SCRS6(KMX),FK6(KMX),LHQQ(KMX),
+     4  MULTQQ(KMX),NALSJP(KJP,KS),PJ(KJP,KS),NOICRD
+      COMMON/C5/IARG1,IARG2,IARG3,IGEN,IRNQ,IRXQ,IRND,IRXD,IRMN,IRMX,
+     1  DELEKEV,DELEAV,SCALE,FACT0(5),EMINA,SCRLKP(14,2),
+     2  SCRSKP(14,2),NCLSKP(2),NOLSKP
+      COMMON/CHAR/PARNAM(KPR,2),FIDLS(KMX,2),FIDJJ(KMX,2),LDES(KMX),
+     1  LDESP(KMX)
+      CHARACTER*8 FIDLS,FIDJJ,LDES,LDESP,PARNAM,COUPL,LBL
+      CHARACTER*4 LSYMB,LBCD,LHS,LH
+      CHARACTER*1 CJ(2),CLQ
+      CHARACTER*20 CTX
+      CHARACTER*30 CFLD(KS)
+      DIMENSION IOC(KS),ISEEN(KC),NELP(2),J2P(2),IVP(2),IVQ(2)
+      SAVE IOPEN
+      DATA CJ/'-','+'/
+      DATA IUG/25/
+      DATA IOPEN/0/
+C
+      IU=IW
+      IF (IPGEN.GE.2) IU=IUG
+      IF (IOPEN.EQ.0) THEN
+        IOPEN=1
+        IF (IPGEN.GE.2) THEN
+          OPEN(IUG,FILE='genealogy.txt',STATUS='UNKNOWN')
+          WRITE (IW,5)
+    5     FORMAT (//' The genealogy of the basis states of this run is',
+     1      ' in the file genealogy.txt.')
+        ENDIF
+        WRITE (IU,6)
+    6   FORMAT (' Genealogy of the basis states'//
+     1  ' A table below covers one J block of one configuration set,'/
+     2  ' one line per basis state, numbered as the eigenvector'/
+     3  ' components are.  The configuration number of a line runs'/
+     4  ' within its own set, so the set is named in the heading.'/
+     5  ' A field is one open subshell, taken in the'/
+     4  ' order of the configuration; empty and closed subshells are'/
+     5  ' left out, as they are in the labels, because they have one'/
+     6  ' state, J=0, and leave the running quantum numbers where they'/
+     7  ' were.  The configurations of the block are listed above it.'//
+     8  ' LS       (term index, 2S+1, L, Cowan''s alpha), then the'/
+     9  '          running 2S+1 and L after coupling that subshell in.'/
+     *  ' J1J2     (term index, 2S+1, L, J of the subshell), then the'/
+     1  '          running J.  This is Cowan''s jj, in which a'/
+     2  '          subshell is still named by an LS term.'/
+     3  ' true jj  (j- part, j+ part), then 2J of the subshell and 2K,'/
+     4  '          K being the running J.  A part reads as the'/
+     5  '          subshell, its occupation, a seniority where J alone'/
+     6  '          does not tell the states of that j**N apart, and'/
+     7  '          2J.  Every J in this table is doubled, as in the'/
+     8  '          label key; the other two tables print J itself.'//
+     9  ' The subshell J and the running J of a true jj line repeat'/
+     *  ' those of the J1J2 line above it.  That is not a mistake: the'/
+     1  ' rotation mixes only the subshell terms of columns that'/
+     2  ' already share the whole chain of J.'//
+     3  ' A subshell with l=0, with one electron, or with one hole is'/
+     4  ' not rotated at all, because its J1J2 state already is a jj'/
+     5  ' state: an s subshell has only one j, and one electron or one'/
+     6  ' hole has j fixed by the subshell J -- the electron carries'/
+     7  ' J=j, the hole sits in the part whose j equals J and the'/
+     8  ' other part is then full with J=0.  Such a subshell is split'/
+     9  ' here all the same, its parts worked out from J, so that'/
+     *  ' every field of the table reads the same way.'/)
+      ENDIF
+C
+      NSB=MIN0(NOSUBC,KS)
+      K=KK
+      IF (K.LT.1.OR.K.GT.2) K=1
+      ITB1=1
+      ITB2=2
+      IF (NOLSKP.NE.0) ITB2=1
+      IF (MODE.EQ.2) THEN
+        ITB1=3
+        ITB2=3
+      ENDIF
+C
+C          THE CONFIGURATIONS THIS BLOCK DRAWS ON.  THE TABLE NAMES A
+C          SUBSHELL BY ITS POSITION, WHICH ONLY THIS LIST EXPLAINS,
+C          AND THE LIST IS SHORT, SO IT IS REPEATED FOR EVERY BLOCK
+C          RATHER THAN LOOKED UP AT THE HEAD OF THE RUN.
+C
+C          (THE CONFIGURATION NAMES OF IN36 CANNOT BE PRINTED HERE:
+C          ELEM IS NOT FILLED UNTIL ENERGY, WHICH RUNS AFTER CALCFC.
+C          THE OCCUPATIONS BELOW ARE WHAT CALCFC ITSELF PRINTS AT
+C          LABEL 400.)  THE LIST GOES WITH THE MODE=1 CALL ONLY: THE
+C          MODE=2 TABLE OF THE SAME BLOCK FOLLOWS A FEW LINES LATER
+C          AND WOULD ONLY REPEAT IT.
+C
+C          THE CONFIGURATION SET IS PART OF THE HEADING BECAUSE THE
+C          CONFIGURATION NUMBER RUNS WITHIN ONE SET: THE SAME NUMBER
+C          MEANS A DIFFERENT CONFIGURATION IN THE OTHER SET.
+C
+      WRITE (IU,11) SJ,K,NLSC
+   11 FORMAT (//' J =',F5.1,'    configuration set',I2,
+     1  '    basis states:',I7)
+      IF (MODE.EQ.1) THEN
+        DO JC=1,KC
+          ISEEN(JC)=0
+        ENDDO
+        DO L=1,NLSC
+          JC=NCFG(L)
+          IF (JC.GE.1.AND.JC.LE.KC) ISEEN(JC)=1
+        ENDDO
+        WRITE (IU,12)
+   12   FORMAT ('    configurations:')
+        DO JC=1,KC
+          IF (ISEEN(JC).NE.0) WRITE (IU,13) JC,
+     1      (LLIJK(I,JC,K),NIJK(I,JC,K),I=1,NSB)
+        ENDDO
+   13   FORMAT (I7,4X,8(A1,I2,2X))
+      ENDIF
+C
+      DO 900 ITBL=ITB1,ITB2
+        IF (ITBL.EQ.1) THEN
+          NPL=6
+          NW=15
+          WRITE (IU,21)
+   21     FORMAT (/' LS basis (the rows of the transformation matrix)'/
+     1      '  state  cfg  label   ',
+     2      '  (term 2S+1 L a) 2S+1 L  per open subshell')
+        ELSEIF (ITBL.EQ.2) THEN
+          NPL=4
+          NW=20
+          WRITE (IU,22)
+   22     FORMAT (/' J1J2 basis (the columns), Cowan''s jj'/
+     1      '  state  cfg  label   ',
+     2      '  (term 2S+1 L    J)      K  per open subshell')
+        ELSE
+          NPL=3
+          NW=30
+          WRITE (IU,23)
+   23     FORMAT (/' true jj basis (the same columns after the',
+     1      ' rotation), J doubled throughout'/
+     2      '  state  cfg  label   ',
+     3      '  (j- part, j+ part)         2J  2K  per open subshell')
+        ENDIF
+C
+        DO 800 L=1,NLSC
+          JC=NCFG(L)
+          IF (JC.LT.1.OR.JC.GT.KC) GO TO 800
+          NOC=0
+          DO I=1,NSB
+            IF (LSJJOP(I,JC,K).NE.0) THEN
+              NOC=NOC+1
+              IOC(NOC)=I
+            ENDIF
+          ENDDO
+          LBL=FIDLS(L,1)
+          IF (ITBL.EQ.2) LBL=FIDJJ(L,1)
+          IF (ITBL.EQ.3) LBL=FIDJ2(L)
+C
+C                BUILD THE FIELDS OF THIS LINE.  THEY GO INTO STRINGS
+C                AND NOT STRAIGHT INTO THE FORMAT BECAUSE A FIELD
+C                OPENS WITH A BRACKET: WITH THE BRACKET IN THE FORMAT,
+C                A LINE OF FEWER THAN NPL FIELDS WOULD END ON THE
+C                BRACKET OF THE FIELD THAT NEVER CAME.
+C
+          DO 600 M1=1,NOC
+            I=IOC(M1)
+            CFLD(M1)=' '
+            IF (ITBL.EQ.1) THEN
+              M=NALS(L,I)
+              MULQ=2.D0*SCRS(L,I)+1.D0
+              LP1=SCRL(L,I)+1.D0
+              WRITE (CFLD(M1)(1:15),31) M,MULT(M,I),LBCD(M,I),IALF(M,I),
+     1          MULQ,LSYMB(MIN0(MAX0(LP1,1),24))
+   31         FORMAT ('(',I4,I3,A1,A1,')',I3,A1)
+              GO TO 600
+            ENDIF
+            IF (ITBL.EQ.2) THEN
+              M=NALSJ(L,I)
+              WRITE (CFLD(M1)(1:20),32) M,MULT(M,I),LBCD(M,I),FJ(L,I),
+     1          SCRJ(L,I)
+   32         FORMAT ('(',I4,I3,A1,F5.1,')',F5.1)
+              GO TO 600
+            ENDIF
+            LQ=FLLIJK(I,JC,K)+0.5D0
+            CLQ=LSYMB(MIN0(LQ+1,24))
+            IF (CLQ.GE.'A'.AND.CLQ.LE.'Z') CLQ=CHAR(ICHAR(CLQ)+32)
+            CTX=' '
+            DO N=1,2
+              NELP(N)=0
+              J2P(N)=0
+              IVP(N)=0
+              IVQ(N)=0
+            ENDDO
+            IF (NJJST(1,L,I).LT.0) THEN
+C                  l=0, ONE ELECTRON OR ONE HOLE: LSJJRT LEFT THIS
+C                  SUBSHELL ALONE, AND SO NJJST HOLDS NO PARTITION FOR
+C                  IT.  THE PARTITION IS NOT UNKNOWN, THOUGH -- IT
+C                  FOLLOWS FROM THE SUBSHELL J -- SO WORK IT OUT AND
+C                  PRINT IT LIKE ANY OTHER, RATHER THAN LEAVE THE
+C                  READER OF THE TABLE TO DO IT.  SEE LSJJ1E.
+              CALL LSJJ1E(LQ,NIJK(I,JC,K),NINT(2.D0*FJ(L,I)),NELP,J2P)
+            ELSE
+              DO 500 N=1,2
+                NELN=NJJST(2*N-1,L,I)
+                LEVN=NJJST(2*N,L,I)
+                IF (NELN.LE.0) GO TO 500
+                IJ=LQ+N-1
+                NELP(N)=NELN
+                IF (IJ.GE.1.AND.IJ.LE.MXJJ.AND.NELN.LE.MXJN.AND.
+     1            LEVN.GE.1.AND.LEVN.LE.MXJL) THEN
+                  J2P(N)=JLJ(LEVN,NELN,IJ)
+                  IVP(N)=JLV(LEVN,NELN,IJ)
+C                      THE SENIORITY IS SHOWN ONLY WHERE IT IS NEEDED,
+C                      THAT IS, WHERE ANOTHER STATE OF THE SAME j**N
+C                      CARRIES THE SAME J.  SAME RULE AS LSJJKP.
+                  DO L1=1,MIN0(JNLV(NELN,IJ),MXJL)
+                    IF (L1.NE.LEVN.AND.JLJ(L1,NELN,IJ).EQ.J2P(N))
+     1                IVQ(N)=1
+                  ENDDO
+                ENDIF
+  500         CONTINUE
+            ENDIF
+            LT=0
+            DO 520 N=1,2
+              IF (NELP(N).LE.0) GO TO 520
+              IF (LT.GT.0) THEN
+                CTX(LT+1:LT+1)=','
+                LT=LT+1
+              ENDIF
+              IF (IVQ(N).NE.0) THEN
+                WRITE (CTX(LT+1:LT+9),42) CLQ,CJ(N),NELP(N),IVP(N),
+     1            J2P(N)
+   42           FORMAT (2A1,I2,'v',I1,I3)
+                LT=LT+9
+              ELSE
+                WRITE (CTX(LT+1:LT+7),43) CLQ,CJ(N),NELP(N),J2P(N)
+   43           FORMAT (2A1,I2,I3)
+                LT=LT+7
+              ENDIF
+  520       CONTINUE
+  550       WRITE (CFLD(M1),44) CTX,NINT(2.D0*FJ(L,I)),
+     1        NINT(2.D0*SCRJ(L,I))
+   44       FORMAT ('(',A20,')',I4,I4)
+  600     CONTINUE
+C
+C                AND WRITE IT, NPL FIELDS TO A LINE
+C
+          M1=1
+  700     M2=MIN0(M1+NPL-1,NOC)
+          IF (M1.EQ.1) THEN
+            WRITE (IU,45) L,JC,LBL,(CFLD(N1)(1:NW),N1=M1,M2)
+          ELSE
+            WRITE (IU,46) (CFLD(N1)(1:NW),N1=M1,M2)
+          ENDIF
+   45     FORMAT (I7,I5,2X,A8,8(2X,A))
+   46     FORMAT (22X,8(2X,A))
+          M1=M2+1
+          IF (M1.LE.NOC) GO TO 700
+  800   CONTINUE
+  900 CONTINUE
+      RETURN
+      END

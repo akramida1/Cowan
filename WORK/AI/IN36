@@ -1,0 +1,141 @@
+200-90 0 2  01.  4.0    5.E-08    1.E-11-2 00290 0 1.0  0.65  0.0 1.00  -6
+    5    4B IV  1s2              1s2
+    5    4B IV  1s2s             1s   2s
+    5    4B IV  1s3s             1s   2s0  2p0  3s
+    5    4B IV  1s4s             1s   2s0  2p0  4s
+    5    4B IV  1s5s             1s   2s0  2p0  5s
+    5    4B IV  1s6s             1s   2s0  2p0  6s
+    5    4B IV  1s7s             1s   2s0  2p0  7s
+    5    4B IV  1s8s             1s   2s0  2p0  8s
+    5    4B IV  1s9s             1s   2s0  2p0  9s
+    5    4B IV  1s3d             1s   2s0  2p0  3d
+    5    4B IV  1s4d             1s   2s0  2p0  4d
+    5    4B IV  1s5d             1s   2s0  2p0  5d
+    5    4B IV  1s6d             1s   2s0  2p0  6d
+    5    4B IV  1s7d             1s   2s0  2p0  7d
+    5    4B IV  1s8d             1s   2s0  2p0  8d
+    5    4B IV  1s9d             1s   2s0  2p0  9d
+    5    4B IV  1s5g             1s   2s0  2p0  5g
+    5    4B IV  1s6g             1s   2s0  2p0  6g
+    5    4B IV  1s7g             1s   2s0  2p0  7g
+    5    4B IV  1s8g             1s   2s0  2p0  8g
+    5    4B IV  1s9g             1s   2s0  2p0  9g
+    5    4B IV  1s7i             1s   2s0  2p0  7i
+    5    4B IV  1s8i             1s   2s0  2p0  8i
+    5    4B IV  1s9i             1s   2s0  2p0  9i
+    5    4B IV  1s9l             1s   2s0  2p0  9l
+    5    4B IV  2s2              1s0  2s2
+    5    4B IV  2s3s             1s0  2s   2p0  3s
+    5    4B IV  2s4s             1s0  2s   2p0  4s
+    5    4B IV  2s5s             1s0  2s   2p0  5s
+    5    4B IV  2s6s             1s0  2s   2p0  6s
+    5    4B IV  2s7s             1s0  2s   2p0  7s
+    5    4B IV  2s8s             1s0  2s   2p0  8s
+    5    4B IV  2s9s             1s0  2s   2p0  9s
+    5    4B IV  2s3d             1s0  2s   2p0  3d
+    5    4B IV  2s4d             1s0  2s   2p0  4d
+    5    4B IV  2s5d             1s0  2s   2p0  5d
+    5    4B IV  2s6d             1s0  2s   2p0  6d
+    5    4B IV  2s7d             1s0  2s   2p0  7d
+    5    4B IV  2s8d             1s0  2s   2p0  8d
+    5    4B IV  2s9d             1s0  2s   2p0  9d
+    5    4B IV  2s5g             1s0  2s   2p0  5g
+    5    4B IV  2s6g             1s0  2s   2p0  6g
+    5    4B IV  2s7g             1s0  2s   2p0  7g
+    5    4B IV  2s8g             1s0  2s   2p0  8g
+    5    4B IV  2s9g             1s0  2s   2p0  9g
+    5    4B IV  2s7i             1s0  2s   2p0  7i
+    5    4B IV  2s8i             1s0  2s   2p0  8i
+    5    4B IV  2s9i             1s0  2s   2p0  9i
+    5    4B IV  2s9l             1s0  2s   2p0  9l
+    5    4B IV  2p2              1s0  2s0  2p2
+    5    4B IV  2p3p             1s0  2s0  2p   3p
+    5    4B IV  2p4p             1s0  2s0  2p   4p
+    5    4B IV  2p5p             1s0  2s0  2p   5p
+    5    4B IV  2p6p             1s0  2s0  2p   6p
+    5    4B IV  2p7p             1s0  2s0  2p   7p
+    5    4B IV  2p8p             1s0  2s0  2p   8p
+    5    4B IV  2p9p             1s0  2s0  2p   9p
+    5    4B IV  2p4f             1s0  2s0  2p   4f
+    5    4B IV  2p5f             1s0  2s0  2p   5f
+    5    4B IV  2p6f             1s0  2s0  2p   6f
+    5    4B IV  2p7f             1s0  2s0  2p   7f
+    5    4B IV  2p8f             1s0  2s0  2p   8f
+    5    4B IV  2p9f             1s0  2s0  2p   9f
+    5    4B IV  2p6h             1s0  2s0  2p   6h
+    5    4B IV  2p7h             1s0  2s0  2p   7h
+    5    4B IV  2p8h             1s0  2s0  2p   8h
+    5    4B IV  2p9h             1s0  2s0  2p   9h
+    5    4B IV  2p8k             1s0  2s0  2p   8k
+    5    4B IV  2p9k             1s0  2s0  2p   9k
+    5    5B V   1ses             1s   2s0  2p0 99s                        18.00
+    5    5B V   1sed             1s   2s0  2p0 99d                        18.00
+    5    5B V   1seg             1s   2s0  2p0 99g                        18.00
+    5    5B V   1sei             1s   2s0  2p0 99i                        18.00
+    5    5B V   1sel             1s   2s0  2p0 99l                        18.00
+   -1
+    5    4B IV  1s2p             1s   2s0  2p
+    5    4B IV  1s3p             1s   2s0  2p0  3p
+    5    4B IV  1s4p             1s   2s0  2p0  4p
+    5    4B IV  1s5p             1s   2s0  2p0  5p
+    5    4B IV  1s6p             1s   2s0  2p0  6p
+    5    4B IV  1s7p             1s   2s0  2p0  7p
+    5    4B IV  1s8p             1s   2s0  2p0  8p
+    5    4B IV  1s9p             1s   2s0  2p0  9p
+    5    4B IV  1s4f             1s   2s0  2p0  4f
+    5    4B IV  1s5f             1s   2s0  2p0  5f
+    5    4B IV  1s6f             1s   2s0  2p0  6f
+    5    4B IV  1s7f             1s   2s0  2p0  7f
+    5    4B IV  1s8f             1s   2s0  2p0  8f
+    5    4B IV  1s9f             1s   2s0  2p0  9f
+    5    4B IV  1s6h             1s   2s0  2p0  6h
+    5    4B IV  1s7h             1s   2s0  2p0  7h
+    5    4B IV  1s8h             1s   2s0  2p0  8h
+    5    4B IV  1s9h             1s   2s0  2p0  9h
+    5    4B IV  1s8k             1s   2s0  2p0  8k
+    5    4B IV  1s9k             1s   2s0  2p0  9k
+    5    4B IV  2s2p             1s0  2s   2p
+    5    4B IV  2s3p             1s0  2s   2p0  3p
+    5    4B IV  2s4p             1s0  2s   2p0  4p
+    5    4B IV  2s5p             1s0  2s   2p0  5p
+    5    4B IV  2s6p             1s0  2s   2p0  6p
+    5    4B IV  2s7p             1s0  2s   2p0  7p
+    5    4B IV  2s8p             1s0  2s   2p0  8p
+    5    4B IV  2s9p             1s0  2s   2p0  9p
+    5    4B IV  2s4f             1s0  2s   2p0  4f
+    5    4B IV  2s5f             1s0  2s   2p0  5f
+    5    4B IV  2s6f             1s0  2s   2p0  6f
+    5    4B IV  2s7f             1s0  2s   2p0  7f
+    5    4B IV  2s8f             1s0  2s   2p0  8f
+    5    4B IV  2s9f             1s0  2s   2p0  9f
+    5    4B IV  2s6h             1s0  2s   2p0  6h
+    5    4B IV  2s7h             1s0  2s   2p0  7h
+    5    4B IV  2s8h             1s0  2s   2p0  8h
+    5    4B IV  2s9h             1s0  2s   2p0  9h
+    5    4B IV  2s8k             1s0  2s   2p0  8k
+    5    4B IV  2s9k             1s0  2s   2p0  9k
+    5    4B IV  2p3s             1s0  2s0  2p   3s
+    5    4B IV  2p4s             1s0  2s0  2p   4s
+    5    4B IV  2p5s             1s0  2s0  2p   5s
+    5    4B IV  2p6s             1s0  2s0  2p   6s
+    5    4B IV  2p7s             1s0  2s0  2p   7s
+    5    4B IV  2p8s             1s0  2s0  2p   8s
+    5    4B IV  2p9s             1s0  2s0  2p   9s
+    5    4B IV  2p3d             1s0  2s0  2p   3d
+    5    4B IV  2p4d             1s0  2s0  2p   4d
+    5    4B IV  2p5d             1s0  2s0  2p   5d
+    5    4B IV  2p6d             1s0  2s0  2p   6d
+    5    4B IV  2p7d             1s0  2s0  2p   7d
+    5    4B IV  2p8d             1s0  2s0  2p   8d
+    5    4B IV  2p9d             1s0  2s0  2p   9d
+    5    4B IV  2p5g             1s0  2s0  2p   5g
+    5    4B IV  2p6g             1s0  2s0  2p   6g
+    5    4B IV  2p7g             1s0  2s0  2p   7g
+    5    4B IV  2p8g             1s0  2s0  2p   8g
+    5    4B IV  2p9g             1s0  2s0  2p   9g
+    5    4B IV  2p7i             1s0  2s0  2p   7i
+    5    4B IV  2p8i             1s0  2s0  2p   8i
+    5    4B IV  2p9i             1s0  2s0  2p   9i
+    5    4B IV  2p9l             1s0  2s0  2p   9l
+   -1
+   -1

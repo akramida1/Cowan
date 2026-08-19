@@ -1,0 +1,98 @@
+# PyCharm / IntelliJ files
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Python specific
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# VS Code
+.vscode/
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# System files
+.DS_Store
+Thumbs.db
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS resource fork artifacts
+__MACOSX/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# ========================================
+# Project-specific
+# ========================================
+# Output files (generated extraction results)
+output/
+
+# Excel lock files
+~$*.xlsx
+~$*.xlsm
+~$*.csv
+
+# Gemini agent config
+.gemini/
+
+implementation_plan.md
+
+# GitHub Copilot files
+.github/prompts/
+
+# Aider files
+.aider*
+
+# Claude agent files
+CLAUDE.md
+HANDOFF.md
+.claude/
+
+# Test cases
+WORK/Pr3_2026_v0
+
+# Task reference materials
+Handbook/
+ASD_syntax_examples.txt

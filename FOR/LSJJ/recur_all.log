@@ -1,0 +1,37 @@
+﻿jj cfp taken from the deck, not from the m-scheme
+
+Recursive LS->jj transformation, checked against the m-scheme
+  shell  dim         orthogonal  1 vs 2  vs m-scheme     build  check
+------------------------------------------------------------------------------
+  p^1       2 states    4.4e-16   0.0e+00   2.2e-16     0.01   0.00 s   ok
+  p^2       5 states    1.1e-15   2.2e-16   5.6e-16     0.00   0.00 s   ok
+  p^3       5 states    6.9e-11   5.0e-12   3.8e-11     0.00   0.00 s   ok
+  p^4       5 states    1.4e-10   2.5e-11   6.9e-11     0.00   0.00 s   ok
+  p^5       2 states    7.7e-11   6.6e-11   3.8e-11     0.00   0.00 s   ok
+  p^6       1 states    5.6e-11   6.6e-11   2.8e-11     0.00   0.00 s   ok
+  d^1       2 states    2.2e-16   0.0e+00   3.3e-16     0.00   0.00 s   ok
+  d^2       9 states    1.0e-15   3.3e-16   5.6e-16     0.00   0.00 s   ok
+  d^3      19 states    1.1e-10   7.7e-11   4.6e-11     0.02   0.01 s   ok
+  d^4      34 states    2.2e-10   7.7e-11   9.4e-11     0.07   0.04 s   ok
+  d^5      37 states    2.2e-10   1.2e-10   1.0e-10     0.10   0.06 s   ok
+  d^6      34 states    2.4e-10   1.2e-10   9.9e-11     0.06   0.06 s   ok
+  d^7      19 states    2.1e-10   1.4e-10   1.0e-10     0.01   0.04 s   ok
+  d^8       9 states    2.1e-10   1.4e-10   1.1e-10     0.01   0.02 s   ok
+  d^9       2 states    1.5e-10   1.4e-10   7.5e-11     0.01   0.01 s   ok
+  d^10      1 states    1.5e-10   1.4e-10   7.5e-11     0.01   0.01 s   ok
+  f^1       2 states    2.2e-16   0.0e+00   1.1e-16     0.00   0.00 s   ok
+  f^2      13 states    1.6e-15   4.4e-16   8.9e-16     0.01   0.01 s   ok
+  f^3      41 states    1.6e-10   7.7e-11   5.5e-11     0.10   0.05 s   ok
+  f^4     107 states    1.2e-10   1.1e-10   7.2e-11     0.51   0.34 s   ok
+  f^5     198 states    2.2e-10   1.1e-10   7.6e-11     1.16   1.36 s   ok
+  f^6     295 states    2.6e-10   1.3e-10   9.9e-11     1.71   3.24 s   ok
+  f^7     327 states    2.5e-10   1.5e-10   1.3e-10     1.68   4.76 s   ok
+  f^8     295 states    2.8e-10   1.5e-10   1.2e-10     0.96   4.75 s   ok
+  f^9     198 states    2.8e-10   1.5e-10   1.1e-10     0.36   3.34 s   ok
+  f^10    107 states    2.2e-10   1.5e-10   1.1e-10     0.38   1.64 s   ok
+  f^11     41 states    2.4e-10   1.5e-10   1.1e-10     0.39   0.73 s   ok
+  f^12     13 states    2.3e-10   1.5e-10   1.0e-10     0.40   0.46 s   ok
+  f^13      2 states    1.6e-10   1.5e-10   8.0e-11     0.40   0.41 s   ok
+  f^14      1 states    7.9e-11   1.5e-10   3.9e-11     0.39   0.40 s   ok
+------------------------------------------------------------------------------
+ 30 passed, 0 failed

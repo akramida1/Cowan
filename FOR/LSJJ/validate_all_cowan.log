@@ -1,0 +1,267 @@
+
+LS side built from Cowan CFP decks
+
+LS term lists with seniority, checked against published tables
+--------------------------------------------------------------------------
+  p^2    3 terms  OK
+  p^3    3 terms  OK
+  d^2    5 terms  OK
+  d^3    8 terms  OK
+  d^4   16 terms  OK
+  f^2    7 terms  OK
+  f^3   17 terms  OK
+
+==========================================================================
+ p^1      m-scheme dimension at 2M=1 : 2   (full shell: 6)
+==========================================================================
+ per-J dimensions agree: J=1/2:1 J=3/2:1
+ transformation orthogonal to 0.0e+00 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ p^2      m-scheme dimension at 2M=0 : 5   (full shell: 15)
+==========================================================================
+ per-J dimensions agree: J=0:2 J=1:1 J=2:2
+ transformation orthogonal to 4.4e-16 in every J block
+ independent of M to 2.2e-16
+ PASS
+ 0.00 s
+
+==========================================================================
+ p^3      m-scheme dimension at 2M=1 : 5   (full shell: 20)
+==========================================================================
+ per-J dimensions agree: J=1/2:1 J=3/2:3 J=5/2:1
+ transformation orthogonal to 4.4e-16 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ p^4      m-scheme dimension at 2M=0 : 5   (full shell: 15)
+==========================================================================
+ per-J dimensions agree: J=0:2 J=1:1 J=2:2
+ transformation orthogonal to 4.4e-16 in every J block
+ independent of M to 4.4e-16
+ PASS
+ 0.00 s
+
+==========================================================================
+ p^5      m-scheme dimension at 2M=1 : 2   (full shell: 6)
+==========================================================================
+ per-J dimensions agree: J=1/2:1 J=3/2:1
+ transformation orthogonal to 0.0e+00 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ p^6      m-scheme dimension at 2M=0 : 1   (full shell: 1)
+==========================================================================
+ per-J dimensions agree: J=0:1
+ transformation orthogonal to 2.2e-16 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ d^1      m-scheme dimension at 2M=1 : 2   (full shell: 10)
+==========================================================================
+ per-J dimensions agree: J=3/2:1 J=5/2:1
+ transformation orthogonal to 4.4e-16 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ d^2      m-scheme dimension at 2M=0 : 9   (full shell: 45)
+==========================================================================
+ per-J dimensions agree: J=0:2 J=1:1 J=2:3 J=3:1 J=4:2
+ transformation orthogonal to 4.4e-16 in every J block
+ independent of M to 2.2e-16
+ PASS
+ 0.00 s
+
+==========================================================================
+ d^3      m-scheme dimension at 2M=1 : 19   (full shell: 120)
+==========================================================================
+ per-J dimensions agree: J=1/2:2 J=3/2:5 J=5/2:5 J=7/2:3 J=9/2:3 J=11/2:1
+ transformation orthogonal to 2.0e-11 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ d^4      m-scheme dimension at 2M=0 : 34   (full shell: 210)
+==========================================================================
+ per-J dimensions agree: J=0:5 J=1:4 J=2:8 J=3:6 J=4:7 J=5:2 J=6:2
+ transformation orthogonal to 4.2e-11 in every J block
+ independent of M to 1.4e-11
+ PASS
+ 0.01 s
+
+==========================================================================
+ d^5      m-scheme dimension at 2M=1 : 37   (full shell: 252)
+==========================================================================
+ per-J dimensions agree: J=1/2:4 J=3/2:7 J=5/2:10 J=7/2:7 J=9/2:5 J=11/2:3 J=13/2:1
+ transformation orthogonal to 3.1e-11 in every J block
+ PASS
+ 0.06 s
+
+==========================================================================
+ d^6      m-scheme dimension at 2M=0 : 34   (full shell: 210)
+==========================================================================
+ per-J dimensions agree: J=0:5 J=1:4 J=2:8 J=3:6 J=4:7 J=5:2 J=6:2
+ transformation orthogonal to 6.1e-11 in every J block
+ independent of M to 6.1e-12
+ PASS
+ 0.06 s
+
+==========================================================================
+ d^7      m-scheme dimension at 2M=1 : 19   (full shell: 120)
+==========================================================================
+ per-J dimensions agree: J=1/2:2 J=3/2:5 J=5/2:5 J=7/2:3 J=9/2:3 J=11/2:1
+ transformation orthogonal to 2.7e-11 in every J block
+ PASS
+ 0.03 s
+
+==========================================================================
+ d^8      m-scheme dimension at 2M=0 : 9   (full shell: 45)
+==========================================================================
+ per-J dimensions agree: J=0:2 J=1:1 J=2:3 J=3:1 J=4:2
+ transformation orthogonal to 4.4e-16 in every J block
+ independent of M to 2.2e-16
+ PASS
+ 0.01 s
+
+==========================================================================
+ d^9      m-scheme dimension at 2M=1 : 2   (full shell: 10)
+==========================================================================
+ per-J dimensions agree: J=3/2:1 J=5/2:1
+ transformation orthogonal to 4.4e-16 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ d^10      m-scheme dimension at 2M=0 : 1   (full shell: 1)
+==========================================================================
+ per-J dimensions agree: J=0:1
+ transformation orthogonal to 0.0e+00 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ f^1      m-scheme dimension at 2M=1 : 2   (full shell: 14)
+==========================================================================
+ per-J dimensions agree: J=5/2:1 J=7/2:1
+ transformation orthogonal to 0.0e+00 in every J block
+ PASS
+ 0.00 s
+
+==========================================================================
+ f^2      m-scheme dimension at 2M=0 : 13   (full shell: 91)
+==========================================================================
+ per-J dimensions agree: J=0:2 J=1:1 J=2:3 J=3:1 J=4:3 J=5:1 J=6:2
+ transformation orthogonal to 4.4e-16 in every J block
+ independent of M to 2.2e-16
+ PASS
+ 0.01 s
+
+==========================================================================
+ f^3      m-scheme dimension at 2M=1 : 41   (full shell: 364)
+==========================================================================
+ per-J dimensions agree: J=1/2:2 J=3/2:6 J=5/2:7 J=7/2:7 J=9/2:7 J=11/2:5 J=13/2:3 J=15/2:3 J=17/2:1
+ transformation orthogonal to 4.8e-11 in every J block
+ PASS
+ 0.01 s
+
+==========================================================================
+ f^4      m-scheme dimension at 2M=0 : 107   (full shell: 1001)
+==========================================================================
+ per-J dimensions agree: J=0:6 J=1:7 J=2:17 J=3:13 J=4:19 J=5:14 J=6:13 J=7:7 J=8:7 J=9:2 J=10:2
+ transformation orthogonal to 6.3e-11 in every J block
+ independent of M to 1.0e-11
+ PASS
+ 0.47 s
+
+==========================================================================
+ f^5      m-scheme dimension at 2M=1 : 198   (full shell: 2002)
+==========================================================================
+ per-J dimensions agree: J=1/2:10 J=3/2:21 J=5/2:28 J=7/2:30 J=9/2:29 J=11/2:26 J=13/2:20 J=15/2:16 J=17/2:9 J=19/2:5 J=21/2:3 J=23/2:1
+ transformation orthogonal to 8.7e-11 in every J block
+ PASS
+ 1.86 s
+
+==========================================================================
+ f^6      m-scheme dimension at 2M=0 : 295   (full shell: 3003)
+==========================================================================
+ per-J dimensions agree: J=0:14 J=1:19 J=2:37 J=3:37 J=4:46 J=5:37 J=6:38 J=7:24 J=8:20 J=9:11 J=10:8 J=11:2 J=12:2
+ transformation orthogonal to 9.3e-11 in every J block
+ independent of M to 1.3e-11
+ PASS
+ 5.16 s
+
+==========================================================================
+ f^7      m-scheme dimension at 2M=1 : 327   (full shell: 3432)
+==========================================================================
+ per-J dimensions agree: J=1/2:17 J=3/2:31 J=5/2:42 J=7/2:50 J=9/2:46 J=11/2:42 J=13/2:35 J=15/2:26 J=17/2:18 J=19/2:11 J=21/2:5 J=23/2:3 J=25/2:1
+ transformation orthogonal to 1.1e-10 in every J block
+ PASS
+ 7.26 s
+
+==========================================================================
+ f^8      m-scheme dimension at 2M=0 : 295   (full shell: 3003)
+==========================================================================
+ per-J dimensions agree: J=0:14 J=1:19 J=2:37 J=3:37 J=4:46 J=5:37 J=6:38 J=7:24 J=8:20 J=9:11 J=10:8 J=11:2 J=12:2
+ transformation orthogonal to 1.1e-10 in every J block
+ independent of M to 1.6e-11
+ PASS
+ 6.74 s
+
+==========================================================================
+ f^9      m-scheme dimension at 2M=1 : 198   (full shell: 2002)
+==========================================================================
+ per-J dimensions agree: J=1/2:10 J=3/2:21 J=5/2:28 J=7/2:30 J=9/2:29 J=11/2:26 J=13/2:20 J=15/2:16 J=17/2:9 J=19/2:5 J=21/2:3 J=23/2:1
+ transformation orthogonal to 9.7e-11 in every J block
+ PASS
+ 3.64 s
+
+==========================================================================
+ f^10      m-scheme dimension at 2M=0 : 107   (full shell: 1001)
+==========================================================================
+ per-J dimensions agree: J=0:6 J=1:7 J=2:17 J=3:13 J=4:19 J=5:14 J=6:13 J=7:7 J=8:7 J=9:2 J=10:2
+ transformation orthogonal to 8.3e-11 in every J block
+ independent of M to 1.5e-11
+ PASS
+ 1.53 s
+
+==========================================================================
+ f^11      m-scheme dimension at 2M=1 : 41   (full shell: 364)
+==========================================================================
+ per-J dimensions agree: J=1/2:2 J=3/2:6 J=5/2:7 J=7/2:7 J=9/2:7 J=11/2:5 J=13/2:3 J=15/2:3 J=17/2:1
+ transformation orthogonal to 6.8e-11 in every J block
+ PASS
+ 0.36 s
+
+==========================================================================
+ f^12      m-scheme dimension at 2M=0 : 13   (full shell: 91)
+==========================================================================
+ per-J dimensions agree: J=0:2 J=1:1 J=2:3 J=3:1 J=4:3 J=5:1 J=6:2
+ transformation orthogonal to 1.2e-15 in every J block
+ independent of M to 2.2e-16
+ PASS
+ 0.10 s
+
+==========================================================================
+ f^13      m-scheme dimension at 2M=1 : 2   (full shell: 14)
+==========================================================================
+ per-J dimensions agree: J=5/2:1 J=7/2:1
+ transformation orthogonal to 1.1e-15 in every J block
+ PASS
+ 0.01 s
+
+==========================================================================
+ f^14      m-scheme dimension at 2M=0 : 1   (full shell: 1)
+==========================================================================
+ per-J dimensions agree: J=0:1
+ transformation orthogonal to 1.3e-15 in every J block
+ PASS
+ 0.02 s
+
+==========================================================================
+ 37 passed, 0 failed

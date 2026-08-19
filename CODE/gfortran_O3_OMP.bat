@@ -1,0 +1,1 @@
+gfortran.exe -std=legacy -fshort-enums -malign-double -ftracer -fno-backslash -fallow-argument-mismatch -fcray-pointer -O3 -fopenmp -fno-automatic -fallow-invalid-boz -o %1.exe %1.F 2>gfortran_out.txt

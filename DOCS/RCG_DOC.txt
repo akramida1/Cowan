@@ -1,0 +1,2910 @@
+
+
+                           PROGRAM RCG MOD11
+            CALCULATION OF ATOMIC ENERGY LEVELS AND SPECTRA
+
+                            Robert D. Cowan
+                    Los Alamos National Laboratory
+                              August 1993
+
+   I.  Introduction                                                   2
+  II.  Source Programs                                                4
+ III.  Input/Output Units                                             8
+  IV.  Input                 	                                      9
+        (1) optional control cards                                    9
+        (2) cfp decks                                                10
+        (3) rescaling card                                           12
+        (4) calculational deck                                       12
+             (A)  control card                                       13
+             (B-C) configuration cards                               18
+             (D)  energy parameter cards                             19
+                  radial multipole-integral cards                    21
+                  review                                             22
+   V.  Output                                                        23
+  VI.  Array Dimensions                                              25
+ VII.  Memory Requirements                                           28
+VIII.  Execution Times                                               28
+  IX.  Modifications for Other Computers                             28
+   X.  Rescaling of Input Data                                       29
+  XI.  Photoionization Cross Sections Q                              30
+ XII.  Autoionization Transition Probabilities                       34
+         (a) Kinetic energies of autoionized electrons               36
+         (b) Branching ratios and dielectronic recombination         36
+         (c) Autoionization contributions to collisional ionization  38
+         (d) Autoionization contributions to collisional excitation  39
+XIII.  Plane-wave-Born Collision Strengths                           41
+ XIV.  List of Principal Variables                                   43
+  XV.  Program Usage and Example	
+         (A) Program Location at Los Alamos	
+         (B) Execution	
+         (C) Sample Input and Output
+ XVI.  Sample Monitor Screen Output
+       Appendix--Notes on level designations	
+
+
+
+I. Introduction
+        RCG is a FORTRAN77 program initially coded (1964-65) on the 
+IBM 7030 ("Stretch"), and subsequently modified (with addition of 
+many new features and options) to run on other IBM, CDC, and CRAY 
+mainframes, various VAXs and MicroVAXs, SUN and IBM RISC 
+workstations, and finally Macintosh Centris 650 computers (68040 
+microprocessor with built-in floating-point processor and using 
+the Language Systems FORTRAN compiler with -t72 option).  It has 
+also been successfully used by others on Apollo, Hewlett-Packard, 
+and PC-type computers.  On 32-bit-word machines, it should be run 
+in double-precision mode--preferably using, if available, a large-
+exponent-range option (10^(+/-350) rather than 10^(+/-38)) such as the VAX 
+G_FLOATING compiler option.  To make the program easily useable on 
+both 64-bit and 32-bit machines, the following program 
+modifications have been incorporated:
+        (1)  PROGRAM cards have been included both with and without 
+file-definition names included, and there have also been included 
+file-name definitions via OPEN statements.  On CRAY and CYBER 
+machines, the simple PROGRAM card can be commented out and III in 
+the main program set to 2, which causes the OPEN statements to be 
+bypassed.  On VAXs and similar computers, the file-definition 
+PROGRAM card is the one to be commented out, and III set to 1 to 
+define all file names via OPEN statements.  (III may alternatively
+be set to zero, in which case some file names are set by typing
+them in interactively.)
+        (2)  In all subroutines there are included IMPLICIT 
+REAL*8(A-H,O-Z) statements, which may be commented out if 
+necessary for 64-bit-word machines.
+        (3)  Generic library subroutine names (e.g., MAX in place 
+of AMAX1 or DMAX1) have been used so that the compiler will 
+automatically use the single-precision or double-precision 
+version, depending on the type of the argument variables.  In all 
+argument lists, constants have been replaced by variable names, 
+the variable being given a value in a replacement statement such 
+as TWO=2.0, so that in 32-bit-word machines it will automatically 
+be converted to double precision.
+        (4)  In subroutines PLEV and CALCFC, there were 25-fold-or-
+so nested DO loops, which exceeded the maximum size allowed in the 
+VAX compiler (20-fold).  This problem has been eliminated by 
+moving the inner-most several DO loops to subroutines PLEVDOLP and 
+CAFCDOLP, respectively.  
+        (5)  In subroutine SECONDS, there are included a single 
+statement T=SECOND(T) appropriate to the CRAY, and also sets of 
+timing-routine statements appropriate to VAXs or Macintoshes, 
+SUNs, and IBM RISCs.  Inappropriate sections of the routine are to 
+be commented out (or a new one added as needed for the computer in 
+question, or one can simply set T=0.0 if the computer has no 
+internal timer clock).
+        (6)  All ENCODE and DECODE statements used in older 
+versions of the program have been removed.  This has been 
+facilitated by defining a number of variables as CHARACTER type.
+
+        The basic purpose of RCG is to compute the angular factor 
+of various matrix elements in the theory of atomic structure and 
+spectra.  The program employs Racah-algebra techniques, and input 
+decks containing coefficients of fractional parentage (cfp) for 
+each subshell lw involved in the electron configurations
+
+           (n1l1)w1 (n2l2)w2 ... (nqlq)wq                  (1)
+
+present in the calculation.  Any occupied subshell nlw may be (and 
+in practice always is) deleted from the set (1) if it is filled 
+(w=4l+2) in every configuration involved in a given calculation.
+        A short description of the basic theory behind the program 
+(except for configuration-interaction effects) may be found in     
+R. D. Cowan, J. Opt. Soc. Am. 58, 808 and 924 (1968).  Full 
+details are given in R. D. Cowan, The Theory of Atomic Structure 
+and Spectra (University of California Press, Berkeley, 1981)--
+especially Chapters 16 and 18--hereinafter referred to simply as 
+"TASS".
+        The angular factors in question are:
+        (a)  the trivial (unit-matrix) coefficient of Eav, the 
+center-of-gravity energy of each configuration;
+        (b)  the coefficients fk, gk, and d of the single-
+configuration direct and exchange Coulomb-interaction (Fk and Gk) 
+and spin-orbit-interaction (z) radial integrals, and the 
+coefficients rdk and rek of the direct and exchange configuration-
+interaction Coulomb radial integrals Rk, which are involved in the 
+calculation of the Hamiltonian (energy-level) matrix elements;
+        (c)  the magnetic-dipole matrix elements, and the angular 
+coefficients of the electric-dipole (t=1) and electric-quadrupole 
+(t=2) reduced radial matrix elements
+
+        Pll'(t) = < l || r(t) C(t) || l' >    .	           (2)
+
+Also possible are angular coefficients of certain effective-
+Coulomb-interaction operators a, b, g, T1, and T2, and "illegal-k" 
+operators Fk and Gk used in representing weak configuration-
+interaction effects (TASS, Sec. 16-7), and also coefficients of 
+spherical-Bessel-function radial integrals
+
+        < l || jt(Kr) C(t) || l' >   ,                     (3)
+
+(TASS, Secs. 18-12 and 18-13).
+        These angular coefficients may be used as input to programs 
+(such as RCE Mod 20) for least-squares fitting of experimental 
+energy levels.
+        If numerical values of the radial integrals Eav, Fk, Gk, z, 
+Rk are provided (either by considering them as adjustable parameters 
+determined by least-squares fitting of experimental levels, or 
+using ab initio theoretical values computed from atomic radial 
+wavefunctions), then energy levels and intermediate-coupling 
+eigenvectors are computed.  If numerical values of the electric-
+multipole integrals are supplied, then the energy levels and 
+eigenvectors are used for computation of spectrum-line wavelengths 
+and the associated oscillator strengths and radiative transition 
+probabilities.  In practice, values of these radial integrals (and 
+indeed the entire RCG input file) are obtained via a calculation 
+with the atomic-wavefunction programs RCN/RCN2.
+        Options are available in RCG for the calculation of 
+photoionization cross sections, autoionization transition 
+probabilities, and plane-wave-Born electron-impact collision 
+strengths.
+
+
+II. Source Programs
+        The following brief discussion of the function of each 
+subroutine or function program provides a rough outline of the 
+basic calculational procedure.  For simplicity, the following 
+discussion uses the default values of the various disk-file names, 
+but these can be easily changed.  In places, terminology will be 
+used that dates from the time when computer input consisted of 
+punched cards: The word "card" may be used to refer to a line of 
+an input file or FORTRAN source file, and the word "deck" to refer 
+to an input file--set of cards--or portion thereof.  Characters 
+"punched" in specific columns of these cards are, of course, to be 
+typed into the corresponding columns of the input line.  
+Statements that various information is "printed" means that 
+information is written to the output print file IW=9, but in many 
+cases only if certain print options are in effect.
+     
+MAIN  Reads various control cards from the input file, disk unit 
+IR=10, and calls the various major subroutines according to the 
+information thereon.
+
+CUVFD (Calculate U,V,f,d)  Defines three disk file numbers ID2, 
+ID3, ID4 (normally 72, 73, 74).  Reads coefficient-of-fractional-
+parentage (cfp) decks (including term quantum numbers aiLiSi and 
+                       _ _ _
+parent quantum numbers aiLiSi) for each subshell (li)wi that may 
+be involved in any of the configurations (1) for which 
+calculations are to be made later, computes coefficients of 
+fractional grandparentage (cfgp) if pertinent, and writes all this 
+on binary disk 72; calculates matrix elements of U(r) and V(r1) 
+and writes them on disk 73; and calculates angular coefficients 
+for Fk(ii), for a, b, g (for dw subshells, also T, T1, T2) if so 
+requested, and for zi, and writes them on disk 74.
+
+CIJKF  Calls S3J0SQ to calculate matrix elements  
+        < li || C(k) || lj >   .                           (4)
+
+LOCDSK  Locates the first record of information for lw on disk 72, 
+73, or 74.
+
+LNCUV (ln,C,U,V)  Reads input cards specifying the subshells liwi 
+involved in each configuration, and calculates (via CIJKF) and 
+prints a table of values of the matrix elements (4).  This table 
+is not used in further calculations, but is for information only.
+
+PLEV (preliminary levels)  Using the liwi values read by LNCUV, 
+reads the terms of liwi from disk 72, and vectorially adds quantum 
+numbers LiSi to set up tables of all possible quantum numbers LiSi 
+and Ji (i.LE.q).
+
+PFGD  Sets up preliminary tables of the coefficients fk, gk, d, etc. 
+of Fk(ii), a, b, g, T, T1, T2, and zetai (obtained from disk 74) and 
+of Fk(ij) and Gk(ij) (computed with the aid of subroutines CIJKF, 
+RDIJ, and REIJ, using matrix elements of U and V obtained from 
+disk 73), and writes these tables on disk 20.
+
+PRK  Computes preliminary tables of coefficients rk of the 
+configuration-interaction parameters Rk(ij,i'j') with the aid of 
+cfp and cfgp from disk 72, U and V matrix elements from disk 73, 
+and subroutines CLASS1 to CLAS11, RDIJ, and REIJ.  Writes these 
+tables on disk 20.
+
+RDIJ  Used in computing coefficients fk and rdk of direct Coulomb-
+interaction parameters Fk(ij) and Rk(ij,i'j').
+
+REIJ  Used in computing coefficients gk and rek of exchange 
+parameters Gk(ij) and Rk(ij,j'i').
+
+CLASS1-CLAS11  Used in computing coefficients of Rk for the eleven 
+possible classes of configuration interaction.
+
+CALCFC (calculate final coefficients)  For each possible value of 
+the total-angular-momentum quantum number J, selects those sets of 
+quantum numbers aiLiSiLiSi (1.LE.i.LE.q) found by PLEV that can 
+give this value of J, computes the LS-JJ transformation matrix, and 
+writes all this on disk unit IL=31 (first parity) or IL=32 (second 
+parity) and on IC=41 (both parities). Reads the preliminary tables 
+of coefficients from disk 20, and sets up final coefficient 
+matrices for all parameters (except Eav) and writes them on disk 
+unit IC=41.  Calls SPRIN to print matrices if desired, and also 
+calls CPL37.  If so requested, writes non-zero coefficient matrix 
+elements on disk 19 or 5 for use respectively by the Argonne or 
+Zeeman Laboratory least-squares level fitting program.
+
+CPL37 (coupling 3 to 7)  If desired, calculates quantum numbers 
+for, and transformation matrices to, coupling representations 
+number 3 to 7 (LS=1, JJ=2--see JOSA article mentioned in Sec. I or 
+page 15 below for definitions.  Writes this information on disk 
+IC=41.
+
+SPRIN  Multipurpose matrix-print routine, to print angular-
+coefficient matrices for Fk (KPAR=-1), Gk (0), z (+1), Rk (-2), for 
+multipole transitions (+2), and for energy (+3) or eigenvector 
+(+4) matrices, with more-or-less adequately labeled rows and 
+columns.  Also transforms energy-coefficient and mupole matrices 
+when calculation in the JJ representation is desired, and computes 
+and prints Lande g-values when called for LS eigenvectors.  (Also, 
+writes mupole matrices on disk IC=41.)
+
+SPRN37  Called by SPRIN to read transformation matrices from disk 
+IC=41, and transform and print eigenvectors in representations 3 
+to 7.
+
+MUPOLE  Reads quantum numbers from disks IL=31 and/or 32, cfp from 
+disk 72, and U(2) from disk 73 (for electric quadrupole), and 
+computes angular coefficients for line-strength calculations (or 
+for plane-wave Born calculations).  Calls SPRIN to print matrices 
+and write on disk IC=41.
+
+ENERGY  Reads parameter values (Eav, and Coulomb and spin-orbit 
+radial integrals) from data input cards on disk IR=10; for each J, 
+reads quantum numbers and the LS-JJ transformation matrix from disk 
+IC=41, reads coefficient matrices from IC and computes and 
+diagonalizes the energy matrix, and writes eigenvalues (sorted in 
+numerically increasing order) and eigenvectors on disk IE=31 
+(first parity) or 32 (second parity).  Computes autoionization 
+transition probabilities if appropriate, and writes them on disk 
+IE.  Calls SPRIN to print the energy and eigenvector matrices.
+
+CALCV  If so instructed, called by ENERGY (for each J) to calculate 
+the diagonal elements of the coefficient matrices in the 
+intermediate-coupling representation (the representation in which 
+the energy matrix is diagonal).  These elements represent the 
+derivatives of the various eigenvalues with respect to the various 
+parameters, and provide information needed for a trial-and-error 
+adjustment of the parameters to produce desired changes in the 
+eigenvalues.  (These are the elements that are calculated and used 
+in least-squares programs such as RCE for the systematic iterative 
+fitting of theoretical eigenvalues to experimental energy levels.  
+In RCG, these elements are simply printed out for use in rough 
+eye-ball parameter adjustments.)
+
+LVDIST  Called by ENERGY, if desired, to calculate the statistical 
+distribution of energy-level statistical weight, and plot on film 
+via PLOJB (deleted in the present version of RCG).  Also 
+calculates and plots that skewed-Gaussian curve that best fits the 
+distribution (see TASS, Sec. 21-3 for definitions and examples).
+
+SPECTR  Called by ENERGY.  Reads values of reduced mupole radial 
+matrix integrals (2), calculated by RCN2, from the input file on 
+disk 10.  For each possible pair of values of (J,J'), reads the 
+angular-coefficient mupole matrix from disk 41 and eigenvalues and 
+vectors from disk IE=31 and/or 32, differences eigenvalues to 
+compute wavelengths of spectrum lines, and multiplies the mupole 
+matrix from either side by the appropriate eigenvector matrix (and 
+multiplies the resulting matrix elements by the appropriate radial 
+integral) to compute intermediate-coupling line strengths, 
+oscillator strengths, and radiative transition probabilities.  
+Spectrum-line information is printed after being sorted by (a) 
+levels in the first set of configurations (first parity), (b) 
+levels in the second set of configurations (second parity), and/or 
+(c) wavelength.  In the first two cases, a total transition 
+probability and lifetime are computed for each level of the given 
+set with resect to all possible transitions to lower-energy levels 
+included in the opposite set.
+
+WNDIST (wavenumber distribution)  If desired, called from SPECTR 
+to calculate [and plot] oscillator-strength distributions (see 
+TASS, Sec. 21-4); writes this on disk unit 11 to provide input 
+information for program RADRATE.
+
+BORN  Can be called from ENERGY to calculate plane-wave-Born 
+collision strengths (using interpolation routine AKNINT), and 
+excitation rate coefficients (using routines RCOEFF, E1, and 
+CSEVL).
+
+UNCPLA and UNCPLB  Compute the uncoupling coefficients Ua and Ub 
+for reduced matrix elements, as defined in TASS, Eqs. (12.26) and 
+(12.27).
+
+RECPSH, RECPJP, RECPEX  Compute the shift, jump, and exchange 
+recoupling coefficients defined in TASS, Eqs. (13.64)-(13.66).
+
+S3J0SQ, S9J, S6J, DELSQ, CALCFCT  Compute the square of the 3-j 
+symbol with magnetic quantum numbers all zero, the 9-j symbol, and 
+the 6-j symbol, using a table of factorials computed by CALCFCT.
+
+SORT, ORDER  Sort an array of numbers into numerically increasing 
+order, and correspondingly rearrange up to 12 additional arrays.
+
+MLEW  Dummy program (called by ENERGY) to call matrix-
+diagonalization routines TRED2 and TQL2. 
+
+RCEINP (RCE input)  Called by ENERGY to write transformation and 
+coefficient matrices on binary disk unit 2, and an input formatted 
+file on disk 11, for the least-squares energy-level fitting 
+program RCE.
+
+
+
+
+III. Input/Output Units
+        Disk-storage unit numbers used, with external and internal 
+names, are as follows:
+
+ Ext.   Int. Default val.                 Usage 
+------  ---  ------------    ------------------------------------------                
+ing11  	ir     10            input
+outg11 	iw      9            printed output
+tape2e          2            coeffs. for use in least-squares prog. RCE
+outgine        11            formatted input for use in program RCE
+       	id2    72            single-subshell quantum nos., cfp, and cfgp
+       	id3    id2+1   	     U(r), V(r1)
+       	id4    id2+2   	     single-subshell Coulomb and spin-orbit
+                                  coeffs.
+               20            preliminary Coulomb and spin-orbit 
+                        	  coefficients
+       	il     31,32   	     quantum nos., transformation matrices
+       	ic     41            quantum nos., transf. and final coef.
+                                  matrices
+       	ie     31,32   	     energy levels, eigenvectors,
+                                  autoionization transition probs.
+               2,11          coeffs. for use in Zeeman Lab
+                                  least-squares level-fitting program
+               19            coeffs. for use in Argonne Lab
+                                  least-squares level-fitting program
+               11            special-purpose level and osc.-strength 
+                                  output
+               3,13          special-purpose dielectronic-recomb. output
+
+        Normally, ID2-ID4 are small files; 20, IL, and IE are of 
+intermediate length; IC is the largest.  Actual sizes depend on 
+the complexity of the set of configurations being run.  Units 31 
+(ILA) and ID4 may share the same I/O buffer, as ILA is not used 
+until ID4 is no longer needed.  Default values may be readily 
+changed by changing the six statements starting with statement 60 
+of the main program, by corresponding choice of the value of ID2T 
+read from the input file at statement 85, and appropriate changes 
+in the file numbers on the PROGRAM card or in OPEN statments.
+
+
+
+IV. Input
+        We here discuss input-data setup for simple bound-state level
+and spectrum calculations.  Modifications for special-purpose 
+calculations involving continuum states will be discussed in Secs. 
+XI to XIII.  Sample input decks and output listings are provided 
+in Sec. XV.
+        Briefly, input data consist of the following:
+            (1)  Two types of optional control cards.
+            (2)  If requested by one of the above control cards, a 
+set of cfp decks, followed by a card with a negative integer in 
+columns 9-12 (signaling the end of the set of cfp decks).
+            (3)  An optional rescale card (see Sec. X).
+            (4)  One or more calculational decks (usually provided 
+ready-to-run from output of an RCN/RCN2 calculation); each deck 
+starts with a control card, and ends with a card containing      
+"-99999999." in columns 21-30.
+            (5)  A card with a negative integer in columns 1-5, 
+causing an exit from RCG.  (This card is automatically provided by 
+RCN2).
+            (6)  Any unused input data cards may be stored here if 
+desired.
+
+     Further details of the input are as follows.
+
+        (1a)  There may be one or two optional control cards of the 
+following form:
+
+         cols.             variable            format 
+        ------          ----------------      --------
+          1-4           NCLSKP(K) > 0            I4
+           5                K                    I1
+         6-10           NOTKP(K)                 I5
+        11-80           MULS1(I),LHS1(I)      14(I4,A1)
+
+K must be 1 for configurations of the first parity, or 2 for 
+configurations of the second parity.  If NOTKP(K) is greater than 
+zero then only those basis states (for configurations of parity K 
+and serial number greater than or equal to NCLSKP(K) will be 
+retained that have one of the NOTKP(K) ("no. of LS terms to be 
+kept") values of multiplicity and total orbital angular momentum L 
+specified in columns 11 to 10+5*NOTKP; for example (using carats 
+to denote blank columns),
+
+^^^12^^^^3^^^4s^^^2d^^^2s
+
+means keep only 4S, 2D, and 2S basis states for all configurations 
+of the second parity.  These control cards need be included only 
+if LS-term truncation of this type is desired.  [Notes: (a) If more 
+than one truncation control card with given K is included, only 
+the final one will be effective; (b) Truncation cards may appear 
+either before control card (1b), or following (1b) and the 
+associated cfp decks and end card (if any).]
+
+     (1b)  There may be an optional control card of the form:
+
+cols.     variable      format                comments         
+-----    ------------   ------   -------------------------------
+ 1-5     integer (=3)     I5     defines control card of type 1b
+ 6-7     ILNCUV           I2     extra output print if > 0 (and  
+                                   ID2 > 0)
+ 8-10    ID2              I3     file number (default=ID2=72)
+11-15    FLBDN           E5.1    default=0.001 èangstrom
+16-20    FLBDX           E5.1    default=500000 èangstrom
+21-30    DELEKEV         F10.5   default=0.0005 keV
+31-40    EIONRY          F10.5   default=0.0 Ry
+41-45    NPTKEV           I5     default=0
+46-70    TKEV(I),I=2,6   5F5.3   default=0.0 keV [NTKEV (.LE.5)
+                                   determined by the number of  
+                                   non-zero TKEV]
+71-80    EMINA           F10.5   default=0.0 (same units as energy
+                                   levels)
+
+The variables FLBDN and FLBDX specify the minimum and maximum 
+wavelengths (lambda) of spectrum lines to be retained in 
+subroutine SPECTR; the variable DELEKEV is used in WNDIST in 
+defining the histogram bin-width for calculating the oscillator-
+strength distribution; and the variables EIONRY, NPTKEV, TKEV, and 
+EMINA concern special-purpose dielectronic-recombination 
+calculations in SPECTR (see Sec. XII , pages 37 and 41).  This 
+control card need be included only if cfp decks are included 
+and/or if non-default values of the other variables are desired; 
+there must be such a card (with ID2 non-zero) before a set of cfp 
+decks, and may be another (with ID2=0) following these decks.
+
+        (2)  If ID2 is non-zero (normally=72), then this value will 
+determine values for the file numbers ID3(=ID2+1) and ID4(=ID2+2) 
+as well (see Sec. III).  In addition, the control card (1b) must 
+then (and only then) be followed by a set of cfp decks, and by an 
+end card with negative integer in columns 9 to 12; the subroutine 
+CUVFD is called to process these cfp decks and write information 
+on disks ID2-ID4, and a non-zero ILNCUV produces printed output of 
+some of the computed information.  Except as noted below, there 
+must be a cfp deck for each lw involved in any configuration 
+specified in the calculational decks (4); if subshells lw and lw-2 
+will both be involved in a set of interacting configurations, then 
+a cfp deck for lw-1 must also be included (so that cfgp for lw can 
+be computed).  All decks of given l should be grouped together, 
+and must be arranged in order of increasing w.  Decks for l0 and 
+l1 are needed only if cfgp for l2 are required, so that decks for 
+g, h, i, ... , electrons are normally never needed.  The input 
+file ING11K provided with the program RCG contains cfp decks for 
+all sw, pw, dw, f0 to f4 and f11 to f14, and for g0, g1, g2, h0, 
+h1, and h2.  The file cfp contains also f5 to f10 decks, but these 
+require larger dimensions of several variables than those used in 
+the code provided (see the comment cards near the beginning of the 
+main program).  Normally, all the cfp decks included in ING11K can 
+be used in calculation of disk files ID2-ID4.  (The presence of 
+unneeded cfp decks causes no harm except for extra computer time 
+in CUVFD--see TASS, Tables 16-1 and 16-2--which needs to be 
+executed only once, and a small amount of extra disk search time 
+in reading data from disks ID2-ID4 if subshells of large l are 
+needed in a given calculation.)
+        The detailed format of each cfp deck need not be discussed 
+here.  We need comment only on the form of the first card of each 
+deck, which contains:
+
+       column 4:   the spectrosopic letter code for l   
+                     (s,p,d,f,g,h,i,k,..., according as the one-
+                     electron angular momentum is  
+                      0,1,2,3,4,5,6,7,..., respectively.
+    columns 5-8:   w  (format I4)
+   columns 9-12:   number of LS terms of lw  (format I4)
+  columns 13-16:   Number of parents (terms of lw-1)  (format I4)
+
+The size of a calculation (particularly for configurations 
+involving an fw subshell) can be reduced by including only a 
+limited number of terms of the subshell lw in setting up quantum 
+states of the complete configuration.  To invoke such a 
+truncation, the number of terms of lw to be included is placed in 
+columns 21-24, and the terms themselves are placed in columns 29-
+32, 33-36, ... 73-76 (and if necessary in columns 1-4, 5-8, ... of 
+succeeding cards).  The first column for each term contains the 
+value of the multiplicity 2S+1, the second column contains the 
+letter symbol for L (S,P,D,F,G,H,I,K, ... , except in lower case), 
+and the last two columns contain any necessary (left-adjusted) 
+serial number to distinguish different terms of the same LS; this 
+serial number must match that used in the body of the cfp deck, 
+which follows the convention used by C. W. Nielson and G. F. 
+Koster, Spectroscopic Coefficients for the pn, dn, and fn 
+Configurations (The M.I.T. Press, Cambridge, Mass., 1963).  (Some 
+examples are included in the cfp decks provided in ING11K for f2, 
+f3, etc., though with the number of terms equal zero so that there 
+is no truncation.)
+        The control card (1b) with ID2 > 0, together with cfp decks 
+and end card, must be included on a first run of RCG--using, for 
+example, ING11K for the input deck ING11--in order to produce the 
+files ID2, ID3, and ID4 (normally TAPE72, TAPE73, and TAPE74).  If 
+these files, produced on such a run, are saved and made available 
+to subsequent runs, then items (1b) and (2) may be deleted from 
+all further runs [except, of course, that a (1b) card with ID2=0 
+must be included if non-default values are needed for variables 
+other than ID2].  It will of course be necessary to recompute 
+files ID2-ID4 if new subshells need to be added, or if truncation 
+of LS terms is to be added or changed.
+        The action of the variable ILNCUV controls the amount of
+information from subroutine CUVFD written to the output file outg11:
+        ILNCUV=0, name of subshell and computing time only
+               1, tables of cfp and cfgp
+               2, coefficient names and times
+               3, coefficient names and times, and coefficient values
+               4, all the above
+
+        (3)  For details of the optional rescaling card, see Sec. X).
+
+        (4)  Each calculational deck consists of the following:
+          (A)  A control card, specifying among other things the 
+number of configurations of each parity that are involved in the 
+calculation.
+          (B)  A set of configuration-definition cards, one for 
+each configuration of the first parity.
+          (C)  A set of configuration-definition cards, one for 
+each configuration of the second parity.  This will be an empty 
+set if column 16 of the control card contains a zero.
+          (D)  Zero, or one, or several, sets of parameter-value 
+cards; a set may have any one of three forms:
+             (i)  For a diagonalization, a set consists of:
+                (a)  Parameter values for each configuration of 
+                       the first parity.
+                (b)  Configuration-interaction parameter values 
+                       for each pair of interacting configurations 
+                       of the first parity (if any).
+                (c)  If IQUAD (col. 50 of the control card A) is 
+                       1 or > 2, one or more sets of electric 
+                       quadrupole reduced-matrix-element cards for 
+                       configurations of the first parity.
+                (d)  Same as (a), for configs. of the second 
+                       parity (if any).
+                (e)  Same as (b), for configs. of the second 
+                       parity (if any).
+                (f)  If IQUAD >1, same as (c) except for the 
+                       second parity.
+                (g)  If both parities are present, zero or more 
+                       sets of electric-dipole reduced-matrix- 
+                       element cards, for all pairs of 
+                       configurations of opposite parity.
+            (ii)  To write coefficient matrix elements for each 
+                    parity on file 2, a single pseudo-parameter 
+                    card containing "-55555555." in columns 21-30. 
+                    If this option is used, then columns 9-10 of 
+                    the control card (A) must contain a negative 
+                    integer; the absolute value of this integer is 
+                    the quantity NOCSET used in least-squares 
+                    energy-level-fitting program RCE.  This 
+                    pseudo-parameter card may have one or more 
+                    sets of genuine parameter cards (i) preceding 
+                    it and/or following it.
+           (iii)  A single pseudo-parameter card containing 
+                    "-99999999." in columns 21-30 signals the end 
+                    of the calculational deck (4).  Any number of 
+                    similar decks may follow.
+
+
+A. Calculational deck control card
+        The control card (A) is of the following form:
+          (i)  If it contains a negative integer in columns 1-5, it 
+is the data card (5) above, causing an exit from RCG.  Any cards 
+that follow are not read, but form part of the bone-pile (6).
+         (ii)  If it contains a zero in columns 1-5, this is a 
+rescaling card (see Sec. X below); it should be followed by a 
+genuine card (iv) below.
+          (iii)  If it contains a positive integer NOCSET in columns 
+8-10 and a 1 or 2 in column 5, this is a signal to search through 
+the file on unit 2 until this CSET (set of coefficient matrices) 
+is found.  This pseudo control card is not followed by cards (B)-
+(D), but is immediately followed by a genuine control card (iv)--
+normally containing a negative number in columns 9-10 to specify 
+the serial number of a new CSET that is going to be added on to 
+unit 2, to provide input for least-squares energy-level-fitting 
+program RCE.  [In practice, this option is never used, CSETs being 
+computed as needed and written onto a new file on unit 2, rather 
+than being added onto an old one.]
+          (iv)  A genuine control card is of the following form:
+
+cols. format      variable name             normal value 
+----- ------    -------------------    ------------------------   
+ 1-5   I5       KCPL                    1
+ 6-7   I1,I2    NCK(K), K=1,2           blank
+ 9-10  I2       NOCSET                  blank; see (iii) above
+11-15  I1,2I2   NSCONF(I,1)  )
+                             ) I=1,3    see below
+16-20  I1,2I2   NSCONF(I,2)  )
+21     I1       IABG                    blank
+22     I1       IV                      blank
+23-25  I3       NLSMAX                  blank
+26-27  I2       NLT11                   blank
+28-30  I3       NEVMAX                  blank
+31-39  9I1      KCPLD(I), I=1,9         blank (except for Born calc.)
+40     I1       IELPUN                  blank
+41-44  2F2.1    SJNK(1), SJXK(1)        blank
+45-48  2F2.1    SJNK(2), SJXK(2)        blank
+49     I1       IMAG                    blank (for no M1 trans.) 
+50     I1       IQUAD                   blank (for no E2 trans.)
+51-60  F10.5    UENRGY                  1000.0
+61-65  F5.5     DMIN                    0.0
+66     I1       ILNCUV                  blank
+67     I1       IPLEV                   blank
+68     I1       ICPC                    blank
+69     I1       ICFC                    blank
+70     I1       IDIP                    blank
+71     I1       IENGYD                  0
+72     I1       ISPECC                  7
+73-74  I2       IW6                     -6  (blank for batch runs)
+75-76  I2       IPCT                    blank
+77-78  I2       ICTC                    blank
+79-80  I2       ICTBCD                  blank
+
+The significance of these quantities is as follows.
+
+       KCPL:  < 0,  an exit card, (i) above
+              = 0,  a rescaling card, (ii) above
+              = 1,  calculation to be done in LS (or SL) represent.
+              = 2,  calculation to be done in JJ representation
+
+     NCK(K):    If non-zero, then in all spectrum-line lists and 
+              plane-wave-Born calculations, only those transitions 
+              are included that involve levels belonging to the 
+              first NCK(K) configurations.  For parity-changing 
+              (electric-dipole) transitions, K=1 and 2 represent 
+              the first and second parities; for non-parity-
+              changing transitions, K=1 and 2 represent lower and 
+              upper level, respectively.  [Default is 50, except 
+              NCK(1)=1 for plane-wave-Born calculations.]
+
+     NOCSET:    Must be blank or a negative integer; see under (iii) 
+              above.
+
+NSCONF(1,K):    number of subshells for configurations of parity K
+
+NSCONF(2,K):    number of configurations of parity K
+
+NSCONF(3,K):    number of successive configurations for which 
+              interactions will be included [normally=NSCONF(2,K)]
+              If NSCONF(3,K)=0, then following the configuration-
+              definition cards there must be a card containing 
+              INTEST(I), I=1,80 (format 80I1); interaction will be 
+              included between configurations with serial numbers 
+              J1 and J2 if INTEST(I) > 0, where I is computed as 
+              follows:
+                     J2X=NSCONF(2,K)
+                     J1X=J2X-1
+                     I=0
+                     DO 799 J1=1,J1X
+                     J2N=J1+1
+                     DO 799 J2=J2N,J2X
+                     I=I+1
+                 799 CONTINUE
+                If -7.LE.NSCONF(3,K).LE.-1, interactions will be 
+              included if the first configuration has serial number
+              J1.LE.MAX(-NSCONF(3,K),IPCT).  If NSCONF(3,K)=-8, all 
+              interactions will be included.  [Use this value with 
+              K=2 to calculate photoionization cross-sections.] 
+              If NSCONF(3,K)=-9, interactions will be included if 
+              the first configuration has serial number J1=1, or 
+              if the two configurations have successive serial 
+              numbers (J2=J1+1).
+
+
+       IABG:    > 0, include effective-operator parameters a (for pw)
+              or a,b,T,T1,T2 (for dw), or a,b,g (for fw); see 
+              TASS, Sec.16-7.
+                =2 or 4, include illegal-k effective-operator 
+              parameters Fk(ij) and Gk(ij); TASS, Sec. 16-7.
+                > 2, use SL instead of LS coupling (for straight LS 
+              coupling only; continue to use LS for compound 
+              couplings such as LSLK, LSJK, LSJLKS, etc.).
+
+         IV:    If non-zero, call CALCV to calculate and print V 
+              matrices (derivatives of eigenvalues with respect to 
+              parameter values).
+
+     NLSMAX:    Calculate eigenvectors in representations 3 to 7 if 
+              matrix size NLS is equal to or less than NLSMAX.  
+
+        The representations are [J. Opt. Sos. Am. 58, 808 (1968)]:
+
+        (1) LS: {[((a1L1S1)L1S1, a2L2S2)L2S2,... aqLqSq]LqSq}Jq
+
+        (2) JJ: {[[(a1L1S1J1)J1, (a2L2S2J2)]J2,... (aqLqSqJq)]}Jq
+
+        (3) JJJK: {[( ... Jq-1)Jq-1, Lq]K,Sq}Jq
+
+        (4) LSLK: {[(( ... Lq-1)Lq-1, Lq)Lq, ( ... Sq-1)Sq-1]K,Sq}Jq 
+
+        (5) LSJK: {[((... Lq-1)Lq-1, ( ... Sq-1)Sq-1)Jq-1,Lq]K, Sq}Jq
+
+        (6) LSJLKJ: {[((... Lq-2)Lq-2, ( ... Sq-2)Sq-2)Jq-2,
+	                     (Lq-1Lq)L]K, (Sq-1Sq)S}Jq
+
+        (7) LSJLSJ: {[(... Lq-2)Lq-2, ( ... Sq-2)Sq-2]Jq-2,
+	                     [(Lq-1Lq)L, (Sq-1Sq)S]J }Jq
+
+[Note: In the above expressions, letters L, S, and J following a ), 
+     ], or } are generally to be interpreted as script letters, which
+     cannot be represented in an ASCII file.]
+
+      NLT11:    For all except the last configuration of each 
+              parity, include no more than the first NLT11 
+              LS-terms of l1w1 (default=119).
+
+     NEVMAX:    For each J, print at most the eigenvectors having 
+              the NEVMAX smallest eigenvalues (default=500).
+
+   KCPLD(I):    If > 0, do not print eigenvectors in the    
+              representation I (I=1 to 7) defined under NLSMAX.
+              If KCPLD(3) > 4, then a plane-wave-Born calculation 
+              is to be made, and KCPLD(3) to KCPLD(7) are 
+              interpreted differently; see Sec.XIII.
+
+
+
+KCPLD(9)=IPRINT:   If > 6, delete energy-matrix print. 
+                 If > 7, delete all eigenvector and purity prints.
+                 If > 8, delete eigenvalue and autoionization 
+                 probability prints.
+
+     IELPUN:    If = 1, write eigenvalues on unit 11 (special-
+              purpose option).
+                If > 1, write multiplet level strengths on unit 19 
+              (ditto).
+
+    SJNK(K):    For parity K, exclude matrices with J < SJNK(K)  
+              (default=0.0).
+    SJXK(K):    For parity K, exclude matrices with J > SJXK(K)  
+              (default=99.0).
+              For example, to include only J=0 for first parity and
+              J=1 for second parity, put .0.51.1. in columns 41-48.
+
+       IMAG:    If > 0, calculate magnetic-dipole transitions for 
+              the first, second, or both parities, according as 
+              IMAG=1, 2, or 3.
+
+      IQUAD:    Similar to IMAG, except for electric quadrupole 
+              transitions (or parity-conserving plane-wave-Born 
+              excitations if KCPLD(3) >= 5).  Note that the 
+              corresponding value of IQUAD must be used in column 
+              50 of the G5INP card in program RCN2 in order to 
+              calculate the required radial integrals.
+
+     UENRGY:    Unit (in cm-1) of all energy-parameter values on the 
+              parameter cards in this calculational deck 
+              (1000.0 if parameter values are in kilokaysers, 
+              8065.48 if in eV, 109737 if in Ry).
+
+       DMIN:    Delete spectrum lines for which S/X < DMIN, where 
+              S is the line strength of the transition, and X is 
+              the largest < nl || r || n'l' >**2 for all of the
+              transition arrays included in the calculation; S/X is 
+              the quantity printed in the spectrum line list in the 
+              column following the wavelength.  Typical values of 
+              S/X for strong lines are 2 to 5; an appropriate 
+              value of DMIN to delete weak lines is 0.005 to 0.05.
+              For modifications of these remarks in certain cases,
+              see pages 25-26).
+                If DMIN < 0.0, in line lists sorted by energy, the
+              only lines retained are those that involve the lowest-
+              energy level of the parity in question.
+
+     ILNCUV:    If > 0, print C(k) matrix elements (4).
+
+      IPLEV:    If > 0, print preliminary quantum numbers in 
+              subroutine PLEV.
+
+
+
+       ICPC:    If > 0, print prelim. ang. coefs. in PFGD and PRK;
+              if=1, print only parameter name and configuration(s),
+              if=2, same as 1 plus single-configuration coeffs.,
+              if=3, same as 1 plus config-interaction coeffs.,
+              if=4, same as 1 plus all coeffs.
+              If > 4, write angular coefficients on unit 11 in a 
+              form suitable for input to program RCN, for making 
+              LS-term HF calculations.
+              If = 9, skip matrix diagonalization part of program. 
+              (No parameter, multipole, nor "-99999999." cards are 
+             to be included in the input deck).
+
+       ICFC:    If > 0, print coef. matrices in subroutine CALCFC;
+              if=1, print only LS- and JJ-representation quantum 
+              numbers,
+              if=2, print also the LS-JJ transformation matrix,
+              if=3, same as 2 plus coef. matrices for single-conf.
+              parameters,
+              if=4, same as 2 plus coef. matrices for c-i params,
+              if >=5, same as 2 plus coef. matrices for all params.
+
+       IDIP:    If > 0, print J values of each multipole matrix;
+              if > 1, print angular multipole matrix, and matrix 
+              of the squares of the elements.
+
+     IENGYD:    If = 0, print full energy matrix;
+              if = 1, do not print matrix;
+              if = 2, print only first NEVMAX rows and columns;
+              if > 2, print first 11*IENGYD rows and columns.
+
+     ISPECC:    = 1, 3, 5, or 7, print spectrum lines sorted by 
+              levels of first parity
+                = 2, 3, 6, or 7, print spectrum lines sorted by 
+              levels of second parity
+              = 4 to 8, print spectrum lines sorted by wavelength
+              > 7, call LVDIST and WNDIST; wavelength sort printed 
+              only if 8.  Default value is 7.
+              Must be > 5 to obtain values of BRNCH, etc., 
+              see Sec. XII.
+
+        IW6:    If < 0, information on the progress of the 
+              calculation is sent to unit 6 (the monitor screen).
+              If > 0, normal output is sent to unit 6 instead of 
+              to unit 9; not a practical option because of the 
+              large volume of output.
+ 
+       IPCT:    Used only in connection with NSCONF(3,K), see above.
+
+       ICTC:    If.NE.0, use previously computed file on disk unit 41,
+              skipping calls of PLEV, PFGD, PRK, CALCFC, and MUPOLE;
+              TAPE72 is still required, but not TAPE73 nor TAPE74.
+
+     ICTBCD:    If > 0, write coefficient matrix elements on disk 
+              unit 19 for input to Argonne National Laboratory 
+              least-squares program.
+              But if NOCSET.NE.0, set ICTBCD = 0 and write only 
+              disk 2, for input to least-squares program RCE.
+
+
+B-C. Configuration Cards
+        Each configuration is of the form
+
+               l1w1 l2w2 ... lqwq
+
+and each of the NSCONF(2,1) + NSCONF(2,2) configuration cards is 
+constructed accordingly in the form
+
+               l1, w1, l2, w2, ... lq, wq
+
+with format  8(A1,I2,2X), and with li written as the appropriate 
+letter symbol  s,p,d,f,g,h,i,k,... , and wi right-adjusted, even 
+if less than 10.  q must be <= 8, and wj cannot be greater than 1 
+for j > 6.  Any subshell that is filled in all configurations of 
+this deck may be omitted.
+        Certain restrictions must be observed in setting up the 
+configurations.  If only one parity is involved, then 
+NSCONF(I,2)=0, all I; if both parities are present, then 
+NSCONF(1,1)=NSCONF(1,2).  For given i, li must be the same in all 
+configurations, as must also be the principal quantum number, 
+though it is not explicitly listed; there are three exceptions to 
+this restriction, all pertaining to the case of a singly occupied 
+subshell lj [wj=1] when all subsequent subshells in that 
+configuration are empty:
+        (1)  For given parity, lj may be the same in several 
+configurations, with only the (unspecified) principal quantum 
+number differing.
+        (2)  lj may have different values for opposite parities.
+Thus, for example, the set of configurations 3s2 3p2, 3s2 3p 4p, 
+3s2 3p 5p, 3s2 3p 4f, 3s2 3p 5f, 3s 3p3, 3s2 3p 4s, 3s2 3p 5s,  
+3s2 3p 3d, 3s2 3p 4d, 3s2 3p 5d in Si I could be set up in the form
+s 2  p 2  p 0  f 0
+s 2  p 1  p 1  f 0
+s 2  p 1  p 1  f 0
+s 2  p 1  p 0  f 1
+s 2  p 1  p 0  f 1
+s 1  p 3  s 0  d 0
+s 2  p 1  s 1  d 0
+s 2  p 1  s 1  d 0
+s 2  p 1  s 0  d 1
+s 2  p 1  s 0  d 1
+s 2  p 1  s 0  d 1
+
+and columns 11-20 of the control card would contain  4^5^54^6^6, 
+where the carats represent blanks (or zeroes).  [If one wished to 
+include configuration interaction only between 3p2 and 3p 4p, 3p 4p 
+and 3p 5p, 3p 5p and 3 p4f, and 3p 4f and 3p 5f, the control numbers 
+would be changed to  4^5^14^6^6, etc.  For this and other options, 
+see the discussion under NSCONF(3,K) above.]
+        (3)  If the final subshell j=q is never more than singly 
+occupied, then lj (as well, perhaps, as the principal quantum 
+number) may be different in different configurations, even of the 
+same parity.  (To all intents and purposes, the dimensional 
+limitation q.LE.8 is then seldom any restriction whatever.  In an 
+RCN2 calculation, use of the minimum possible value of q may be 
+forced by setting ICON = 2 on the G5INP control card.)  In the 
+example above, the outer p, f, s, and d electron may be placed in 
+the third subshell in all configurations, with columns 11-20 of 
+the control card then being 3^5^53^6^6 (or 3^5^13^6^6, etc.).
+        Dimensions of cfp, and of U and V matrix elements are such 
+that any multiply occupied fw subshell should be l1w1 (even then, 
+dimensions are too small for f5 to f10), and any multiply occupied 
+dw subshell should come next.
+
+                 
+D. Energy Parameter Cards
+        The first parameter card for each configuration contains 
+any desired BCD identification (e.g., element and configuration) 
+in columns 1-18.  Columns 21-70 contain values of the first five 
+parameters [format F10.5,4(F9.4,1X)], the value of Eav occupying 
+columns 21-30; the total number of parameters may be placed in 
+columns 19-20.  Any additional parameter values are put on 
+additional cards in columns 1-70 [format 7(F9.4,1X)].  Units for 
+all parameters are defined by the number in columns 51-60 (in 
+cm-1) of the control card; for cards obtained from an RCN2 
+calculation, this number is 1000.0, and the energy unit for 
+parameter values is kK (1000 cm-1).  Energy levels (eigenvalues) 
+are printed in the same units as those used for the parameter 
+values.  The units need to be specified only for purposes of 
+calculating wavelengths, oscillator strengths, and transition 
+probabilities.  [Note: The units can be changed by means of the 
+optional rescale control card; see Sec. X.]
+        Parameters for each configuration are arranged in the 
+following order:
+
+	Eav
+	Fk(l1,l1)
+	Fk(l2,l2)
+	   .
+	   .
+	   .
+	zeta1
+	zeta2
+	   .
+	   .
+	   .
+	Fk(l1,l2)
+	Fk(l1,l3)
+	   .
+	   .
+	   .
+	Fk(l2,l3)
+	   .
+	   .
+	   .
+	Fk(lq-1,lq)
+	Gk(l1,l2)
+	Gk(l1,l3)
+	   .
+	   .
+	   .
+	Gk(l2,l3)
+	   .
+	   .
+	   .
+	Gk(lq-1,lq)
+
+In this list, "Fk" represents F2, F4, ... Fm [m=min(2li,2lj)], and 
+"Gk" represents G|li-lj|, ... Gli+lj, with index k incremented by 2.  
+There are no Fk(li,li) unless 2.LE.wi.LE.4li; there are no Fk(li,lj)
+nor Gk(li,lj), i < j, unless 1.LE.w.LE.4l+1 for both wi and wj; and 
+there are no Fk of either type unless both l are greater than zero.
+There is no zetai unless 1.LE.wi.LE.4li+1 and li > 0.  If IABG > 0, 
+any parameters a,b,g,T,T1,T2 for subshell i follow the corresponding
+Fk(li,li).  If IABG = 2 or 4, then "Fk" represents F1, F2, F3, ... Fm, 
+and k likewise increases in unit steps for the Gk.
+        If desired, the first parameter card for each configuration 
+may contain, in columns 71-72, BCD identification of the source of 
+parameter values--for example, "LS" for least-squares, "HF" for 
+Hartree-Fock, "HR" for HFR, "HX" for Hartree-plus-statistical-
+exchange, etc.  In columns 73-74, 75-76, 77-78, and 79-80 may be 
+included two-digit scale factors for the Fk(li,li), zetai, Fk(li,lj), 
+and Gk(li,lj), respectively; "50" means 0.50, "85" means 0.85, 
+"99" means 1.00, and "01" means 0.001.  These scale factors are 
+factors that have already been applied to obtain the parameter 
+values punched on the card, and are for identification only, 
+except as discussed in Sec. X.
+        Configuration-interaction parameter cards are like single-
+configuration cards except that the parameter values are 
+Rk(ij,i'j') (all possible k) and Rk(ij,j'i') (all possible k).  If 
+more than one set of values (ij,i'j') is possible, the order is an 
+odometer order similar to that for the ij in Fk(ij) and Gk(ij).  
+The only pertinent scale factor is that in columns 79-80.
+        For parameter-value cards output by RCN2, the tenth column of 
+each parameter field (columns 30, 40, ... 70 on the first card; 
+columns 10, 20, ... 70 on continuation cards) contains a single-
+digit-integer code that provides correlation with the various 
+scale factors in columns 73-80; see the discussion of parameter 
+rescaling in Sec. X.
+
+D. (cont)  Radial-Multipole-Integal Cards
+        These cards provide values of Racah's reduced matrix element
+
+  P = < l || r(t) || l' >
+                                 ( l t l')   
+    = (-1)l [(2l+1)(2l'+1)]1/2   (       )  Int. ( rt PlPl' dr)  (5)
+                                 ( 0 0 0 )   
+
+(in units of et a0t); t = 1 or 2 for electric dipole or quadrupole 
+radiation, respectively).  No radial integral cards are needed for 
+magnetic-dipole calculations.
+        Columns 1-18 and 21-38 contain BCD information (like that 
+on the single-configuration parameter card) for the two 
+configurations involved in the transition.  In the case of 
+quadrupole radiation, the two configurations may be the same or 
+may be two different configurations of the same parity; if they 
+are the same configuration, the code (incorrectly in some cases) 
+uses a quadrupole integral only for electrons li in the last 
+(greatest-i) non-s-electron, non-filled subshell.  For electric 
+radiation there is always one and only one card for each pair of 
+configurations, even when the value of P is necessarily zero because
+of selection rules, as for example in the case of s p3 - s2 p p'
+or s2 p s - s2 p f.  The value of P is punched in columns 41-50 
+(format F10.5); columns 51-64 contain "(nl//rt//n'l')" where n and 
+n' are two-digit integers and l and l' are BCD symbols (e.g., ^3p 
+and ^3d, for identification only), and t is 1 or 2 as appropriate; 
+the "(" and the value of t must be punched because the code uses 
+these punches to distinguish between parameter and multipole 
+cards.
+
+        Additional optional information is
+
+                                 /    
+     FRAC =  Int. ( rt PP' dr)  /  Int.  (| rt PP'| dr)	    (6)
+                               /          
+		
+in columns 65-70 (format (F6.4), and identification similar to 
+that in columns 71-72 of the parameter cards.
+        All of the above detail is automatically included on all 
+input cards when the RCG input file is prepared by running RCN and 
+RCN2.
+
+D. (review): Detailed Arrangement of Parameter and Multipole Cards
+        (1)  Energy parameters for configurations of the first 
+parity, one card (or set of cards if there are more than 5 
+parameters) for each configuration 1,2,3,4, ... in succession.
+        (2)  Configuration-interaction parameter cards, one card 
+(or set of cards) for each pair of configurations for which 
+interactions are not identically zero (because of selection rules) 
+and are not excluded through use of special values of NSCONF(3,K) 
+(see A. above), in the order (1,2), (1,3), (1,4), ... (2,3), (2,4), 
+...(3,4), ... .
+        (3)  If IQUAD =1 or 3, a set of quadrupole cards in the order 
+(1,1), (1,2), (1,3), (1,4), ... (2,1), (2,2), (2,3), (2,4), ... 
+(3,1), (3,2), ... .
+        (3a)  If desired, additional set(s) of quadrupole cards 
+containing different values of P for the purpose of making 
+parameter studies.
+        (4)  If configurations of both parities are included 
+[NSCONF(2,2) > 0], then cards for the second parity analogous to 
+(1), (2), and (if IQUAD > 1) (3); also,
+        (5)  A set of radial dipole-integral cards (optional), one 
+card for each pair of configurations of opposite parity, arranged 
+in the following order:
+
+                   Serial number of configuration
+                   ------------------------------
+                    First parity   Second Parity
+                    ------------   -------------
+                         1               1
+                         1               2
+                         1               3
+                         .               .
+                         .               .
+                         .               .
+                         2               1
+                         2               2
+                         2               3
+                         .               .
+                         .               .
+                         .               .
+
+(These cards are read in subroutine SPECTR, statements 104-110.
+        (5a)  Additional sets of dipole cards (5), if desired for 
+parameter studies.
+        (6)  Additional complete sets of cards (1)-(5) if desired 
+(for parameter studies, isoelectronic-sequence calculations, 
+etc.).
+        (7)  A card containing "-99999999." in columns 21-30.  This 
+is a new first-configuration parameter card with a fictitious 
+value of the parameter Eav; it is a signal that there are no more 
+sets of input data (1)-(6), and that the program is to read a new 
+control card, etc. [cards (A)-(D), page 12].
+        (8)  A card containing a negative integer in columns 1-5.  
+This is a new control card (A) with "illegal" value of KCPL, and 
+is a signal for RCG to make a normal exit.
+
+
+V. Output
+        The amount of output sent to the print file IW (internal disk 
+unit 9; external name OUTG11) is controlled by quantities punched 
+in columns 6-7 of the ID2 control card, and in columns 6-7, 21-50, 
+and 61-72 of the calculational-deck control card, as discussed in 
+the preceding section.  In most cases, all these columns are left 
+blank, except that (a) for configurations in light elements where 
+LS coupling is a good approximation, column 32 may be non-zero to 
+delete printing of JJ-representation eigenvectors, and (b) if 
+columns 23-25 are non-zero to activate calculation of eigenvectors 
+in still other representations (numbers 3 to 7), then non-zero 
+punches can be used in columns 31 to 37 to delete printing of 
+eigenvectors in the corresponding undesired representations.  
+(Note:  When using these options, any number in column 33 must be 
+less than 5 to avoid activating a plane-wave-Born calculation; see 
+Sec. XIII.)
+        Information routinely printed in the normal case (columns 21-
+50 and 61-71 blank or zero) consists of:
+        (1)  In CUVFD (if called as the result of inclusion of cfp 
+decks), a list of subshells for which cfp decks were included.
+        (2)  In PLEV, a list of dimensions actually used for certain 
+arrays.  (If the array sizes specified in DIMENSION statements are 
+exceeded, a fatal-error STOP results.)
+        (3)  No output from PFGD and PRK unless ICPC > 0, in which 
+case a list of parameters for which coefficients have been computed is 
+printed, with array sizes and (for PRK) the configuration-
+interaction class.  In the parameter names "FK(i,j)" and 
+"GK(i,j)", the values of i and j refer to the serial numbers 
+of the subshells liwi and ljwj involved; "ZETA(i)" is to be 
+interpreted similarly for zi; and "mnkDiji'j'" and "mnkEiji'j'" 
+refer to Rdk(ij,i'j') and Rek(ij,i'j'), where ij are subshell 
+numbers for the configuration with serial number m, and i'j' are 
+subshell numbers for configuration n.
+        (4)  In CALCFC if ICFC > 0, for each J-matrix a list of
+quantum numbers for each row (or column) of the matrix in both the LS 
+and JJ representations.  In each case, symbols in parentheses refer to 
+quantum numbers aiLiSiJi for subshell liwi, and symbols not in 
+parentheses refer to coupled quantum numbers LiSiJi as accumulated 
+for coupling of successive subshells from left to right [TASS, 
+Eqs. (12.1) and (12.2), or as listed under "NLSMAX" in Sec. IV 
+above (page 15)].
+        (5)  In ENERGY, a list of the parameter values read as input;
+for each J, the energy matrix, eigenvalues, Lande g-values, 
+eigenvectors in both the LS and JJ representations (except as 
+described in the first paragraph of this section, V, above), and 
+eigenvector purities (square of largest eigenvector component) in 
+each representation.  Each eigenvector is tabulated vertically 
+beneath its corresponding eigenvalue and g-value, in sets of 
+eleven eigenvectors horizontally, with abbreviated basis-state 
+labels at the left side of the page, and (immediately above each 
+eigenvector) the configuration and basis-state label of the 
+largest component; for complete basis-state definitions it may be 
+necessary to consult the quantum-number listings in (4) above.
+        (6)  In SPECTR, a list of the input radial multipole 
+integrals, the number of spectrum lines for each J-J', and lists of 
+the spectrum lines thenselves.  For each spectrum line there is 
+tabulated (after a serial number), the level value, the J value, 
+the serial number of the dominant configuration, and the dominant 
+eigenvector basis-state--first for the "first-parity" level, and 
+then for the "second-parity" level (assuming dipole transitions 
+between levels of opposite parity).  Then comes the wavenumber in 
+the same units as for the energy levels, the wavelength in èangstroms, the 
+line strength divided by the largest P2 for any of the transition 
+arrays present, the weighted oscillator strength gf and its common 
+logarithm (for absorption oscillator strength f, g = statistical 
+weight of the lower energy level, equal to 2J+1 or 2J'+1 as the 
+case may be), the weighted Einstein transition probability gA in 
+sec-1 (g = statistical weight of the higher energy level), and in 
+the final column either an F-format number <=1 [representing a 
+cancellation factor in the calculation of line strength; TASS, Eq. 
+(14.107)] or an E-format number usually of the order of 108 to 
+1014 [representing the quantity BRNCH involved in dielectronic-
+recombination problems--see Sec. XII(a)].  The line list is 
+printed with lines sorted in the order of increasing energy of the 
+"first-parity" energy levels, and/or in the order of increasing 
+energy of the "second-parity" levels, and/or in the order of 
+increasing wavenumber (decreasing wavelength), depending on the 
+value of ISPECC (column 72 of the control card); in the first two 
+cases, values are tabulated for the sum of oscillator strengths 
+for all upward and for all downward transitions involving a given 
+level, as are the transition-probability sum for all downward 
+transitions and the radiative-decay lifetime corresponding to this 
+sum.  [Note that these sums and lifetimes will not be correct if 
+the line-list storage dimension KLAM is not large enough to store 
+and process all lines in a single pass--see the following 
+section.]  
+        Sample output is included in Sec. XV at the end of this 
+document, and it is suggested that readers skip to that point.  
+The material in Secs. VI-XIV is highly specialized, and the reader 
+need refer to it only when and if he has need for information on 
+these special topics.
+
+
+VI. Array Dimensions
+        It has already been mentioned that RCG allows up to 8 
+subshells.  The limitation is only partly a matter of array 
+dimensions; a change would also involve some coding differences in 
+PLEV, and numerous do-loop-limit and format differences throughout 
+the program.  Subshells 7 and 8 may not be more than singly 
+occupied.  [Note: 12-subshell versions of RCN2 and RCG are available.]
+        Required dimensions for many array variables depend very 
+strongly on the complexity of the calculations that one wishes to 
+handle.  Some dimensionally imposed limitations in MOD 11 as 
+currently provided are as follows:
+
+                                    Array    Dimensional
+    Upper limit on:               variables   parameter    Limit 
+-----------------------------    ----------  -----------  --------
+Complexity of subshell 1         U1,V1,CFP1     KLSI      dw or f4
+Complexity of subshell 2         U2,V2,CFP2               dw or f3
+Complexity of subshell 3-6       U3,U4,CFP2               dw or f2
+Complexity of subshell 7-8           --                      l1
+No. of configs (first parity)    SOPI2,PMUP      KC          50
+No. of configs (second parity)   NIJK,PMUP       KC          50
+No. of parameters (each parity   PARNAM,VPAR     KPR       2100
+Matrix size                      C,CT4,TMX       KMX        150
+No. of spectrum lines            T,TP,FLAM       KLAM      5400
+
+        It should be noted that spectrum lines are processed in 
+batches, and that the dimension KLAM of T, TP, FLAM, etc. limits 
+only the maximum number of lines that can be processed in each 
+batch [ultimately, the number of lines arising from any one J-J' 
+matrix, excluding weak lines deleted by a non-zero value of DMIN 
+and short- and long-wavelength lines deleted by FLBDN and FLBDX 
+(page 10)].  However, if the total number of retained lines is so 
+great that processing is done in more than one batch, then one has 
+to manually combine multiple line lists to obtain (for example) 
+all lines involving a given upper level, and thereby obtain a 
+total downward transition probability and a correct radiative 
+lifetime.  But note:  If DMIN > 0, or NTKEV > 0, then DMIN is 
+automatically increased (in steps of 0.1 till DMIN=4.0, and then 
+by a factor of 2 at a time) until the number of spectrum lines is 
+small enough to be processed in one batch.  For plane-wave-Born 
+calculations, DMIN must be zero, and is so set by the code 
+regardless of the value punched on the control card.  Normally, a 
+non-zero value of DMIN deletes lines with S/X < DMIN, see page 15).  
+However, if a non-zero value of TEXCIT has been read in on a 
+rescale card (see page 30), then the cutoff is not on inherent 
+line strength, but rather on relative intensities in a light 
+source with effective excitation temperature TEXCIT (in the same 
+units as eigenvalues):  If DMIN=0, DMIN is set initially to 104 
+and increased automatically by a factor 2 until the number of 
+retained lines is no more than KLAM; the cutoff is on
+
+	gA*exp(-(max(EIG(L), EIGP(LP))-EMEAN)/TEXCIT)
+
+less than DMIN, where EIG(L) and EIGP(LP) are the eigenvalues of 
+the levels involved in the transition, and EMEAN is the average of 
+the largest of all eigenvalues and the larger of the minimum 
+energies for the two parities.
+        For most purposes, the dimensions can be considerably 
+reduced.  If subshell 1 contains f electrons, subshell 2 is not 
+likely to be more complicated than d2, and the other subshells no 
+more complex than pw.  Thus dimensions of U2, V2, CFP2 can be 
+reduced from 17 to 5 (there being only 5 LS-terms in d2), and 
+those of U3, ..., V6 from 8 to 3.  Except when computing detailed 
+Fano profiles in photoionization spectra, the number of 
+configurations usually need be at most 10 of each parity, the 
+number of parameters 100, matrix sizes about 75, and number of 
+spectrum lines 1000 or so.  Other dimensions can also be decreased 
+greatly; e.g., those of ISER, PC, and PCI from 2000 to 500, NOPCCC 
+to 1200, etc.
+        Many required dimensions are very difficult to estimate, and 
+have to be ascertained more or less by trial and error (increasing 
+them whenever a run bombs because of exceeded dimensions).
+        Nowadays, available fast memory on most computers is quite 
+large, and the dimensions in the current code are large enough to 
+handle most cases of interest, without any necessity for either 
+reducing them or having to increase them.  However, if changes are 
+required, guides to estimating a few required values are as 
+follows:
+
+        Dimensions for f5 to f10 subshells:  Dimension changes 
+required to be able to handle all fiw subshells (for i=1) are 
+given by comment cards near the beginning of the main program: one 
+needs to make the following changes in parameter statements 
+throughout the program:
+                         KLSI=119
+                         KJP=350
+                         KMX=360       (or greater)
+                         KTRN=3200     (or greater),
+the last two values being required to keep certain calculated 
+dimensions from being negative.  Even with these changes, fwp or 
+fwd configurations may be so complex as to overflow many other 
+dimensions, and be completely impractical to compute unless the 
+number of terms kept for fw is truncated (see page 11 above).
+
+        Dimension of PCI:  Given a set of terms liwi aiLiSi, the 
+required dimension is
+
+     Sum  (1/2) (no. of values of ai) (1 + no. of values of ai)   
+     LiSi
+
+A dimension of 21 will handle all dw and f3 and f11.  [PCI is also 
+used for spin-orbit parameters--see under PC.]
+
+        Dimension of ISER:  The dimension of ISER is computed 
+similarly to that for PCI, except that now we are considering a 
+sum over the different possible values of the total quantum 
+numbers LS, and in place of a we have the total number of different 
+sets of quantum numbers aiLiSiLiSi having the given LS.   If the 
+configuration involves only one open subshell, the result is the 
+same as for PCI; with more than one open subshell, the result is 
+greater--for example:
+
+          p2 :  terms 1S 3P 1D ;   PCI(3), ISER(3)
+          d  :  terms    2D    ;   PCI(1), ISER(1)
+          p2d:  terms 4PDF, 2SPPDDDFFG,;   PCI(3), ISER(17),
+
+where the 17 comes from
+
+          (1/2) (1*2 + 1*2 + 1*2 + 1*2 + 2*3 + 3*4 + 2*3 + 1*2)   
+.
+        Dimension of PC:  Must be at least as large as that of ISER.  
+However, PC is also used to store spin-orbit coefficients, and 
+this may require a larger dimension: for the most complex subshell 
+liwi, set up a table of all possible aiLiSiJi.  Then the required 
+dimension is
+
+  Sum (1/2) (no. of levels with Ji=J) (1 + no. of levels with Ji=J)
+   J
+
+For example, p2 :  1S0 3P012 1D2 , 
+        PC(7), where  7 = (1/2) (2*3 + 1*2 + 2*3)  .
+
+        Dimensions of CC(i,j):  The dimension j must be as great as 
+the maximum number of different parameters Rdk and Rek (for any 
+one pair of configurations, and any one set of four interacting 
+electrons).  The dimension i must be inferred from the code of 
+PRK, statements 705-780; it is equal to the number of coefficients 
+of Rk that are not inherently zero because of the LS selection 
+rule, because of zero values of the cfp involved, because of 
+incompatibility of intermediate quantum numbers, etc.  The 
+simplest and safest way to set the dimension i would be to 
+consider only the LS rule; i.e., to find the maximum value, for all 
+pairs of interacting configurations, of
+
+      Sum  (no. of terms LS in first conf.) (no. of terms LS in 
+      LS                                          second conf.)
+
+For example, s p4 - s2 p2 d, terms of s p4 = 4P 2SPD, terms of s2 p2 d
+= 4PDF 2SPPDDDFFG;
+
+dimension = 1*1 + 1*1 + 1*2 + 1*3 = 7  .
+             4P    2S    2P    2D
+
+        Of course, except for CC, the above sample dimensions become 
+much greater when the presence of several configurations increases 
+the number of terms of each LS or the number of levels of each J, 
+dimensions going up roughly as the square of the number of 
+configurations of given parity.
+        In modifying dimensions it is important to note that the 
+labeled common block /C1/ is identical in all subroutines, but 
+that blank common and several other labeled commons differ from 
+one subroutine to another.  This may lead to complications in the 
+case of linker/loaders that require the first subroutine 
+containing a given common to have the longest version of that 
+common or that require all to be of the same length, though in 
+RCG11 commons have been reorganized to minimize this problem.
+
+
+VII. Memory Requirements
+        Even with the code extensively overlayed, it is difficult to 
+fit RCG into a 64K-word computer (200K words, octal) with anything 
+but rather small dimensions.  Memory requirements for a CRAY with 
+present dimensions are about 640K octal 64-bit words, plus I/O 
+buffer space.  On a Macintosh Centris, the executable file is 
+about 560 Kbytes in size, and execution requires about 3.4 Mbytes 
+of RAM.
+
+
+VIII. Execution Times
+         Like required array dimensions, execution times vary 
+tremendously, depending on the complexity of the problem--as 
+measured especially by the number of parameters and the matrix 
+sizes.  Some examples are given in TASS, Tables 16-1 and 16-2.  
+Generally speaking, CRAY Y-MP execution times are less than half a 
+minute for problems involving no more than 40 parameters, matrices 
+up to 50 byù 50, and no more than a couple of thousand spectrum lines.  
+SUN times would be about 5 to 10 times greater, and Centris 650 
+times about 10 to 15 times greater.  [Note: Workstation speeds are 
+greater relative to the CRAY on RCG than on RCN, where the Centris 
+factor is about 30.  October 1997: Current Power Macs and clones 
+are ten times faster than the 1993-era Centris.]
+
+
+IX. Modifications for Other Computers
+        As noted in the Introduction, modifications for other 
+computers should be minor provided sufficient memory is available 
+or a virtual-memory system is in use.  However, if memory is a 
+problem, the following modifications are possible.
+        (1)  Code storage space can be reduced by overlaying.  
+Suggested groupings of subroutines are indicated throughout the 
+RCG source program by commented OVERLAY and CALL OVERLAY cards.  
+If this feature is used, duplicate copies of the routines RDIJ and 
+REIJ in the PFDG overlay should be added to the PRK overlay.
+        (2)  Other possibilities in addition to reducing array 
+dimensions are:
+          (a) If least-squares fitting of experimental energy 
+levels is of no interest, delete subroutine RCEINP and the call 
+thereof in ENERGY.
+          (b) Delete CPL37, SPRN37, LVDIST, and WNDIST and calls 
+thereof.
+          (c) If plane-wave-Born calculations are of no interest, 
+BORN, AKNINT, RCOEFF, E1, and CSEVL can be deleted, as can the 
+variable GOSS and several others.
+          (d) The code could be broken into a chain of three 
+programs, containing essentially (i) CUVFD to prepare disks 72, 
+73, 74; (ii) LNCUV through MUPOLE to prepare disk 41; (iii) LNCUV 
+plus ENERGY and SPECTR to use disk 41 in the calculation of energy 
+levels and spectra.
+
+
+X. Rescaling of Input Data
+        Most frequently, input data for an energy-level/spectrum 
+calculation will have been obtained via an RCN/RCN2 calculation.  
+The data will then be such that (1) the center-of-gravity energy 
+Eav of the first configuration will be zero, (2) all parameter 
+values (and hence all computed eigenvalues) will be in kilo-
+kaysers (units of 1000 cm-1), and (3) energy parameter values 
+other than Eav (and usually also spin-orbit parameters) will have 
+been scaled down by factors less than unity to allow for omitted 
+weak configuration-interaction effects (TASS, Sec. 16-2); these 
+scale factors appear in columns 73-80 of the parameter cards (see 
+Sec. IV-D above, pages 20-21), and the factor that has been used 
+for a given parameter is indicated by an integer JPAR in the tenth 
+column of the parameter-value field, as follows:
+
+           JPAR    kind of parameter     scale factor
+           ----    -----------------     -------------
+             0          Eav                    -
+             1          Fk(ii)           columns 73-74
+             2          z                        75-76
+             3          Fk(ij)                   77-78
+             4          Gk(ij)                   79-80
+             5          Rk                       79-80
+
+        It is frequently desirable to shift all energy levels
+upward (by adding a constant to all Eav) to make the calculated 
+ground level of the atom zero (as this is the convention used in 
+tabulating experimental energy levels), to change the eigenvalue 
+unit (to cm-1, eV, or rydbergs, for example), or to modify the 
+parameter scale factors to obtain better agreement with 
+experiment.  This can be done by using an editor to modify the 
+data in the input file by hand, but it can be done much more 
+easily with the aid of a rescaling card of the form:
+
+
+cols.    format      variable              action    
+-----   ---------    --------    -----------------------------------
+ 1-4        -        (blanks)    
+  5        I1         (zero)     defines a rescaling card
+  6         -         (blank)
+21-30     F10.5       DELEAV     DELEAV (same units as on input para-
+       (do not punch              meter cards) added to all Eav
+       decimal point) 
+31-40      5I2       IFACT0(5)   New scale factors, in percent    
+                                  (except 99 = 100 %, 01 = 0.1 %)
+51-60     F10.5       UENRGY     New energy unit in cm-1 (8065.47 for 
+                                  eV, 109737.3 for Ry, etc.), applied 
+                                  after the addition of DELEAV
+61-65     F5.2        TEXCIT     Effective light-source excitation
+                                  temperature (in eigenvalue energy  
+                                  units) (see pages 25-26)
+
+Default values are zero for DELEAV, no rescaling for any IFACT0(I) 
+that is zero or blank, and the unit of energy specified on the 
+normal control card (A) if UENRGY is zero or blank.
+        Note that (1) the new scale factors represent exactly that, 
+and not additional scaling over and above the scaling already 
+present in the input parameter values; (2) old scale factors 
+(columns 73-80 of the parameter cards) equal to zero are assumed 
+to be unity; (3) non-zero values of IFACT0(I), I = 1 to 4, will 
+not have the intended effect if the correct value of JPAR does not 
+appear in the tenth column of each parameter field; (4) if scale 
+factors are changed via IFACT <> 0, the value of DELEAV required to 
+give zero energy for the ground level will in general be different 
+from the value inferred from a previous run made with the old 
+scale factors.
+        A rescale card may be placed in front of any normal control 
+card (A) of a calculational deck; it is read at statement 100 of 
+the main program as a normal control card with KCPL=0, and 
+reinterpreted as a rescale card.  Non-default values read from a 
+rescale card remain in effect throughout the remainder of a 
+calculation until modified by another rescale card; a rescale card 
+containing default values (zeroes or blanks) for one or more 
+quantities returns program control to use of values of these 
+quantities specified in the individual calculational decks.
+
+
+XI. Photoionization Cross Sections Q
+        A.  Neglecting resonances, and for cases in which continuum-
+continuum (intra-channel) configuration-interaction effects are 
+unimportant, photoionization-cross-section calculations are most 
+easily made with programs RCN/RCN2/RCG in the following way.  (The 
+procedure will be illustrated using the special case of Ar XVII 
+1s2  - 1s ep, e = kinetic energy of the free electron in rydbergs.)
+        (1)  Estimate the threshold value for photoionization, or 
+calculate it by making RCN runs for Ar XVII 1s2 and Ar XVIII 1s 
+and differencing values of Eav.  In this case, a simple estimate 
+is:  binding energy of a 1s electron = Zc2 = 17.52 = 306 Ry, and a 
+calculation gives Eav(1s) - Eav(1s2) = -325.397 + 628.459 = 303 
+Ry.  
+        (2)  Choose values of e at which the cross section is to be 
+computed.  If one wishes a threshold value of Q, include a 
+continuum configuration with e = 1 to 5 % of the threshold energy.  
+In the argon case, e = 5 or 10 Ry is appropriate.
+        (3)  Make an RCN/RCN2 calculation.  In order to be able to 
+interpolate across threshold, one can include bound configurations 
+1s np, say for n = 10 to 15.  Larger n values get one closer to 
+threshold, but are more likely not to converge, so one might 
+choose n = 8 and 12.  The  input to RCN is then
+
+     cols. 4-5    9-10       11-23      27 (or greater) on
+     ---------    ----   -------------  ------------------
+         18        17    Ar 17 1s2         1s2
+         18        17    Ar 17 1s 8p       1s 8p
+         18        17    Ar 17 1s 12p      1s 12p
+         18        17    Ar 17 1s 5.p      1s 99p   5.0
+         18        17    Ar 17 1s 10.p     1s 99p  10.0
+         18        17    Ar 17 1s 25.p     1s 99p  25.0
+etc.
+
+On the RCN control card, EMX (columns 61-65) should be chosen such 
+that all values of e for which calculations are to be made lie in 
+the range from about EMX/10 to EMX.  If the value of EMX is 
+inappropriate, or n for the bound states too large, the RCN runs 
+may fail to converge or bomb on an overflow.  [If EMX is left zero 
+on the control card, RCN will set EMX equal to the largest value 
+of e on any input configuration card.]
+        On the G5INP control card that is input to RCN2, columns 51-
+60 [the empirical scale factors for Fk(ii), zi, Fk(ij), Gk(ij), and 
+Rk(ij,i'j')] should have appropriate values, such as (for a highly 
+ionized atom like Ar XVII) 9599959595.  Column 72 of this card 
+(and thereby column 72 of the RCG control card) should contain a 
+one (for ease in using the RCG line-list output), and column 75 
+must be equal to 8.
+        (4)  Run RCG as usual, using as input the unmodified output 
+file OUT2ING from RCN2 (with name changed to ING11).
+        (5)  Values of "f" in the RCG line-list output are oscillator 
+strengths for bound-bound transitions (1s2 - 1s 8p and 1s2 - 1s 12p 
+in this example), and are values of df/de (e in rydbergs) for 
+bound-free transitions (1s2 - 1s 5.0p, etc.).  For interpolation 
+purposes, the bound-bound oscillator strengths can be converted to 
+averaged (smeared-out-lines) values of df/de = (df/dn) / (de/dn) by 
+taking
+
+          de   de    d (-Zc**2/(n*)**2) 
+          -- = --- = ------------------ = 2Zc**2/(n*)**3      (7)
+          dn   dn*   dn*
+
+with Zc the spectrum number (1 for neutral) and n* the effective 
+quantum number (printed on the last page of the RCN listing for 
+each configuration, under the heading "n*rc"), where it was 
+calculated from 
+ 
+          E = - Zc**2/(n*)**2
+
+with E = the binding energy ("eps fgr," with correlation) of the 
+electron in Ry.
+        Then
+
+          Q = 8.067 * 10-18 df/de   cm2   .                   (8)
+
+Values of Q (correct only for the bound-free transitions) will be 
+printed in the spectrum line list in place of gA, provided 
+NSCONF(3,2) is negative, columns 51-64 are identical on the last 
+two dipole-integral cards, and each of the dipole cards contains a 
+number equal to 1.0 in columns 65-70.
+        (B)  When resonances (bound-free interactions) or free-free 
+(intra-channel) configuration interactions are important, the set-
+up for RCG runs is much more complex, requiring introduction of 
+many values of e--in order to resolve the detailed shape of the 
+resonance, for example.  Calculations are then practical only for 
+rather simple cases, such as those of Al I, Cl I, and Ba I in 
+TASS, pages 539ff.
+        One approach is the following (TASS, Sec. 18-8), though it 
+involves a great deal of hand work.
+        (1)  Make an RCN/RCN2 run including all essential bound 
+configurations, and continuum configurations in which the kinetic 
+energy e covers the range of interest or importance; if values of e 
+cover a range of more than 10:1, it may be necessary to make two 
+or three runs, each of which includes the important bound 
+configurations but only one of several overlapping subsets of the 
+continua, each covering a 10:1 energy range (with appropriate 
+value of EMX in each case).
+        (2)  Draw graphs like those in TASS, Fig.18-3, giving Rk and 
+radial dipole integrals as functions of e.
+        (3)  Divide the energy range of the continuum into a number 
+of segments, the ith segment having a width (del)i rydbergs.  [For an 
+example in the case of neutral chlorine, see J. Opt. Soc. Am. 64, 
+1474 (1974).]
+        (4)  Read values of the radial integrals from the graphs at 
+points ei = center of each segment and multiply by (del)i**1/2, or by 
+(del)i**1/2 (del)j**1/2 for free-free Rk.  [Note that the values of 
+del must be in rydbergs; values of Rk tabulated by RCN2 in "kK" have 
+in all cases been converted from values in "Ry" by multiplying by 
+109.737, even though Rk has dimensions of (energy)**1/2 for bound-
+free interactions and has no energy dimension at all for free-free 
+interactions (see TASS, Sec. 18-4)].
+        (5)  Construct an appropriate RCG calculational deck, using 
+the results (4), and using single-configuration parameter values 
+for each "pseudo-discrete" configuration appropriate to the 
+corresponding ei, and run in the usual way.
+        If NSCONF(3,2) is less than zero, the last two radial-dipole 
+input cards contain the same information in columns 51 to 64, and 
+each bound-free radial-dipole card contains the appropriate value 
+of (del)i**1/2 in columns 65-70, RCG will calculate and print 
+photoionization cross sections SIGMA = Q in place of weighted 
+transition probabilities gA.  These values will have been computed 
+from Eq. (8) assuming de = (del)i for all spectrum lines involving 
+upper levels belonging to the configuration "i".  This will be 
+inappropriate if perturbations appreciably alter the mean energy 
+spacing between adjacent configurations, and will be particlarly 
+incorrect for bound-state autoionizing levels strongly mixed with 
+continuum states.
+        An alternative method is available that involves no handwork 
+in the preparation of the RCG input deck.  This alternative 
+requires that all desired bound and continuum configurations be 
+included in a single RCN/RCN2 run, and that IDIP = 7 on the RCN2 
+control card; this may involve considerably more computer time 
+than the hand method, and will not work if the desired values of 
+principal quantum number n for bound functions and values of e for 
+continuum functions cannot all be handled with a single value of 
+EMX.  (If this last is a problem, sometimes a compromise can be 
+made, using a value of EMX smaller than the maximum e,  as the 
+requirement EMX >= largest e is somewhat conservative.)
+        The alternative method will be described by means of an 
+example for neutral silicon, where the unperturbed position of 
+3s3p3 3Po lies between 3s23p nd 3Po for n = 4 and 5, but 
+interactions of sp3 are significant throughout the entire discrete 
+3p nd Rydberg series and well into the 3p e d continuum (which 
+thereby distorts the energy dependence of the photoionization 
+cross section).  An appropriate set of input configurations might 
+be
+
+Si I  3p2 - 3s 3p3 + 3p 3d + 3p 4d +...+ 3p 9d + 3p 10d + 3p 12d
+                  + 3p 0.036d + 3p 0.22d + 3p 0.58d   .
+
+RCN2 recognizes the discontinuity between 10d and 12d as well as 
+the presence of continuum configurations, and sets up four pseudo-
+discrete configurations with unmodified Eav, but with appropriate 
+values of Di to cover the energy range from just above 10d to well 
+beyond 0.58d.  Values of Rk and radial dipole integrals are 
+automatically modified by appropriate "(del)i**1/2" factors, which are 
+called "DEL" within RCN2, but printed out labeled "SQRTDEL".
+        RCG can then be run using as input the unmodified output deck 
+from RCN2 provided IDIP on the RCN2 control card has the value 7.  
+The correct value of gf for 12d is obtained by dividing the listed 
+value of gf by (SQRTDEL)2; i.e., "Di" for bound configurations is 
+here not an energy width in rydbergs, but rather a weighting 
+factor related to the effective number of bound configurations 
+represented by the pseudo configuration.  Photoionization cross 
+sections for the pseudo configurations derived from continuum 
+configurations will be printed explicitly, or may be obtained as 
+before from (8) by dividing the f obtained from the gf column by 
+(SQRTDEL)2; i.e., "Di" is here both a weighting factor and an 
+energy width in rydbergs.
+        Note:  The energies of the above set of three continuum 
+configurations were chosen because of primary interest in the low 
+bound configurations.  For photoionization calculations, a larger 
+number of more closely spaced continua would be called for.
+
+
+XII. Autoionization Transition Probabilities
+        RCG has the capability of computing autoionization transition 
+probabilities Aa (designated AA in the FORTARN program, or GAA for 
+the weighted transition probability gAa).  The basic theory is 
+discussed in TASS, Secs. 18-7 and 18-11, and in Appendix B of LA-
+6220 by Merts, Cowan, and Magee, which also contains numerous 
+numerical examples.
+        The calculation of values of Aa will be described by means of 
+an example in Fe XXI, which has the ground configuration 2s2 2p2.  
+Suppose we wish to calculate Aa for the levels of Fe XXI 2s 2p2 15p, 
+which all lie above the ionization limit Fe XXII 2s2 2p.
+        (1)  First, a preliminary RCN run is made for Fe XXI 2s 2p2 15p
+and Fe XXII 2s2 2p.  From the computed total binding energies it 
+will be found that Eav(2s 2p2 15p) lies 3.4 Ry above Eav(2s2 2p).  
+[See Table B-III of the above report LA-6220.]
+        (2)  The approximation is made that all levels of 2s 2p2 15p 
+lie 3.4 Ry above the ionization limit, and a final RCN/RCN2 run is 
+made for
+
+	Fe XXI 2s2p215p
+	Fe XXI 2s22p 3.4s                                    (9)
+	Fe XXI 2s22p 3.4d   ,
+
+parity and other selection rules permitting autoionization into 
+only the s and d continua.  [Preparation of the RCN input 
+configuration cards involves punching "99s" or "99d" in the 
+configuration-definition part of the card (not the configuration-
+label part), followed after at least one space by "3.4".]  The 
+G5INP control card in the RCN2 input deck should have an 8 or 9 in
+column 72 (ISPECC for the subsequent RCG run), and must have a 2 
+in column 73 and a 9 in column 75; these punches in columns 73 and 
+75 produce certain appropriate modifications in the RCN2 output 
+for RCG input.  [ISPECC can also be 1 in this case, or 2 if the 
+continua are in the second parity, but the output is longer.]
+        (3)  Output from the RCN/RCN2 run will include the usual 
+punched-card RCG-input deck for the three interacting 
+configurations (9).  The three printed values of Eav will be equal 
+(to within 0.005 Ry @ 5 kK).  However, in the punched-card output 
+(file out2ing) that is input for RCG, the values of Eav for the 
+continuum configurations will have been changed to -9500 and -8500 
+(as a result of the 9 in column 75 of the G5INP control card).
+        (4)  Running RCG with these modified values of Eav will 
+result in some eigenvalues being less than -4000 and hence a 
+signal to the computer program (ENERGY, statement 362+) that these 
+belong to continuum states.  After saving the bound-continuum CI 
+matrix elements, the program zeroes these elements of the matrix 
+so that diagonalization produces zero eigenvector mixing of 
+discrete and continuum states.  Values of Aa are computed in 
+ENERGY, statements 360-380, using the perturbation theory 
+expression
+
+   Ajia = (4pi**2/h) |< j|H|i >|**2
+
+        = (4pi**2/h) | Sum  < j|b> < b|H|b' > < b'|i > |**2  . 	(10)
+                        bb'
+
+The intermediate-coupling eigenvector components < j|b > for the 
+pure-discrete (but potentially autoionizing) state j and the 
+components < b'|i > for the pure continuum state i are obtained from 
+the energy-matrix diagonalization; the basis-state configuration-
+interaction matrix elements < b|H|b' > prior to diagonalization have 
+been saved in the block CI at statement 255.  [Note:  At statement 
+363+, Aa is calculated in units of 10**13 sec-1 by using  h/2pi =   
+(10-13/2066) Ry-sec, and using the factor 1/109.735 to convert 
+< b|H|b' > from the incorrect units put out by RCN2 (see pages 32-33 
+above) to units of Ry1/2.]
+        It is essential in the RCG input deck (and hence in the RCN 
+input deck also) that all discrete configurations come first, and 
+all continuum configurations come last.  For any given value of 
+the total-angular-momentum quantum number J, let the matrix size be 
+NLS, and let LX (< NLS) be the number of discrete levels and JX-1 =
+NLS-LX be the number of continuum levels.  Then the minimum 
+permissable block size for the variable CI is LX by JX-1, for the 
+variable CII is NLS by NLS, and for AA is NLS by JX+1.  After 
+completion of the matrix diagonalization (which leaves the 
+eigenvalues in the order of increasing value), the continuum 
+eigenvalues will be numbers 1 through JX-1 and the discrete 
+eigenvalues will be numbers JX through NLS.  The value of Ajia is 
+stored in AA(j,i) [JX.LE.j.LE.NLS, 1.LE.i.LE.JX-1].  The value of 
+Si AA(j,i) is in AA(j,JX) for all Ei < -8000 and in AA(j,JX+1) for 
+all Ei < -4000; the distinction between these two sums, Aja1 and 
+Aja2, respectively, is for special purposes having to do with 
+dielectronic recombination.  All results are written on disk unit 
+IE (= 31 or 32, depending on parity) for use in SPECTR.
+
+(a) Kinetic energies of autoionized electrons
+        Kinetic energies of the free electron (energy of the auto-
+ionizing level minus the ionization energy) are calculated and
+printed following the eigenvalue print, relative to each of the 
+possible levels of the ion core.  (Calculation of the ionization
+limits involves use of the total configuration-average binding
+energies on the configuration cards that follow the RCG control 
+card.)  Negative values of kinetic energy are of course not physically
+meaningful, but are printed in case one is interested in knowing
+how far below the ionization limit the level lies.  Autoionization
+rates are also calculated for these bound levels, but again are
+physically meaningless.
+
+
+(b) Branching ratios and dielectronic recombination
+        If configurations of both parity are included, for example
+
+        Fe XXI 2s2 2p 15p
+        Fe XXI 2s 2p2 15p                                     (11)
+        Fe XXI 2s2 2p 3.4s
+        Fe XXI 2s2 2p 3.4d   ,
+
+then spectral transitions are computed as usual, but only between 
+levels with E <= -4000 kK.  Provided ISPECC (column 72 of the RCG 
+control card) is 6,7,8, or 9, then for each spectrum line L = jík, 
+a quantity
+                            gj Aja1 Ajkr
+	Bjkr = BRNCH(L) = ----------------                    (12)
+                          Aja2 + Sum Ajk'r
+                                  k'
+
+is computed in SPECTR, and printed in the final column of the line 
+list (in place of the cancellation factor normally printed there).  
+The factor gj Aja1 is proportional to the total rate of 
+dielectronic capture of free electrons by ions initially in states 
+having Eav less than -8000 (in practice, ions in the ground 
+configuration), and the remaining factor in (12) is the branching 
+ratio for radiative decay to stable (non-autoionizing) levels, 
+including the effect in Aja2 of possible autoionization to excited 
+ion states defined by -8000 < Eav < -4000.  The quantity Bjkr is 
+equal to gj times the final fraction in TASS, Eq. (18.120) [or 
+equal to GmFjk in Eq. (B.21) of LA-6200, where Gm = Sum gm is the 
+total statistical weight of the ground configuration of the 
+recombining ion], and the contribution of the levels j and k to 
+the dielectronic-recombination rate coefficient is given by 
+(18.120).
+     Also computed in SPECTR (called BRNCHR in the code, and 
+printed as "GM*FRBAR) is the quantity
+
+        Br = Sum Bjkr   ,                                  (13)
+              jk
+
+which provides the total contribution of all levels j and k to the 
+dielectronic-recombination rate coefficient via TASS, Eq. 
+(18.116).
+        In equation (18.120) mentioned above, there has been assumed 
+a mean kinetic energy Es (i.e., a mean energy of autoionizing 
+levels above the ionization limit).  When the energy spread of 
+autoionizing levels j is not small compared with the plasma 
+electron temperature of interest, this is a poor approximation.  
+The appropriate correction factor is computed for each of NTKEV 
+(>=5) temperatures TKEV (in units of keV) read in on the type-b 
+optional control card (page 10).  If NPTKEV (read in on this card) 
+is 1 or greater than 2, then there will be written on unit 13 the 
+value of Br/Gm together with the temperature correction factors, 
+and also the values of Sj Bjkr/Gm for each lower level k with the 
+corresponding correction factor.  If NPTKEV is greater than 1, 
+then there will be written on the normal print file IW the value 
+of Br and of Br times each correction factor.  EIONRY is the 
+ionization energy (in rydbergs) from the ground level of the 
+recombining ion; this is used to compute (and write on 13) the 
+center-of-gravity energy of the autoionizing levels (with Gm and 
+Br/Gm), and the energies of the individual levels k (with Jk and 
+Sum(j) Bjkr/Gm), all relative to the ground level of the recombined 
+ion.  In order for this to work correctly, it is essential that 
+the (final) continuum input parameter card contain the kinetic 
+energy in rydbergs in columns 7-12 (format F6.2), and that 
+therefore the corresponding RCN input configuration card contain 
+this information in columns 17-22.
+             Note that the DIEL feature in RCN (Sec. II.L 
+          of the RCN writeup) makes it possible to set up
+          input for dielectronic-recombination calculations
+          such as that in (11) without having to explicitly
+          make a preliminary calculation to obtain the 
+          free-electron kinetic energy nor figure out by 
+          hand the possible values of the free-electron
+          angular momentum.  At the same time, RCN auto-
+          matically puts the kinetic energy in columns 17-22
+          of the continuum-configuration cards to satisfy 
+          the above requirement.
+        A non-zero value of EMINA is intended for handling problems 
+in which some levels of a configuration have too low an energy to 
+lie above the bottom of a continuum to which they might otherwise 
+autoionize.  Consider, for example levels of 2s2p(1P)nl that lie 
+above 2s2p(3P), and therefore can autoionize to 2s2p(3P)el' but not 
+to 2s2p(1P)el'.  If EMIN.NE.0, RCG allows autoionization only if the 
+bound level has energy greater than EMINA, and the continuum level 
+either has energy less than -8000 or has an energy less than or 
+equal to the center-of-gravity energy of the configuration to 
+which it belongs.  In the above example, EMINA should be the 
+energy of 2s2p(3P) [determined by means of a preliminary 
+calculation], Eav should be greater than -8000 for each 2s 2p el' 
+configuration , and Eav should be less than -8000 for 2s2 el".  
+(Obviously the code is not general; one would run into difficulty 
+if the spin-orbit splitting of the 3P were large, or in more 
+complex cases such as 2s 2p2 el'.
+        If ISPECC (column 72 of the control card) is 8 or 9, SPECTR 
+calls WNDIST: the latter calculates and punches (on disk unit 11), 
+in the form of a histogram, the normalized [(12) divided by (13)] 
+energy distribution of radiation resulting from excited levels j 
+produced by dielectronic recombination in low-density plasmas.  
+The quantity DELEKEV (read in the main program from columns 21-30 
+of the type-b optional control card, page 10) specifies the width 
+of the histogram bins.  (If no Aa calculations are being 
+performed, the histogram gives the normalized distribution of gf 
+rather than of Bjkr, representing approximately the energy 
+distribution of radiation resulting from collisional excitations 
+in low-density plasmas, assuming the optical approximation 
+(excitation rates proportional to oscillator strengths).  Both 
+types of punched deck constitute input for a computer program 
+RADRATE; for sample output of this program, see TASS, Figs. 19-12 
+and 19-13.
+        It should be noted that calculation of Bjkr and related 
+quantities will be incorrect if there are too many spectrum lines 
+for SPECTR to store and process them all in one pass (i.e., if 
+statement 560 is reached from the IF statement following statement 
+511 or 550 rather than from the IF that follows 200), because the 
+summation over k' in (12) cannot be correctly evaluated.  [This is 
+not a program bug, but just an inherent storage limitation.]  If 
+DMIN > 0 or if NTKEV > 0, DMIN is automatically increased until 
+enough weak lines have been deleted so that this storage 
+limitation is not encountered (see pages 25-26).
+
+
+(c) Autoionization contributions to collisional ionization
+        Electron-impact ionization may take place either by direct 
+ejection of an electron from an atom (or ion), or by collisional 
+excitation of an inner-subshell electron to a level j lying above 
+the ionization limit, followed by autoionization.  For this second 
+(indirect) process, one needs to know excitation-rate coefficients 
+to all possible levles j, together with the branching ratios
+
+                     Sum(m) Ajma
+	Bja = ---------------------------	
+              Sum(m) Ajma + Sum(k') Ajk'r
+
+                       gj Aja2
+           = ---------------------------                     (14)
+              gj Aja2 + gj Sum(k') Ajk'r
+
+for autoionization to all possible states of the ion; see, for 
+example, R. D. Cowan and J. B. Mann, Astrophys. J. 232, 940 
+(1979).
+        If an RCG run is made as described in the preceding 
+subsection, values of gj Sum Ajk'r are printed as "SUMGA" in the 
+spectrum line list sorted by second-parity levels, and gj Aja2 and 
+Bja are printed as "GAATOT" and "BRION" in the following line.  
+[Note that these prints will be obtained only if ISPECC = 
+2,3,6,7,8, or 9, and that if equal to 9 then the lines themselves 
+are not printed.]
+
+
+(d) Autoionization contributions to collisional excitation
+        Similarly to collisional ionization, excitation (or de-
+excitation) can take place either directly, or indirectly via 
+dielectronic capture of the impacting electron into a highly 
+excited state, followed by autoionization into a state of the 
+target atom different from the original one.  Computation of the 
+indirect process involves much the same quantity as that (12) for 
+dielectronic recombination, except that the required branching 
+ratio is for autoionization instead of radiative decay:
+
+                   (gj Ajma) (gj Ajia)          
+        Bmjia = --------------------------                    (15)
+                gj Aja2 + gj Sum(k') Ajk'r
+
+unlike (12), we have not summed over states m involving the ground 
+configuration of the target atom to give Aja1, and the quantities 
+Ajma and Ajia in the numerator of (15) are the values printed by 
+subroutine ENERGY as "AA" in all but the last two lines (which are 
+Aja1 and Aja2).
+        States m and i of the (N+1)-electron system --target atom 
+plus free electron--will be basically JJ coupled, and we denote 
+them by
+
+        m = [(gJt)m,(Jl)m]J
+and                                                           (16)
+        i = [(gJt)i,(Jl)i]J   ,
+
+where gJt defines the target-atom state with total angular momentum 
+Jt, the free electron el has orbital angular momentum l and total 
+angular momentum (l+s) of Jl, and the total (N+1)-electron angular 
+momentum (Jm or Ji) is necessarily equal to the value J <= Jj of the 
+resonance-capture state j.  If we sum (15) over the two possible 
+values Jl = l =/- 1/2, and redefine m and i to represent the sum of 
+the two states:
+
+        m = [(gJt)m, lm]J
+and                                                           (17)
+	i = [(gJt)i,li]J   ,
+
+then values of the quantities in parentheses in the numerator of 
+(15) are printed by ENERGY as an array of numbers "GAAXC" ("gAa 
+excitation"), labeled on the left by the serial number of the 
+free-electron configuration target+el and the energy "EXC" of the 
+target level gJt (relative to Eav).
+        In SPECTR, the above values are combined with the denominator 
+of (15) and summed over all levels j [including thereby a 
+summation over the quantum number J in (17)] to obtain values
+
+        "BRNCHX(m,i)" = Sum  Sum    Sum    Bmjia          (18)   
+                         j  (Jl)m  (Jl)i
+
+printed in a square array, labeled similarly to the GAAXC array 
+(as to both row and column), except with rows and columns sorted 
+in order of increasing configuration serial number and increasing 
+value of EXC.
+        This array (which of course forms a symmetric matrix) 
+gives maximum physically significant detail for the collisional 
+excitation/de-excitation problem, as it provides the total 
+contribution for all levels j and for all possible couplings of 
+the free electron (with given l) to the target state.  (Diagonal 
+elements pertain to resonant-state contributions to elastic 
+scattering.)
+        Actually, the l of the free electron is really only of 
+mathematical (not physical) interest, so in a second array, 
+columns are combined to give the summation of (18) over the 
+possible values of li.  [This array is printed only if it is 
+actually narrower than the first one.]  It is left to the user to 
+perform the corresponding sum over rows (lm) to give total values 
+from one target level to another; the result is the quantity
+
+        gmFmi                                               (19)
+
+involved in Eqs. (2) and (3) of R. D. Cowan, J. Phys. B. 13, 1471 
+(1980).  [There, m and i have been furter redefined to refer only 
+to the levels gJt of the N-electron target.]
+        Still a third array is printed (if narrower than the second) 
+in which a summation has been carried out over levels i of each 
+target configuration.  The user may manually sum rows over lm to 
+obtain the total excitation rate from a given target level to all 
+levels of the excited configuration.  Or he may also sum over the 
+levels of the initial configuration to obtain the quantity
+                         _
+        Sum(m) Sum(i)  gmFmi = GmFa   .	                    (20)
+
+If this is divided by the total statistical weight Gm <= Sm gm of 
+all levels of the ground configuration of the target, one has a 
+quantity proportional to the mean total excitation rate, summed 
+over all levels i and averaged over all levels m; this is 
+appropriate for application to moderate-density plasmas, where the 
+(metastable) levels of the ground configuration may be more or 
+less statistically populated.  The quantity (20) is printed as 
+
+
+                            gj Aja1 (Aja2 - Aja1)
+        "GM*FABAR" = Sum(j) _____________________   .       (21)
+                             Aja2 + Sum(k') Ajk'r
+
+        In some cases (as for example the O IV case discussed in the 
+above JPB paper), not all levels j of the excited configuration 
+will lie above the ionization limit, and the summations over j in 
+(18) and (21) must correspondingly be limited appropriately.  (RCG 
+does not inherently have enough information to set Ajma to zero 
+for levels lying below the limit.)  The necessary modifications 
+may be accomplished (as described earlier) by introducing the 
+quantity EMINA (format F10.5) read from columns 71-80 of the 
+type-b optional control card (pages 10 and 37).  If EMINA.NE.0 and 
+the continuum level has energy greater than -8000, then Aa will be 
+set to zero if the level j has energy less than EMINA, or if the 
+continuum level has energy greater than Eav for the continuum 
+configuration in question.  The second of these two restrictions 
+was introduced in order to compute excitations from 2s2el to 
+2s2p(3P)e'l' via autoionizing levels 2s2p(1P)n"l" [i.e., in order 
+to exclude continuum levels 2s2p(1P)e'l'], and may not always be an 
+appropriate restriction--in which case the code will have to be 
+changed accordingly.
+
+
+XIII. Plane-Wave-Born Collision Strengths
+        If KCPLD(3) (column 33 of the calculational-deck control 
+card) is greater than 4, then columns 33 to 37 are interpreted not 
+as KCPLD(3) to KCPLD(7), but rather as
+
+           column        format         variable 
+           ------        ------      ---------------
+             33            I1        IGEN
+             34            I1        IRNQ (.GE.0)
+             35            I1        IRXQ (.GE.IRNQ)
+             36            I1        IRND (.GE.1)
+             37            I1        IRXD (.GE.IRND)
+
+and plane-wave-Born collision strengths will be computed [from 
+levels of only the first configuration of the first parity unless 
+NCK(1)--column 6 of the control card--is greater than one], via 
+calls near the end of ENERGY to subroutine BORN.
+        The amount of printed output is smaller the larger the value 
+of IGEN from 5 to 9 (9 is recommended).  If collision strengths 
+for optically forbidden excitations are desired for the first, 
+second, or both parities, then IQUAD must be 1, 2, or 3, 
+respectively, and IRNQ and IRXQ (even integers) must specify the 
+minimum and maximum values of t for the Bessel-function matrix 
+elements
+
+        < li||jt(Kr) C(t)||lk >                             (22)
+
+that will be involved for the jumping electron in any of the 
+excitations specified by NCK(1) and NCK(2).  Similarly, if 
+optically allowed (electric-dipole allowed) excitations are to be 
+calculated, then IRND and IRXD (odd integers) must be specified 
+appropriately.  [See TASS, Secs. 18-12 and 18-13 for details.]  
+This same set of five integers (and IQUAD) must be punched on the 
+G5INP control card for RCN2 in order that the latter compute the 
+matrix elements (22) in place of the normal electric multipole 
+matrix elements
+
+        < li||rt C(t)||lk >   ,     (t = 2 or 1)   ,        (23)
+
+and also to set up a card containing various other required 
+quantities (SPECTR, format 8).
+        The basic printed output consists of:
+     (i) a table of values of the momentum transfer K;
+     (ii) for each spectrum line (or rather, each J - J' 
+excitation), a table of values of the weighted generalized 
+oscillator strength gfJJ'(K), and a table containing X <= kinetic 
+energy of the impacting electron (e) in units of the excitation 
+energy (DE), the kinetic energy e in rydbergs, the unmodified 
+collision strength W, and two modifications of W that should be 
+physically more accurate at small X--specifically,
+
+                 (  W(3) F(X)   ,     X < 3
+        WM1(X) = ( 
+                 (  W(X) F(X)   ,     X > 2
+
+           where     F(X) = 1 - 0.2 exp[0.07702(1 - X)]   ,
+
+and
+
+        WM2(X) = W(X + 3/(1+X))   ,
+
+with WM2 generally being more accurate than WM1.  Also printed is 
+a table of excitation-rate coefficients computed from WM2 by 
+integration over a Maxwellian distribution, at electron 
+temperatures ranging from T=1 to 2000 eV for low excitation 
+energies (low ionization stages) or from T=5 to 10000 eV for high 
+excitation energies (highly ionized atoms).  (The quantity labeled 
+"CORR" is the percentage of the printed rate coefficient 
+contributed by extrapolating WM2(X) from the largest tabulated 
+value of X to infinity.)    
+     (iii) for each transition array, the array-average optical 
+oscillator strength fa [TASS, Eq. (14.97), evaluated by numerical 
+summation of the individual weighted oscillator strengths] if 
+IGEN = 5, three alternative values for the array-average excitation 
+energy (the first being DEav, the second being Eav for the higher 
+configuration minus the lowest energy of the lower configuration, 
+and the third being an average of the individual excitation 
+energies weighted with the unmodified collision strength at the 
+largest X value being calculated), and a table of values of X and 
+the unmodified and modified values of collision strength (summed 
+over all levels of both the lower and the upper configuration).  
+Rate coefficients are tabulated as in (ii).
+
+
+
+XIV. List of Principal Variables
+       Sections of code: A = all
+                         C = cfp-deck calculations (CUVFD)
+                         P = preliminary calcs. (LNCUV,PLEV,PFGD,PRK)
+                         F = final J matrices (CALCFC,CPL37)
+                         M = line-strength matrix elements (MUPOLE)
+                         E = energy diag.(ENERGY,CALCV,LVDIST)
+                         S = spectrum calculation (SPECTR,WNDIST)
+                         B = plane-wave-Born (BORN)
+
+Variable  Sections           Significance                     
+AA(L,J)	     E        autoionization transition probability from
+                        bound state L to continuum level J
+AA(L,JX)     E        total Aa from L to all continuum levels
+                        with E < -8000 (= Aa1)
+AA(L,JX+1)   E        total Aa from L to all continuum levels
+                        with E < -4000 (= Aa2)
+AA(L)	     S        Aa1 for level L of first parity
+AAP(LP)	     S        Aa1 for level LP of second parity
+AAT(L)	     S        Aa2 for level L of first parity
+AAPT(LP)     S        Aa2 for level LP of second parity
+ALF          CP       alpha in aiLiSi (BCD serial number for terms
+                        of lw with given LS)
+                      _    ___
+ALFBR        C        a in aLS (BCD serial number for terms
+                                           __
+                        of lw-1 with given LS)
+ALF3         E        skewness parameter a3 in skewed Gaussian
+AVCG(K)      E        (2J + 1)-weighted average of Eav for all
+                        levels of parity K
+AVEIG(K)     E        (2J + 1)-weighted average of all eigenvalues
+                        of parity K [should equal AVCG(K)]
+AVP(M,K)     E        average purity of all eigenvectors of
+                        parity K for coupling M
+BIGKS        SB       ln K, where K = momentum transfer
+BRION        S        branching ratio (14) for autoionization
+BRNCH(L)     S        quantity (12) for contribution of line L
+                        to dielectronic recombination
+BRNCHA       S        quantity (21) for total contribution to
+                        collisional excitation
+BRNCHR       S        quantity (13) for total contribution to
+                        dielectronic recombination
+BRNCHX       S        collisional-excitation quantity (18), and
+                        partial sums thereof
+C            FMES     coefficient (fk, etc.), multipole, energy,
+                        or eigenvector matrix
+CAVE         P        correction to diagonal coeff. matrix
+                        elements to give zero contribution to Eav
+CC,CCC       P        temporary storage for config.-interaction
+                        matrix elements
+CFGP,CFGPT   C        coefficient of fractional grandparentage
+CFGP1        PM       coef. of frac. grantparentage (subshell 1)
+CFGP2        PM       coef. of frac. grantparentage (subshells 2-6)
+CFP          CPM      coef. of fractional parentage (lw)
+CFPM1        C        coef. of fractional parentage (lw-1)
+CFP1         CPM      coef. of fractional parentage (subshell 1)
+CFP2         CPM      coef. of fractional parentage (subshells 2-6)
+CIJK         P        < li||C(k)||lj >
+COUPL        A        BCD label for coupling type (LS,JJ,etc.)
+CPURTY(L,J)  E        purity of configuration J in level L
+CS(I,J)      B        collision strength at Xi for transition array J
+CSM          B        collision strength (modification one)
+CSM2         B        collision strength (modification two)
+CTA          B        temporary storage for matrix products, etc.
+CT4          all      temporary storage for matrix products, etc.
+C1(I)        B        collision strength at Xi for specific transition
+C2(I)        B        collision strength at Xi (modification one)
+D            S        line strength (dipole, etc.) matrix, D = S**1/2
+EIG          ES       eigenvalue
+EIGP         S        eigenvalue, second parity ("eigenvalue prime")
+ELEM         ES       BCD name of element and configuration 
+                        (from parameter-value card)
+FJ(L,I)      F        Ji for Lth row of coefficient matrix
+FJS1         F        Ji for Lth row of coefficient matrix (maybe not 
+                        literally the first subshell, but rather the
+                        first occupied subshell with 2.le.w.le.2l)
+EXC          ES       excitation energy of target (relative to Eav)
+FJT(I),FJTP(I)  S     Jq,Jq' for Ith spectrum line
+FK           F        quantum number K for LK coupling
+FKJ          F        quantum number K for JK coupling
+FK6          F        quantum number K for coupling number 6 (LSJLKS)
+FL           CPF      Li (preliminary set of LS quantum numbers)
+FLBR         C        Li bar (in parent term alpha bar, Lbar, Sbar)
+FLAM         S        wavelength of spectrum line (floating-point lambda)
+FLL(I)       CP       li (floating-point little el) for the subshell I
+                        and the parity under consideration
+FLLIK(I,K)   P        li for subshell I and parity K
+FLLIJK(I,J,K)   P     li for subshell I and configuration J of parity K
+FNU(I)       S        wavenumber nu (= sigma) of Ith spectrum line
+GA           S        weighted radiative transition probability gAr
+GAA(I)       S        weighted autoionization transition probability
+                        gAa1 for level of first parity in spectrum line I
+GAAP(I)      S        same, for level of second parity in line I
+GAAT(I)      S        gAa2 for level of first parity in line I
+GAAPT(I)     S        gAa2 for level of second parity in line I
+GAAXC(J,I)   ES       gjAjia for bound level J to continuum level I
+                        (summed over Jl of continuum electron)
+GF           SB       weighted oscillator strength gf
+GOSS(I,IT)   B        weighted generalized oscillator strength for
+                        transition I and momentum transfer IT
+IBK          SB       number of values of momentum transfer K
+ICS          B        number of transition arrays
+IC           A        disk unit number (=41) for coefficient matrices
+                        (and transf. mxs. for cpls. 3-7 and mupole mxs.)
+IE           ES       disk unit number (=30+K) for eigenvalues and
+                        vectors, parity K)
+IL           F        disk unit number (=30+K) for quantum numbers
+                        and LS-JJ transformation matrix, parity K
+ISER(M)      P        serial number of the term of subshell i for the
+                        Mth preliminary basis function
+ISER(I)      S        serial number of level of second parity for
+                        spectrum line I
+IPNT(J)      C        serial number I of parent for cfp of Jth term;
+                        (alphaiLiSi bar|}alphajLjSj)
+ITRM(M)      C        serial number of Ith input term of lw for Mth
+                        truncated term
+JEXC(I)      E        serial number of configuration for target level
+                        with energy EXC(I)
+K or KK      A        K=1 for first parity, K=2 for second parity
+KCPL         A        kind of coupling (1=LS, 2=JJ, etc.)
+KCPLD(J)     A        If KCPLD(J) > 0, transformations to this kind
+                        of coupling are to be deleted
+KPAR         A        kind of parameter (or matrix--see comment cards
+                        in subroutine SPRIN)
+LBCD(M,I)    P        BCD symbol for Li for Mth set of preliminary
+                        quantum numbers [SPDFG, etc.]
+LBRBCD       C        BCD symbol for Lbar [SPDFG, etc.]
+LBCDI(M)     P        L (BCD) for Mth term of lw
+LCDLT(L)     ES       serial no. of dominant configuration for level L
+LCDLTP(LP)   S        serial no. of dominant configuration for level LP
+LHS1         FE       script L1 (Hollarith=BCD, used for matrix and
+                        eigenvector labeling, subshell 1--maybe not
+                        literally the first subshell, but rather the
+                        first occupied subshell with 2.le.w.le.2l)
+LHS4         FE       script L (Hollarith=BCD, used for matrix and
+                        eigenvector labeling, for the final subshell)
+LHS1J        FE       script Li (same as LHS1, except for labeling
+                        in JJ representation)
+LHS4J        FE       not used
+LHQQ         FE       script L (BCD label used in coupling number 6)
+LL           A        BCD symbol (spdfg, etc.) analogous to FLL
+LLIK         A        BCD symbol (spdfg, etc.) analogous to FLLIK
+LLIJK        A        BCD symbol (spdfg, etc.) analogous to FLLIJK
+MULSI(M)     P        multiplicity of Mth term of lw
+MULS1        FE       multiplicity 2(script S1) + 1 for subshell 1
+                        (cf. LHS1)
+MULS4        FE       multiplicity 2(script S) + 1 for final subshell
+                        (cf. LHS4)
+MULS1J       FE       multiplicity 2(script S1) + 1 for subshell 1
+                        (cf. LHS1J)
+MULT(M,I)    PF       multiplicity 2Si + 1 for Mth set of preliminary
+                        quantum numbers
+MULTBR       C        multiplicity 2 Sbar + 1 for parent term 
+                        alpha bar, Lbar, Sbar
+MULTQQ       F        multiplicity used in label for cplg. #6 (cf. LHQQ)
+NALS(L,I)    F        serial number of term aiLiSi for Lth matrix row
+                        (LS coupling)
+NALSJI(M)    CP       serial number of term aiLiSi for Mth term
+                        aiLiSiJi of liwi (JJ coupling)
+NALSJ(L,I)   F        serial number of term aiLiSi for Lth matrix row
+                        (JJ coupling)
+NALSJP(M,I)  PF       serial number of term aiLiSi for Mth set of
+                        preliminary quantum numbers (JJ coupling)
+NALSP(M,I)   PF       serial number of term aiLiSi for Mth set of
+                        preliminary quantum numbers (LS coupling)
+NBIGKS       SB       number of values of momentum transfer BIGKS
+NCFG(L)      F        configuration serial number for matrix row L
+NCFGJP(M)    PF       configuration serial number for Mth set of 
+                        preliminary quantum numbers (JJ)
+NCFGP(M)     PF       configuration serial number for Mth set of 
+                        preliminary quantum numbers (LS)
+NCSER(I)     S        serial number of dominent configuration,
+                        level of first parity for spectrum line I
+NCSERP(I)    S        same, second parity
+NDIFFJ(I)    P        number of different values of Ji for subshell i
+                        (considering diff. configs. to imply diff. Ji)
+NDIFFT       CP       number of different LS terms (i.e., number of
+                        different possible values of script LqSq,
+                        (considering diff. configs. to imply diff. LqSq)
+NDIFSJ       F        total number of sets of values of {Ji} (all i)
+                        for given script Jq
+NENRGS       SB       number of energies at which to calc. coll. strength
+NI(I)        CP       occupation number wi of subshell i (liwi)
+NIJK(I,J,K)  A        occupation number wi of subshell i for
+                        configuration J of parity K
+NIJKP(I,J)   P        similar to NIJK, for subshell I of configuration J
+                        (used in PRK)
+NJJ          F        number of basis states for given script Jq
+                        (JJ representation)
+NJK(K,I)     P        number of basis states for Kth value of Ji
+                        (see NDIFFJ)
+NLASTT(I)    P        serial number of last term of liwi retained in
+                        setting up basis states
+NLS          F        number of basis states for given script Jq (LS
+                        representation)--hence matrix size for that Jq
+NOPC         CP       number of coefficients (fk, gk, etc.) in
+                        preliminary tables
+NOPCCC       P        serial number of rk coefficient (PRK 755)
+NOSUBC       A        no. of subshells ("subconfigurations")=NSCONF(1,K)
+NOTOTJ(I)    P        total number of basis functions for subshell I
+                        (all configurations)
+NTOTJJ(I,J)  P        total number of basis functions for subshell I,
+                        summed through configuration J-1
+NOTOTT       P        total number of basis functions (all q subshells
+                        and all configurations)
+NTOTTJ(J)    P        total number of basis functions, all subshells,
+                        summed through configuration J-1
+NOTSJ1(I,J)  P        number of LS terms for subshell I,
+                        summed through configuration J-1
+NOTSJP       M        number of LS terms for subshell I,
+                        summed through configuration J-1 (second parity)
+NPAR         PFE      total number of energy parameters (including Eav's)
+                        for current parity
+NPARJ(I,J)   PE       number of single-configuration parameters for
+                        configuration I (=J), or number of configuration-
+                        interaction parameters for interaction I-J
+NPARK(K)     E        value of NPAR for parity K
+NPAV(J)      E        serial number of parameter Eav for Jth config.
+NSCONF       A        see writeup Section IV. A
+NSCRJ8       F-S      number of different values of script Jq
+                        for current parity
+NTI          P        same as NTRMK
+NTRMK(L)     CPF      number of LS terms with given value of script LqSq
+                        (serial number L) for any given configuration
+PC(M)        C        cfp
+PC(M)        PF       preliminary coefficient (fk, gk, etc.)--M=serial
+                        number--including off-diagonal coefficients
+                        (also used for assorted tempoary storage)
+PCI          P        similar to PC
+PJ, PJI      P        similar to PC, except for zeta coeffs. in JJ repr.
+PMUP(I,J)    S        electric dipole or quadrupole reduced matrix
+                        element,    <li||rt C(t)||lj>
+PSCRL(L,I)   P        script Li for Lth LS term
+PSCRS(L,I)   P        script Si for Lth LS term
+S(L,I)       CPF      Si for Lth LS term of ith subshell, liwi (cf. FL)
+SBR          C        Si bar for Lth LS term (cf. FLBR)
+S2(I)        S        line strength (except for factor P**2) for Ith line
+SCRJ(L,I)    F        script Ji for Lth row of matrix (JJ representation)
+SCRJ8        F        script Jq (total J value for given matrix)
+SCRJ8P       MS       script Jq (total J value for given matrix), 2nd parity
+SCRL(L,I)    F        script Li for Lth row of matrix (LS representation)
+SCRS(L,I)    F        script Si for Lth row of matrix (LS representation)
+SCRL6        F        script L for coupling representation number 6
+SCRS6        F        script S for coupling representation number 6
+SOABSS(I)    S        cancellation factor (S/|S|) with sign of S**1/2
+                        for spectrum line I
+SOPI2(I,J)   MS       sum of line strengths (divided by P**2) for array I-J
+SUMGA        S        sum of radiative gAr for given energy level
+SUMGAA       E        sum of gAa1 for all levels up to current J value
+SUMGAAT      E        same, for gAa2
+SUMGAR       S        sum of gAr for all levels
+T(I)         S        term (energy level, first parity) for Ith line
+TP(I)        S        term (energy level, second parity) for Ith line
+TMX          F        transformation matrix (LS to JJ, or LS to ...)
+TMXP         M        transformation matrix, second parity
+U1,U2,...U6  P        matrix elements of U(k) for 1st,2nd,...subshells
+V1,V2,...V6  P        matrix elements of V(k1) for 1st,2nd,...subshells
+V            S        eigenvector matrix
+V            E        V matrix (derivatives of eigenvalues with respect
+                        to parameter values
+VECT         E        energy matrix; eigenvector matrix
+VPAR(I,K)    E        energy parameter values (Eav,Fk,etc.) for Kth parity
+X            S        temporary storage
+
+
+
+
+XV. Program Usage and Example
+     The primary storage location for the various programs is an anonymous
+FTP directory on the t4 network.  To obtain the files, type the following:
+
+ftp t4.lanl.gov
+anonymous
+(your e-mail address)
+cd pub/cowan
+ls
+mget *
+(as file names are presented, type y for each file desired)
+bye
+
+The FORTRAN files are named rcn.f, rcn2.f, rcg.f, and rce.f .  Various 
+sample input files have fairly obvious names starting with "in".  The
+files rcng.UNIX and rcng.VMS are procedure files for running rcn, rcn2,
+and rcg in succession, for a sample test run in five-fold-ionized potassium,
+and also contain sample input; output from such a run is given in file
+OutputK+5.  The files diel.UNIX and diel.VMS are similar procedure files
+for making an autoionization/dielectronic-recombination run for Se+24, and
+output is contained in file OutputSe+24.  Of course, the three programs
+can also be run one at a time with appropriate input files, instead of
+using these procedure files.  The file "readme" contains further
+information regarding compilation, file sizes, and execution times.
+     The file rcg.f uses dimensions adequate for all s, p, and d subshells,
+and for all f subshells except f5 to f10, and the file ing11k contains cfp
+decks for all such subshells; when renamed ing11, it can be used for a 
+first RCG run to calculate the binary files tape72, tape73, and tape74.
+The file rcglg.f is a source file for RCG with dimensions large enough
+to make runs with all f subshells, and cfp decks for calculation of tapes
+72-74 for all subshells are contained in the file "cfp".
+     Copies of most or all of the above files are also stored on the CFS,
+in rootnode /045706.
+
+XVI. Sample Monitor Screen Output (from RCG run for K VI)
+     Times are for a Macintosh Centris 650.
+
+
+rcg mod 11    ls coupling    nsconf= 3 2 2    3 1  1    iabg=0   iv=0   119
+
+finished lncuv at  0.010 min
+finished plev at   0.011 min
+finished pfgd at   0.015 min
+finished prk at    0.017 min
+finished calcfc at 0.024 min
+finished plev at   0.025 min
+finished pfgd at   0.027 min
+finished calcfc at 0.035 min
+finished mupole matr for j=0.0 and jp=1.0 at time= 0.038 min,  matr size= 4 by  3
+finished mupole matr for j=1.0 and jp=0.0 at time= 0.039 min,  matr size= 2 by  1
+finished mupole matr for j=1.0 and jp=1.0 at time= 0.041 min,  matr size= 2 by  3
+finished mupole matr for j=1.0 and jp=2.0 at time= 0.041 min,  matr size= 2 by  4
+finished mupole matr for j=2.0 and jp=1.0 at time= 0.042 min,  matr size= 4 by  3
+finished mupole matr for j=2.0 and jp=2.0 at time= 0.043 min,  matr size= 4 by  4
+finished mupole matr for j=2.0 and jp=3.0 at time= 0.043 min,  matr size= 4 by  3
+finished energy for  j=0.0  at time= 0.049 min,     matrix size=   4
+finished energy for  j=1.0  at time= 0.051 min,     matrix size=   2
+finished energy for  j=2.0  at time= 0.052 min,     matrix size=   4
+finished energy for  j=0.0  at time= 0.054 min,     matrix size=   1
+finished energy for  j=1.0  at time= 0.055 min,     matrix size=   3
+finished energy for  j=2.0  at time= 0.057 min,     matrix size=   4
+finished energy for  j=3.0  at time= 0.058 min,     matrix size=   3
+finished energy for  j=4.0  at time= 0.059 min,     matrix size=   1
+finished lower-level sort at time=   0.069 min
+finished upper-level sort at time=   0.077 min
+finished wavelength sort at time=    0.084 min
+
+
+
+
+time=  0.084 min  (abs time= 121.658)     
+
+    for pmax=  1.70752,          10.0000   10.00000
+                  sums2,sumgf=   10.0000   10.00000  22.3585
+                         sumf=                        7.3938   sumgar= 9.6958E+11
+                            s2min=                    0.00000
+
+    0 lines omitted, with max s2=                     0.00000
+
+    0 lines omitted, with lambda.gt.   500000.0000 Angstroms
+    0 lines omitted, with lambda.lt.        0.0010     "
+    0 lines omitted, insuff storage 
+    0 lines omitted, conf serial nos .gt.  50,  50
+
+STOP (normal exit)
+
+
+
+        Appendix--Notes on basis-state and level designations
+
+
+     Some details regarding basis-state labeling and level designations
+will be given, using an example from singly ionized argon, containing
+two configurations of odd parity and five configurations of even parity.
+     At the beginning of the output from subroutine spectr, there is
+a list of radial dipole integrals  ( nl//r1// n'l'), together with
+the names of the corresponding configurations and the serial numbers
+of the configurations:
+
+
+ serial no.   conf.              serial no.   conf.         dipole integral
+
+    1     Ar II 3p5                  1     Ar II 3p4 4s      ( 3p//r1// 4s)=
+    1     Ar II 3p5                  2     Ar II 3p4 5s      ( 3p//r1// 5s)=
+    1     Ar II 3p5                  3     Ar II 3p4 3d      ( 3p//r1// 3d)=
+    1     Ar II 3p5                  4     Ar II 3p4 4d      ( 3p//r1// 4d)=
+    1     Ar II 3p5                  5     Ar II 3p4 5d      ( 3p//r1// 5d)=
+    2     Ar II 3p4 4p               1     Ar II 3p4 4s      ( 4p//r1// 4s)=
+    2     Ar II 3p4 4p               2     Ar II 3p4 5s      ( 4p//r1// 5s)=
+    2     Ar II 3p4 4p               3     Ar II 3p4 3d      ( 4p//r1// 3d)=
+    2     Ar II 3p4 4p               4     Ar II 3p4 4d      ( 4p//r1// 4d)=
+    2     Ar II 3p4 4p               5     Ar II 3p4 5d      ( 4p//r1// 5d)=
+
+
+     Then a bit later, the list of (the first five) configurations is
+repeated, together with configuration serial number:
+
+ serial no.   conf.                         conf.  
+
+    1      Ar II 3p5            ---      Ar II 3p4 4s      
+    2      Ar II 3p4 4p         ---      Ar II 3p4 5s      
+    3                           ---      Ar II 3p4 3d      
+    4                           ---      Ar II 3p4 4d      
+    5                           ---      Ar II 3p4 5d
+
+
+There follows the line list itself, of which I give a few of the lines below:      
+
+0           e      j   conf              ep      jp  confp           delta e
+
+    1   153.4484  2.5  2 (3p) 4p      131.5956  3.5  3 (3p) 4d       21.8528
+    2   155.2788  3.5  2 (3p) 4d      131.5956  3.5  3 (3p) 4d       23.6832
+    3   155.7404  2.5  2 (3p) 4d      131.5956  3.5  3 (3p) 4d       24.1448
+    8    -0.4039  1.5  1 (2p) 2p      131.7381  2.5  3 (3p) 4d      132.1420
+    9   153.4484  2.5  2 (3p) 4p      131.7381  2.5  3 (3p) 4d       21.7103
+   61    -0.4039  1.5  1 (2p) 2p      132.7190  2.5  1 (3p) 4p      133.1228
+   62   153.4484  2.5  2 (3p) 4p      132.7190  2.5  1 (3p) 4p       20.7295
+  174   172.7695  1.5  2 (1d) 2p      141.4790  2.5  3 (3p) 4f       31.2905
+  175   192.6821  1.5  2 (1s) 2p      141.4790  2.5  3 (3p) 4f       51.2031
+
+
+For each line, the first column is a line serial number, which has no
+physical significance--it is given only so that one can see how many lines
+there are.  The next two columns give the energy and total J value for the
+level of first parity (odd parity, in this example), and the next column
+is the configuration serial number--1 means 3p5 and 2 means 3p4 4p.  Now
+comes the complicated part.  As an example, in  (3p) 4p, this should
+be read as  (3P) 4P, with the 3 and 4 being superscripts; the
+final part, 4P, is the LS term--that is, the total multiplicity 2S+1 (=4)
+and the total L (P=one unit of angular momentum).  
+     The part  (3P) is in the present example always the multiplicity and
+angular momentum of the first subshell of the configuration; for 3p4, the
+only possible values are 3P, 1D, and 1S, as in lines 62, 174, and 175.
+     For configuration 1 (3p5), there is only one subshell, and so the 
+quantity in () is always the same as the total LS.
+     For cases in which there are more than two subshells, the quantity in
+() is the LS for the outermost (last) subshell that contains at least two
+electrons and at least two holes; if there is no such subshell, then the
+LS in () is the total LS (vectorially) for the next-to-last subshell.  
+[The computer code involved is that in subroutine calcfc, statements 
+350 to 420 (or to 460 for jj coupling).]
+     The above information for the first-parity level is followed by the 
+corresponding information for the second-parity level of the spectrum line,
+and thus includes the serial number of the second-parity configuration.
+
+     Clearly, the amount of information given in the line list, limited by 
+space considerations to only one intermediate LS (for a single subshell,
+or for the vector sum of all but the final subshell), is not generally 
+sufficient to specify the level designation completely.  In such cases, 
+the only way of obtaining complete information is the following:
+     (1)  On the g5inp control card (or the RCN2 control card), a value of 
+ICFC=1 in column 69 will result in all details of the basis-state quantum
+numbers for each state being written to the file outg11.
+     (2)  For the eigenvalue and J value of interest, one goes to the 
+output of eigenvalues and eigenvectors for this J value.  The desired 
+eigenvector lies below the desired eigenvalue, in the same column; the 
+configuration serial number and (abbreviated) level designation lie in 
+this same column in between the eigenvalue and eigenvector.
+     (3)  In the eigenvector, find the eigenvector component that corresponds
+to the term label in the line list--this is usually (but not always) the
+component with the largest magnitude, but in any case, the configuration 
+serial number and name and the basis-state label are given in the left-hand 
+portion of the eigenvector-component row.  Note the row number of this
+eigenvector component.
+     (4)  Going back in the file outg11 to the place where basis-state
+quantum numbers are listed for the J value in question, the desired full
+set of quantum numbers is that for the row number just mentioned.  
+[Note, however, that for a given energy level, the correct row number will
+in general not be the same for the jj-representation eigenvector as it
+will be for the LS-representation eigenvector, because the dominant
+eigenvector component will in general lie in a different row.]
+
+     Two levels may sometimes appear to have the same level designation;
+this is not supposed to happen, but the computer code may not be infallible.
+However, such apparent duplication may be because the levels actually
+belong to two different configurations, or may result because of the missing
+parts of the level designations in the case of more than two subshells.
+                                                                                                                                                                                                                                        Code/Lanl_Documentation/readme.December1999                                                         0000444 0170214 0001750 00000042010 07030055320 020211  0                                                                                                    ustar   cormac                          cormac                                                                                                                                                                                                                                            Robert D. Cowan
+                            December 1999
+ 
+     This suite of four programs calculates atomic structures and
+spectra via the superposition-of-configuration method:
+     (1)  RCN calculates one-electron radial wavefunctions (bound or
+free) for each of any number of specified electron configurations,
+using the Hartree-Fock or any of several more approximate methods.
+The principal output, for each configuration, consists of the center-
+of-gravity energy (Eav) of the configuration, and those radial Coulomb
+(Fk and Gk) and spin-orbit (zeta) integrals required to calculate the
+energy levels for that configuration.
+     (2)  RCN2 is an interface program that uses the output wave-
+functions from RCN (on a file called tape2n) to calculate the
+configuration-interaction Coulomb integrals (Rk) between each pair
+of interacting configurations, and the electric-dipole (E1) and/or
+electric quadrupole (E2) radial integrals between each pair of
+configurations.  RCN2 prepares an output file called out2ing that
+(after being renamed ing11) serves as input to RCG.
+     (3)  RCG sets up energy matrices for each possible value of the
+total angular momentum J, diagonalizes each matrix to get eigenvalues
+(energy levels) and eigenvectors (multi-configuration, intermediate-
+coupling wavefunctions in various possible angular-momentum-coupling
+representations), and then computes M1 (magnetic dipole), E2, and/or
+E1 radiation spectra, with wavelengths, oscillator strengths, radiative
+transition probabilities, and radiative lifetimes.  Other options, when
+a continuum (free) electron is present, are photoionization cross-
+sections, autoionization transition probabilities, total lifetimes,
+branching ratios for autoionization, and plane-wave Born collision
+strengths.
+     (4)  When higher accuracy results are desired, RCE can be used
+to vary the various radial energy parameters Eav, Fk, Gk, zeta, and Rk
+to make a least-squares fit of experimental energy levels by an
+iterative procedure.  The resulting least-squares-fit parameters can
+then be used to repeat the RCG calculation with the improved energy
+levels and (presumeably) wavefunctions.
+     Reference:  Robert D. Cowan, "The Theory of Atomic Structure and
+Spectra," (University of California Press, Berkeley, 1981), esp.
+Chapters 8 and 16.
+ 
+RCN input
+     A sample input file (to be named in36) for the HF program RCN is:
+ 
+2  -9    2   10  0.2    5.e-08    1.e-11-2   090    1.0 0.65  0.0  0.0
+-6
+    1    1H I   1s      1s
+   -1
+   19    6K VI  3s2 3p2     3s2 3p2
+   19    6K VI  3p4         3p4
+   19    6K VI  3p 3d       3s2 3p 3d
+   -1
+   29    1Cu I 1s2 4s        1s2 3d10 4s
+   29    1Cu I 1s 4s .1p     1s  3d10 4s 99p  0.1
+   29    1Cu I 1s 4s 1.p     1s  3d10 4s 99p  1.0
+   -1
+ 
+     The first line is an almost universal control card, except that
+the "090" should be changed to "190" if relativistic corrections in the
+wavefunctions are desired (used mainly for elements with Z greater than
+about 30), and that the "-6" in columns 74-75 (which sends abbreviated
+output on the course of the calculation to the monitor screen) should
+be deleted for batch running on a mainframe computer.
+     Each remaining line specifies an electron configuration, except
+that a negative atomic number (in columns 3-5) specifies a normal exit
+from RCN; thus the input file as given above will result in a calcula-
+tion for only the ground configuration 1s of hydrogen.  If the hydrogen
+card and associated exit card are removed (or moved to the end of the
+file), then the next four cards will cause a calculation to be made for
+the two even-parity configurations 3s2 3p2 and 3p4 and the odd-parity
+configuration 3s2 3p 3d of K VI (5-fold ionized potassium, Z=19).
+(With output passed on through RCN2 to RCG, one would then obtain a
+calculation of a 3s2 3p2 + 3p4 to 3s2 3p 3d electric-dipole spectrum.)
+The remaining four cards, if placed directly after the control card,
+would result in calculations for the ground configuration 3d10 4s of
+neutral copper together with two continuum configurations (a principal
+"quantum number" of 99 signifying a free electron) with free-electron
+kinetic energies of 0.1 and 1.0 rydbergs, for purposes in RCG of
+calculating photoionization cross-sections for 1s to ep transitions
+at e=0.1 and 1.0 Ry.
+     The value of atomic number must lie in columns 2-5, the spectrum
+number (one more than the ionization stage) in columns 9-10, and the
+ion and configuration description (for printed information only) in
+columns 11-28.  For maximum legibility in output from programs RCG and
+RCE, it is desirable that the element and spectrum identification be
+limited to columns 11-16 (e.g., "C I   ", "O III ", "Fe23+ " or
+"Fe+23 ", etc.), and that the configuration label be limited to columns
+17-22 or maybe 17-24.
+     The actual specification of electron orbitals for calculational
+purposes can follow a semi free-form format, beginning at least three
+blank spaces after the configuration label, with at least one blank
+space separating orbitals (and kinetic energy, if present).  The
+complete electron configuration is set up by RCN as follows: The number
+of electrons is calculated to be Z+1-spectrum number, and a configur-
+ation is set up for the ground configuration of the neutral noble gas
+(He, Ne, Ar, Kr, Xe, or Rn) containing no more than this number of
+electrons.  This configuration is then modified and/or added to
+according to the given orbital information.  As an example, for neutral
+copper, the number of electrons is 29+1-1=29, and so the code starts
+from the ground configuration 1s2 2s2 2p6 3s2 3p6 of neutral argon
+(18 electrons).  For the first copper configuration above, ten 3d
+electrons and one 4s electron are added to give the ground configur-
+ation of neutral copper.  For the other two Cu cases, 1s2 is modified
+to 1s (the occupation number is obtained by table lookup, and either
+a blank or a one will give unit occupation--similarly, d occupation
+numbers must be typed ...d7, d8, d9, d10, with no blank space for
+occupation less than 10), and then ten 3d electrons, a 4s electron,
+and a continuum p electron added.
+    Units internally to RCN are Bohr units of length and Rydberg units
+(units of 13.6058 eV) for energy.  The final line of the output (in
+file out36) for each configuration gives the quantities needed for
+energy-level calculations in RCG, with Eav in Ry and all other energy
+radial integrals in units of kK (1000 cm-1); these same quanties are
+given in the last line of the monitor-screen output for each cofigur-
+ation.
+ 
+RCN2 input
+     The two-card input for RCN2 is more-or-less universally of the form
+ 
+g5inp     000 0.0000          00                339099909090 0.00
+07229
+        -1
+ 
+The items on the control card will not be described except to say that
+if either digit in the "00" is made non-zero, then eigenvectors in the
+LS or jj-coupling representation, respectively, will not be printed in
+RCG; the "33" calls for M1 and E2 spectra, respectively, to be
+calculated in RCG for both parities (zeros will delete these), and the
+"7" calls for print in RCG of the spectrum line list sorted by first-
+parity energy levels, by second-parity energies, and by wavenumber
+(inverse wavelength); a 1, 2, or 4 instead of 7, prints only one of
+these sorts, and a 3, 5, or 6 will print two of them.  The "9099909090"
+represent 2-digit scale factors (in percent, 99 representing 100%) for
+respectively Fk between equivalent electrons, spin-orbit parameters,
+Fk and Gk for non-equivalent electrons, and configuration-interaction
+Rk radial integrals: It is known empirically that scaling down of the
+HF Coulomb radial integral values by 5 to 30 percent will give RCG
+eigenvalues in better agreement with experimental energy levels, the
+smaller factors being for neutral or weakly ionized systems, with
+factors approaching unity being appropriate for highly ionized systems.
+ 
+RCG input
+     Output from RCN2 consists of print output in file out2 and a file
+out2ing that, renamed ing11, forms an input file for RCG.  With the
+three K VI configurations used as input for RCN, this file (with "33"
+on the rcn2 control card replaced by "00" or "30") will be
+ 
+    3     10e-350e05    000005   10.        0 5.0  2.0  1.0  0.5  0.2
+    0                         0000000000          1000.0000
+    1    03 2 23 1 10         00                 0 1000.0000 0.00   1 07-6 0 0
+s 2  p 2  s 0  s 0  s 0  s 0  s 0  s 0  K VI  3s2 3p2       -130337.379   0.0000
+s 0  p 4  s 0  s 0  s 0  s 0  s 0  s 0  K VI  3p4           -129993.306   0.0000
+s 2  p 1  d 1  s 0  s 0  s 0  s 0  s 0  K VI  3p 3d         -130106.201   0.0000
+K VI  3s2 3p2      3        00   7609731    178682        00        00hf90999090
+K VI  3p4          3  34407320   7574361    178422        00        00hf90999090
+3s2 3p2  -3p4      1 101.64285   0.00005   0.00005   0.00005   0.00005hf90999090
+K VI  3p 3d        6  23117760    180352      8932   7177693   8834344hf90999090
+   5512094
+K VI  3s2 3p2       K VI  3p 3d            1.70752( 3p//r1// 3d)-0.990hf -92 -96
+K VI  3p4           K VI  3p 3d            0.00000(   //r1//   )0.0000hf   0   0
+                    -99999999.
+   -1
+ 
+except that the first two (optional) control cards will be absent (but
+can be edited in), and except that the "-6" in columns 73-74 of the
+principal control card will be zero if a zero was used in columns 71-75
+of the RCN control card.  (As in RCN, the value -6 causes intermediate
+calculational output to be sent to the monitor screen during the
+course of the RCG calculation.)  Here the Eav values in Ry from RCN
+(-1197.769, 1184.586, and 1185.615, resp.) have been changed by RCN2 to
+values in kK (-130337.379, etc.), and then to values 0.0, 344.0732, and
+231.1776 kK relative to the value for the first configuration. Values
+of the other radial energy integrals have been scaled down by the
+factors 0.90, 1.00, 0.90, etc., and are in kK, which will then be the
+units of energy-matrix elements and eigenvalues, unless the "1000.0000"
+on the second optional control card is changed--for example, to 8065.48
+to obtain all energies in eV.  (The "0000000000" on the second optional
+control card can be replaced by non-zero values to change the scale
+factors from the ones specified on the RCN2 control card to these new
+values.)
+     NOTE:  For a first RCG calculation, the input file must consist of
+(or begin with) a set of coefficient-of-fractional-parentage decks for
+each set of subshells (e.g., s0, s1, s2, p0, p1, p2,...) that will be
+involved in any of the configurations for which calculations are to be
+made.  (Decks are not needed for singly occupied subshells if there
+will be no more-highly occupied subshells of the same l.)  The file
+ing11k contains such a set of cfp decks, and can be used for this first
+calculation to compute files tape72, tape73, and tape74 for use in
+subsequent RCG calculations.  [Some IBM systems do not allow file
+numbers greater than 50.  For these systems, the "72" on the first line
+of ing11k can be changed to "42" to produce files tape42, tape43, and
+tape44; the statement id2def=72 near the beginning of the main program
+of RCG must correspondingly be changed to id2def=42, and the OPEN
+statements for units 72, 73, and 74 likewise changed appropriately.]
+ 
+ 
+ 
+NOTE:  The file "rcng.UNIX" is a c-shell procedure file for automatically
+running RCN, RCN2, and RCG in succession on UNIX-type systems.
+If it is launched by the command
+rcng.UNIX .KVI
+the three output files will be named
+out36.KVI, out2.KVI, and outg11.KVI  .
+The file rcng.VMS is a similar command file for VMS systems; for usage,
+see the file RCNwriteup.
+ 
+ 
+ 
+RCE input
+     If on the RCG control card a -1 is placed in columns 9-10 and the
+card containing "-99999999." is preceded with an identical card, except
+with 5's instead of 9's, then RCG will write a binary file tape2e and
+an ASCII file outgine.  (These changes will be made automatically if a 1
+is placed in column 10 of the RCN2 g5inp control card.)  If the name of
+outgine is changed to ine20, RCE can be run with the RCG energy
+parameters and theoretical energy levels as input.  RCE should then
+converge straightforwardly in about three cycles with little or no
+change in parameter values, which then provides a test run for the RCE
+code.  Genuine RCE runs require that experimental energy levels be
+edited by hand into ine20 in place of the theoretical eigenvalues.  An
+RCE output file parvals contains final least-squares parameter values,
+which can be edited into the RCG input file ing11 for a repeat run with
+the new parameter values.
+ 
+Program writeups
+     Various possible additional RCG options can be input on the RCN2
+control card and carried over automatically to RCG, or entered directly
+onto the RCG control card, but they are too numerous and detailed to
+describe here.  Likewise, notes on convergence problems, etc., in RCN
+and RCE will not be given here.  For details, see the hard-copy program
+writeups available from the author upon request:
+  e-mail to        rcowan@lanl.gov    or regular post to
+     Robert D. Cowan
+     2917-B Nickel
+     Los Alamos, NM  87544
+     USA
+phone (505)-662-4095.
+ 
+Note: ASCII versions of the writeups are included in the ftp directory;
+they are useful to a large extent, but are somewhat difficult to read in
+places, because there are no sub- nor super-scripts, Greek letters, nor
+script letters for coupled quantum numbers LSJ.  There are no sample
+output listings in the RCN and RCG writeups, but these are contained
+in files OutputK+5 and OutputSe+24 for a normal dipole-spectrum run
+in K VI and a dielectronic-recombination calculation in Se XXV.
+ 
+ 
+ 
+Program information
+     The programs rcn.f, rcn2.f, rcg.f, and rce.f are all in FORTRAN77,
+complete with all necessary subroutines except for standard intrinsic
+functions such as min, max, exp, log, etc. (Generic function names have
+been used so as to require no changes for either "single-precision"
+64-bit- or double-precision 32-bit-machine calculations.)  The programs
+were originally developed in the 1960's on the IBM 7030 ("Stretch"),
+and over the course of the years many new features were added and the
+programs adapted to other IBM mainframes, CDC 6600, 7600, and 205
+computers, CRAYs, various VAXs and MicroVAXs, and finally SUN and
+IBM RISC System/6000 workstations, and Macintosh and PC desk
+computers.  The programs have also been used on a Silicon Graphics
+Origin 200.  Other people have found the programs readily adaptable to
+Apollos, Hewlett Packards, and other computers.  Each program contains
+a timing routine "seconds," with sections appropriate to CRAYs, VAXs or
+Macintoshes, SUNs, IBM RISCs, and PCs; the appropriate section must be
+selected, or a new section written for the computer to be used (or t
+simply set to 0.0, as times are used for information only).
+ 
+     Compilation has generally been done with minimum options and op-
+timization--for example, cf77 on CRAYs, with or without the g_floating
+option on VAXs; f77 on SUNs; on Power Macs, the Language Systems MPW
+script RUNPPC with -t72 option added; and on PCs the GNU g77 compiler.
+     Relative computing times on different machines are roughly
+ 
+                          RCN         RCN2       RCG        RCE
+      CRAY(Y-MP):         1.0         1.0        1.0        1.0
+      SUN(Sparc2):        15           4          2
+      SUN(Sparc20):        4
+      SUN Ent. 3500        1           5         0.3        0.2
+      IBM930:              4          1.3        0.2
+      IBM550:             2.5         0.7        0.2
+      IBM320H(32H):        4          1.2        0.3
+      MAC 6500/300        2.4         20          4          6
+      MAC G3/350          2.8         75          7
+      Pow. Cen. Pro 240   3.2         12          6          5
+      IBM Aptiva E275      1          16          1
+      SGI Origin 200      0.3         1.7        0.7
+ 
+[The SUN Enterpise 3500 has four 336 MHz processors, the Power
+Center Pro MAC clone has a 240 MHz processor, the Aptiva has two
+475 MHz processors, and the Silicon Graphic has four 180 MHz
+processors.]  Absolute computing times for three-configuration
+K VI (K 5+) runs are on the CRAY about 1.8, 0.03, 0.4, and 0.2 sec
+for RCN, RCN2, RCG, and RCE, respectively, the RCE time being for
+test-run convergence in three cycles on each parity.
+     For the dimensions used, file sizes on the 240, in Mbytes, are
+approximately
+ 
+                                  RCN        RCN2       RCG        RCE
+       Source file                0.16       0.07       0.4        0.08
+       Executable file            0.40       0.26       0.78       0.24
+       Minimum RAM for execution  2.0        1.2        8.0        3.0
+ 
+Note:  The current versions of rcn.f and rcn2.f contain no equivalence
+statements, but rcg.f does have such.
+     The file rcg-noeq.f is a versions of rcg.f from which all equi-
+valence statements have been removed, as FORTRAN 90 is expected to frown
+on such statements.  The minimum RAM for execution of this version is
+about 40% greater than for the version with equivalences present.
+      Considerable recoding was required in rcg, in addition to simple
+removal of the equivalence statements, but these changes were made in an
+older version of rcg, and so rcg-noeq.f does not contain a number of
+refinements that were introduced later into rcg.f.

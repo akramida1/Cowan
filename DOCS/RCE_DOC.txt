@@ -1,0 +1,1279 @@
+
+
+                        PROGRAM RCE MOD 20
+           LEAST-SQUARES FITTING OF ATOMIC ENERGY LEVELS
+
+
+                         Robert D. Cowan
+                 Los Alamos National Laboratory
+                          February 1978
+        (revised August l986, January 1991, and August 1993)
+
+
+CONTENTS
+    I.  Introduction                                          2
+   II.  Source Programs                                       2
+  III.  Input (TAPE2E)                                        3
+   IV.  Input (INE20)                                         4
+    V.  Dimensions                                            8
+   VI.  Running RCG and RCE (single parity)                   8
+  VII.  Output                                                8
+ VIII.  Running RCN, RCN2, RCG, and RCE (single parity)       9
+   IX.  Formats for ELEMID and CONFIG                        10
+    X.  Units                                                10
+   XI.  Rerunning RCE or RCG (output file PARVALS)           11
+  XII.  Running both parities together                       11
+ XIII.  RCE output files LEVELS1, LEVELS2, and LEVELS3       12
+  XIV.  Notes regarding convergence problems                 13
+   XV.  Notes regarding Tables I and II                      15
+
+
+
+
+
+
+I. Introduction
+        RCE is a FORTRAN 77 program for CRAY-1 or CYBER 205 or
+similar computers.  Similarly to RCN, RCN2, and RCG, it has been
+adapted to run also on VAXs, SUNs, IBM RISCs, and Macintosh
+Centris computers, and should be easily adaptable also to Apollos,
+Hewlett-Packards, PCs, etc.
+        The basic purpose of RCE is to adjust the values of various
+theoretical parameters so as to produce computed atomic energy
+levels in the best possible (least-squares-wise) agreement with
+experimentally known level values.  Levels whose energies are not
+known experimentally can be omitted from consideration.  Any of
+the parameters can be held fixed at specified values, or groups of
+parameters can be forced to vary in such a way that the ratios of
+the values within a group remain fixed relative to each other.
+        The fitting process is carried out by an automatic iterative
+procedure until the parameter values no longer change from one
+iteration cycle to the next (by more than 0.03), or for a
+specified maximum number of cycles.  The iteration can be carried
+out in any one of the seven angular-momentum coupling schemes
+available in program RCG; final eigenvectors are printed in this
+representation, and also in either the LS or JJ representation
+(see Sec. VII).
+        The basic theory involved is discussed in R. D. Cowan, The
+Theory of Atomic Structure and Spectra (University of California
+Press, Berkeley, 1981), especially Sections 16-3 to 16-5,
+hereinafter referred to as TASS.
+
+
+II. Source Programs
+        The program assumes that the coefficient matrices for each
+value of J and for each parameter are contained in a binary input
+file TAPE2E, precomputed by program RCG.  The experimental levels
+(term values) T, together with (optional) estimated parameter
+values and various control information must be provided as a BCD
+input file INE20 (read internally as unit 10); this file can,
+except for the experimental level values, be obtained in basic
+form as output from RCG (a file named OUTGINE--short for
+OUTrcgINrce).
+        The following brief discussion of the function of each
+subroutine provides a rough outline of the basic calculational
+procedure.
+        MAIN  Handles all input (including, for each J, transfer of
+the [LS-JJ or other] transformation matrix from TAPE2 to TAPE5,
+and transfer of coefficient matrices from TAPE2 to TAPE4).  It
+also handles the iteration control and most output.
+        EIGEN  Called by MAIN.  Reads coefficient matrices from
+TAPE4, calculates the energy matrix (for each J) for current
+values of the parameters, and calls subroutine TRED2 to
+diagonalize the energy matrix and thereby obtain computed energy
+levels
+        ORDER  Called by EIGEN (and also by MAIN) to arrange the
+computed eigenvalues and vectors in the order of largest
+eigenvector component (i.e., so as to make the eigenvector matrix
+such that the eigenvector components of largest magnitude tend to
+lie on the diagonal); vectors not having clearly dominant
+components are arranged so that the corresponding eigenvalues lie
+in the same numerical order as do the remaining energy levels.  [A
+test number CRIT can be chosen to be zero, so that no vector will
+be considered to have a dominant component.  Then all eigenvalues
+will be correlated with experimental level values in numerical
+order.]
+        CALCX  Called by MAIN to modify the parameter values X so as
+to improve the agreement between eigenvalues (W) and energy levels (T).
+        LSS  Linear system solver called by CALCX.
+        TRED2/TQL2  Suite of matrix-diagonalization programs.
+        WR  Program to compact a two-dimensional array (dimensions
+IA x IA) containing a matrix of size IM (IM.LE.IA) into a one-
+dimensional array of size IM*IM or IM*(IM+1)/2.
+        RD  Program to accomplish the inverse of WR.
+        CLOCK  Program to obtain CPU time in minutes (for
+information only).  This program contains sections appropriate for
+a CRAY, VAX or Macintosh, SUN, or IBM RISC; a section appropriate
+to another type of computer can be added, or the output time
+simply set to zero.
+        OUT8  Writes on TAPE8 (external file name LEVELS1) a summary
+of the final results: experimental level, eigenvalue, Lande g-
+value, dominant configuration, and the percentage composition of
+the level (three largest components if an input constant CRIT1 is
+zero, or a unique component plus the two largest remaining
+components if CRIT1 is greater than zero) in each of two coupling
+representations.  Levels are arranged in the order of increasing J
+value, and for given J in order of increasing energy.
+        SORT8TO7 and SORT  Sort the information on TAPE8 in the
+order of increasing eigenvalues, and write it on the OUTPUT file
+and on a file TAPE7 (external file name LEVELS2).  Also, sort the
+information on TAPE7 in the order of dominant configuration, and
+write it on a file TAPE12 (external file name LEVELS3).
+        SORT2/ORDERI  Sort numbers in one table in numerically
+increasing order, and similarly rearrange numbers in other tables.
+
+
+III. Input (TAPE2E)
+        Details of the TAPE2E binary file will not be given here,
+but can be deduced from subroutine RCEINP of program RCG, where
+this file is written, or from RCE MAIN, where the file is read.
+Briefly, this file contains (for each of one or more "CSETS"
+--i. e., for each of one or more sets of electron configurations
+of interest):
+        (1)  A record including a serial number for the CSET, the
+number of values of J, the total number of parameters, the number
+of configurations, and the number of parameters for each
+configuration and for each pair of interacting configurations.
+   For  each J-value:
+       (2)  The value of J, the matrix size, the transformation
+matrix from the primary to the secondary coupling representation,
+the serial number of the configuration for each matrix row, and
+brief basis-state labels in both of the representations.
+        (3)  The energy-coefficient matrix for each parameter, and
+the Lande g-value matrix, all in the primary representation.
+
+
+IV. Input (INE20)
+        The input file INE20 (internally read as unit 10) must
+contain the following information.  [Input items (2) through (10)
+may be repeated as many times as desired.]
+
+        (1)  NOCYPR, NOCYCR, NOCYCE, I216, IW6      (Format 5I5).
+
+        The least-squares iteration will proceed for at most NOCYCE
+cycles, output being printed every NOCYPR cycles, with input
+levels being reordered (into the same numerical order as the
+computed eigenvalues) every NOCYCR cycles.  [If NOCYCR <= NOCYCE,
+this reordering will never take place].  If I216 = 2 (normal value
+is I216=0 or blank), then I216 is set to 16.  If IW6 < 0, then
+abbreviated output will be sent to the monitor screen to show the
+real-time progress of the RCE calculation.  (If the input file
+INE20 is prepared by using the output file OUTGINE of an RCG run,
+then the value of IW6 will be the same as that in columns 73-74 of
+the RCG control card; if this control card has not been changed
+from that prepared by RCN2 in the file OUT2ING, then IW6 will be
+the same as the value in columns 71-75 of the RCN control card.)
+
+        (2)  NCDES, IDENOM, IPRNV, IPRNA, WMAX, IPRNX, IPRNSQ, S
+                    (Format 4I5, F10.5, 2I5, F10.5).
+
+            (a)  If NCDES < 0, this was originally a signal to exit
+from RCE.  Now this card is simply ignored, and exit is
+accomplished instead by an EOF test.
+            (b)  If NCDES = 0, use CSET (on files 4 and 5) obtained
+from file 2 on the preceding least-squares calculation.  Also, if
+IDENOM < 0, set IDENOM=0; if IDENOM=0, use previous values of IDENOM
+and DENOM; if IDENOM > 0, read new set of DENOM [item (3) below].
+            (c)  If NCDES > 0, find desired CSET (serial number
+NOCSET = NCDES) from file 2 and transfer to files 4 and 5.
+            (d)  If IPRNV.NE.0, do not print D, V, B matrices [vkl =
+dwk/dXl; B = VV; D = V*(T-W);  equation to be solved is B*(DX) = D;
+see TASS, reference above].
+            (e)  If IPRNA.NE.0, do not print A (energy) matrices.
+            (f)  If IPRNX.NE.0, do not print new parameter values
+between calls of CALCX and EIGEN.
+            (g)  Do not print results for levels with eigenvalue
+greater than WMAX.  (If zero is read in, WMAX is set to 1010).
+            (h)  If IPRNSQ = 0, do not print the squares of the
+eigenvector components.
+            (i)  The scale factor S affects only results on files
+LEVELS1, LEVELS2, and LEVELS3 [Sec. XIII].
+
+        [At this point, one record of tape 2 is read to provide MMAX
+= number of matrices (J values), LMAX = number of parameters, and
+NMAX = number of configurations].
+
+        (3)  If on card (2) NCDES=0 and IDENOM > 0, or if NCDES > 0
+and IDENOM.NE.0, then
+            Read (DENOM(L), L=1,LMAX),    (Format 7F10.5).
+        These are denominators to convert from Fk to Fk , etc; the
+latter are printed (if IDENOM.NE.0) after the least-squares iteration
+has been completed.  [In practice this option is seldom used, so
+that IDENOM is made zero on card (2), and the card(s) (3)
+omitted.]
+
+        (4)  One or more cards containing element identification and
+configuration name for each of the configurations:
+            Read  ELIDEN, (CONFIG(I), I=1,NMAX)  [Format 7(A8,2X)].
+
+        (5)  Read (XIDEN(L),  L=1,LMAX)
+These are parameter names [the format is 7(A6,A4)--i.e., A6,A4 for
+each parameter, seven parameters per card].
+
+        (6)  For each J-matrix (of size IM, read earlier from
+TAPE2):
+             (6a)  Read experimental level values (term values)
+                      (T(M),  M=1,IM)      (Format 7F10.5)
+             (6b)  Read level flags
+                      (NF(M),  M=1,IM)     (Format 7I10)
+The order of the term values may be in increasing numerical value,
+or may be such that their nominal designations are arranged in the
+same order as the matrix basis-state labels in program RCG for the
+primary representation being used in RCE [see under item (10)
+below].  The value of NF(M)=M if the Mth level is to be included
+in the least-squares fit, or NF(M)=-M if it is to be excluded.  If
+in item (6a) the last value of M on a full card is less than the
+matrix size IM, and a positive number TEMP (format F10.5) is
+punched in columns 71-80, then no more values of T (nor NF) will
+be read for this J; instead, the value TEMP will be used for all
+remaining term values of this J, and the corresponding values of
+NF(M) will be set to -M.  [Actually, all term values are first
+read into an array W(M), and then these are moved to the T(M)
+array via T(M) = W(|NF(M)|), so that using values of |NF(M)| other
+than M provides a means of rearranging the term values that is
+easier than retyping the term values in a revised order, if such
+should prove to be necessary].
+
+        (7)  Read parameter flags
+                (LF(L), L=1,LMAX)       (Format 7I10)
+If |LF(L)| = 100, the Lth parameter is held fixed.  If LF(L) < -50,
+the value of the Lth parameter is allowed to go negative
+(physically permissible only for the configuration-interaction
+parameters Rk, or for effective-operator parameters such as alpha, beta,
+T).  In least-squares mode minus one (LSQM=-1), parameters to be
+linked together (ratios of their values held fixed) are to be
+given equal negative values of LF between -1 and -98 inclusive.
+Successive values -1 or -51, -2 or -52, -3 or -53, ... must be
+used (though not necessarily in that order) if RCE is to correctly
+compute the effective total number of free parameters.  [The value
+-99 can be used for a negative parameter not linked to others.
+After the code has determined those parameters that are to be
+allowed to go negative (-51.GE.LF.GE.-99), it changes each -99 to 0,
+adds 50 to all values -51.GE.LF.GE.-98 (see the appended notes to
+Tables I and II), and takes the number of parameters with LF=0
+minus the most negative value of LF from -1 to -50 as the total
+number of free parameters.]
+
+        (8)  Read     (XMAX(L), L=1,LMAX)      (Format 7F10.5)
+The value of parameter X(L) is restricted to the range 0 to XMAX
+[for LF(L) = -50], or to the range -XMAX to +XMAX [for LF(L) < -50];
+if XMAX=0 is read, a default value of 1010 is used.
+
+        (9)  Read initial estimates of the parameter values
+                     (X(L), L=1,LMAX)         (Format 7F10.5)
+
+        (10)  A control card containing the following:
+
+       Variable        Format             Normal Value
+       --------        ------      ------------------------
+                                   X(L) <> 0       X(L) = 0
+                                 -----------     -----------
+          F0            F10.5        1.0             0.2
+          FM            F10.0        0.0             0.0
+          F1            F10.5       -1.0            -1.0
+         DELF           F5.3         0.0             0.2
+        NOFMAX          I5          1000            2 or 3
+         GCOE           F10.3        1.0             0.8
+         DXMAX          E10.3       10.0          1.0 to 5.0
+         CRIT1          F5.3         0.3             0.3
+         CRIT           F5.3     0 (or 0.85)      0 (or 0.85)
+         CRIT2          F2.0        -1.0            -1.0
+
+The significance of the control-card quantities is the following
+(except see Sec. XIII regarding CRIT1):
+        If all of the initial parameter estimates X(L) are zero
+(except for those held fixed by specifying |LF(L)| = 100), then the
+iteration is started by setting the eigenvectors equal
+approximately to the basis vectors (1000...), (0100...), etc.
+(See TASS, page 470).  To give energy matrices with eigenvectors
+that initially are approximately basis vectors, the off-diagonal
+matrix elements are multiplied by a fudge factor F, which is
+initially small (F = F0) but is gradually increased to its proper
+value of unity, with NOFMAX cycles being run at each value of F.
+The value of F is increased in the following manner:  Starting
+with F = F0, then F is multiplied successively by a factor FM until
+F.GE.F1, then increased by an additive amount DELF until F.GE.1, at
+which point F is set to unity and NOFMAX to 1000.  (As indicated
+by the suggested value of F1=-1 in the table above, the multiplier
+stage can usually be omitted).
+        Normally, a calculation will be started using non-zero
+estimates of the parameters X(L) from an RCG run, and the
+calculation will be begun using F0=1.
+        In either case, the code attempts to increase the speed of
+convergence by letting the parameter values change by a factor G
+times the predicted changes.  Initially G=1, but its value is
+automatically recomputed each cycle (G < 1 if the convergence is
+oscillatory, G > 1 if it is monotonic).  The degree by which G is
+allowed to depart from unity is proportional to GCOE, but G is
+always kept small enough that no X(L) is allowed to change on any
+one iteration cycle by more than 2*DXMAX.  [The units of X and
+DXMAX are the same as those of the input term values T(M);  the
+values of DXMAX listed in the table assume units of 1000 cm-1.]
+    On each iteration cycle, the computed eigenvalues are
+arranged in the order of the dominant component of the
+corresponding eigenvectors--a dominant component cd being one such
+that
+               (ci)**2 < CRIT*(cd)**2
+for all components i.NE.d.  Eigenvalues for which the vectors have no
+dominant component are arranged in the same order as the
+"unassigned" term values.  [It is therefore necessary that unknown
+term values, deleted from the least-squares fit via negative
+values of NF, nevertheless be given values of appropriate
+magnitude as best they can be estimated.]  Alternatively, CRIT can
+be set to zero, NOCYCR made equal to or greater than NOCYCE, and
+all input term values (including estimated values for unknown
+levels) arranged in increasing numerical order; then all
+eigenvalues will likewise be arranged in numerical order (the same
+as in RCG) in all iteration cycles.
+        If a linked-parameter calculation has been made (LSQM=-1,
+defined by reading in two or more equal values of LF(L) lying in
+the range -51 to -98), then a second calculation with all
+parameters independently free will automatically be made (LSQM=0)
+unless CRIT2 < +1.
+        The rather complicated changes that the code makes in values
+of XMAX, XMIN, and LF at various stages of the calculation are
+given in Tables I and II.  [Ignore the case LSQM= +1, which is not
+included in RCE Mod 20.]
+
+
+V. Dimensions
+        The present version of RCE has been compiled with array
+dimensions that limit it to use on problems involving at most 20
+configurations, 280 parameters, and 12 matrices (J-values), each
+no bigger than 75 x 75 in size; the total number of levels of all J
+must be no greater than 4*75=300.  The dimensions can be readily
+increased via the parameter-statement variables IC, IB, IX, IA,
+and IV, respectively.  These dimensions and the array sizes
+actually required for the current run are printed near the
+beginning of the output file; if any one of the array sizes
+exceeds the corresponding dimension, the program will
+automatically stop.  (It is possible that the program may bomb on
+an exceeded dimension before the printout occurs.)
+
+
+VI. Running RCG and RCE (single parity)
+        The program RCG must be run in order to produce the RCE
+binary input file TAPE2E.  The procedure will be illustrated by
+supposing we are going to want to make a least-squares fit of
+levels of Cu XIV 3s 3p5 + 3s2 3p3 3d.  The RCG input file shown in
+the upper portion of Table III can be easily constructed by hand.
+[The value -1 for NOCSET has been assumed.]
+        Execution of RCG produces not only TAPE2E, but also a file
+named OUTGINE (written internally as TAPE11) shown in the bottom
+portion of Table III.  This file may if desired be used as a
+template for constructing the RCE input file.  It is necessary to
+replace the zero values of T(M) by the known experimental values,
+and to make NF(M) negative for unknown levels; also, to insert
+estimated values of X(L) if desired, together with any appropriate
+non-zero values of LF(L), to insert identifying names for the
+element and configurations (of which only the first fifteen will
+appear on the printed output file OUTE20), and to make any other
+desired changes (in NOCYCR, IW6, XIDEN, XMAX, etc).
+        In inserting the values of T(M), these should (for each
+value of J) be arranged in numerically increasing order (assuming
+CRIT=0.0).  Alternatively, they can be arranged with their
+designations in the order of the basis states given in the
+quantum-number-listing portion of the RCG output (for the primary
+representation being used in RCE), provided CRIT is changed to
+about 0.85 and NOCYCR made equal to or less than NOCYCE, as one
+judges to be appropriate (depending on the confidence one has in
+the empirical-analysis level designations)--see the discussion
+regarding CRIT near the end of Section IV.
+
+
+VII. Output
+        The representation in which RCE will carry out the least-
+squares fitting process is determined by the information on the
+RCG control card.
+        If, as on the first card in the upper portion of Table III,
+KCPL (column 5) is one and NLSMAX (columns 23-25) is zero, then
+the coefficient matrices that RCG writes on TAPE2 will be in the
+LS representation, and RCE will therefore use LS as its primary
+representation; eigenvectors will be printed each iteration cycle
+on the output file OUTE20 in the LS representation, and on the
+final cycle will be printed also in the secondary representation,
+JJ.
+        If KCPL=2 and NLSMAX=0, then in RCE the primary
+representation will be JJ and the secondary will be LS.
+        If NLSMAX > 0 and if the KCPLD(I), 3.LE.I.LE.7, in columns
+33-37 are non-zero for all but one of these values, say I=M, then
+RCG will write coefficient matrices on TAPE2E in representation M;
+the primary representation in RCE will be M and the secondary
+representation will be LS or JJ according as KCPL is 1 or 2,
+respectively.
+        [Obviously the transformation matrix mentioned under item
+III(2) above is the LS-JJ, JJ-LS, M-LS, or M-JJ matrix in the
+above four respective cases.]
+        On the final RCE iteration cycle there are printed not only
+eigenvectors, but if IPRNSQ=0 then also "vectors" consisting of
+the squares of the eigenvector components (for each of the two
+representations).
+        Along with each vector there is also printed (in a
+horizontal format) not only the corresponding eigenvalue W and
+experimental term value T (appended with an asterisk if omitted
+from the fitting process), but also T-W, the Lande g-value G, and
+a quantity GKK.  This last quantity is the diagonal element of the
+Lande g-matrix, and hence would be the g-value if the coupling
+were pure in the representation in question.  [In all cases, the
+values of GKK are printed in the order of the basis states for the
+representation in question, and will be roughly equal to the
+intermediate-coupling g-value G in the same output line only if
+the eigenvectors have been sorted in the order of dominant
+component (via CRIT=~0.85 rather than zero) and if the eigenvectors
+are fairly close to pure basis vectors.]
+
+
+VIII. Running RCN, RCN2, RCG, and RCE (single parity)
+        An input file for RCE containing appropriate starting
+estimates for the parameters X(L) can be obtained by running RCG
+using as input an output file from RCN2 rather than one
+constructed by hand.
+        Appropriate input files for RCN and RCN2 are shown in the
+upper two sections of Table IV.  Note that on the G5INP input card
+for RCN2, a non-zero value (namely 1) has been used for NOCSET in
+column 10, and an estimated value of Eav (=450 kK) for the first
+configuration (3s 3p5) has been used for EAV11 in columns 14-20.
+        Inclusion of the non-zero value of NOCSET causes RCN2 to
+include a negative number (-|NOCSET|, = -1 in this case) in columns
+9-10 of the first card of the OUT2ING output file, and also a
+"-55555555." card before the  "-99999999." card.  This file is
+ready to be used with little or no change as input to RCG.
+[Values of NLSMAX and KCPLD can be set on the RCN2 control card
+for automatic carry-through to the RCG control card, but a value
+KCPL=2 can be obtained only by hand alteration after RCN2 has been
+executed.]
+        The output file OUTGINE from RCG is the same as that in
+Table III, except that labels are now obtained for the element and
+configurations, the eigenvalues computed by RCG appear for both
+the initial theoretical values W and for the term values T, and
+the (scaled HF) parameters used in computing said eigenvalues
+appear as the starting parameter values X(L).
+        If this file were used unchanged as input to RCE,
+convergence should of course be obtained more-or-less immediately,
+with essentially no change in the parameter values.
+        Normally, of course, one will make changes in the same way
+as described in Section VI, except that there is now no need to
+insert element and configuration names nor estimates for the
+parameters X(L).
+
+
+IX. Formats for ELEMID and CONFIG
+        When an input file for RCE is to be produced by an
+RCN/RCN2/RCG run as just described, some care should be exercised
+in the typing of the RCN input cards: the element and spectrum
+identification (e.g., CuXIV in the Sec. VIII example) should be
+restricted to columns 11-16 of the RCN input card, and the
+configuration identification should be limited to columns 17-24
+(preferably 17-22).  This will ensure that the element and configura-
+tion identifications in both RCG and RCE will turn out satisfactorily.
+If RCE output (Sec. XIII) is to be used as input to program
+INTENSITY [a special-purpose program not of general interest],
+then the configuration identifications should be right-adjusted in
+columns 17-22, because only the information in columns 20-22 will
+be included in the INTENSITY output files.
+
+
+X. Units
+        When starting estimates of the parameter values X(L) are
+obtained as described in Section VIII, the units of the X(L)
+produced by RCN2/RCG are normally kK (thousands of cm-1).  Thus
+one either has to insert the experimental term values in these
+same units, or (via an editor) he has to convert the X(L) to the
+units he uses for the term values.  Alternatively, he can add a
+rescaling card (see RCG writeup, page 36) at the front of the RCG
+input file.  To obtain the X(L) in cm-1, for example, this card
+would contain blanks in columns 1-6 except a zero in column 5, and
+1.0 in columns 51-60.  [However, if values of X(L) written to the
+RCE output file PARVALS are used as input back into RCG, in the
+manner described below, the units printed on the RCG output file
+("PARAMETER VALUES IN xxxx CM-1"), together with oscillator
+strengths and transition probabilities, will be incorrect if
+anything other than kK was used throughout.]
+
+
+
+XI. Rerunning RCE or RCG (output file PARVALS)
+        Because of setup errors of one sort or another, RCE may fail
+to converge properly, and it may have to be rerun with altered
+control variables (or simply for additional iteration cycles).  To
+facilitate setting up starting parameter values for the rerun, RCE
+writes on an output file PARVALS (internally called TAPE11) the
+parameter values for each cycle; values from the desired cycle can
+be copied into the RCE input file to replace the starting values
+used on the previous RCE run.
+        When final least-squares parameter values have been
+obtained, one may wish to make an RCG run to compute oscillator
+strengths and transition probabilities.  To facilitate this, the
+final parameter values are added to the end of the RCE PARVALS
+output file in the format required for RCG input, so that these
+can be edited into an RCG input file in place of the previously
+used values.  An example of this PARVALS file is given in Table
+VIII.
+                *************IMPORTANT**************
+     If least-squares parameters for both parities are to be put back
+into RCG as mentioned above, then it is highly advisable to produce
+the required TAPE2E input file for RCE via two-parity RCN/RCN2/RCG runs
+(the CSET files for both parities then being both in a single TAPE2E,
+rather than in two separate ones).  This is because RCN2 will probably
+set up the configuration subshells differently in a two-parity run than
+in two separate one-parity runs; in the latter case, Rydberg-series
+configuration-interaction-coefficient and R0-parameter modifications
+may be made as discussed in my book on page 394, whereas these
+modifications may not be made in the two-parity case.  It is still
+permissible to make the least-squares fittings one parity at a time
+(by breaking the file outgine into two separate files)--the single two-
+parity file TAPE2E serves without change as input for both parities.
+                ************************************
+
+XII. Running both parities together
+        The examples of Sections VI-VIII were for only a single
+parity.  However, it is permissible to run RCG/RCE or
+RCN/RCN2/RCG/RCE for both parities together.  An example for
+           Si III  3s2 + 3p2 + 3s 3d - 3s 3p + 3p 3d
+is shown in Tables V and VI.  On the G5INP control card of the
+RCN2 input file in Table V, an estimated value EAV11=4.0 has been
+used in order to allow for downward perturbation of the 3s2
+configuration by 3p2 and 3s3d.  (As the result E(3s2 1S) = -1.8308
+of the RCG run in Table VI shows, a better estimate would have
+been EAV11 =~ 6.0.)  Also on the G5INP card, NLSMAX has been set to
+250, and all KCPLD(I) for I > 3 have been made non-zero, so that the
+primary representation in RCE will be JK; see Sec. VII.  (This is
+for illustrative purposes only, as the secondary representation LS
+is much closer to the physical coupling conditions.)
+        In Table VII the OUTGINE output file from RCG (Table VI) has
+been modified by hand in that the RCG eigenvalues have been
+replaced by the corresponding experimental energy levels.  In
+lines 2 and 23, the scale factor S has been changed from 1 to 1000
+so as to give energies in cm-1 in output files LEVELS1, LEVELS2,
+and LEVELS3.  Also, in line 15 of the file, the value LF(9) = -52
+has been changed to -51 so as to force the two configuration-
+interaction parameter values to retain a fixed ratio; this has
+been done in order to fit the ten even-parity levels with only
+eight parameters instead of nine and make convergence more stable.
+        [In the odd-parity half of the OUTGINE file, the LF values
+for the two CI parameters are both equal to -51 already in Table
+VI.  This is the result of the way RCG has been coded:  RCG sets
+LF = -51 for all CI parameters involving configuration number one;
+LF = -52 for all interactions of configuration 2 with configurations
+3, 4, 5, ...; etc.  This arbitrary scheme has been employed in
+order to keep the total number of parameters from becoming much
+greater than the total number of levels when there are many
+interacting configurations, but it can of course be altered by
+hand.]
+        The file in Table VII can be divided in half following the
+first card containing "-1" in columns 4-5, and RCE run separately
+for the two parities.  However, the file can (as in the present
+example) be used intact to make a single RCE run for both
+parities, one after the other.  [Note that the "-1" card in the
+middle of the input file, formerly the NCDES < 0 exit card (see Sec.
+IV(2)(a) on page 4), need not be removed.]  The resulting RCE
+output file PARVALS (see Sec. XI) is shown in Table VIII.
+
+
+XIII. RCE output files LEVELS1, LEVELS2, and LEVELS3
+        As noted at the end of Section II, RCE produces output files
+LEVELS1 and LEVELS2 (internally, TAPE8 and TAPE7), shown for the
+Si III example in Tables IX and X; also an output file LEVELS3
+(internal name TAPE12), which is not shown.  The energy units for
+T, W, and T-W are the same as in the output file OUTE20, except
+multiplied by the scale factor S read from the input card IV(2);
+thus, with units of kK used in the main body of the code, units of
+cm-1 have been obtained here as the result of setting S=1000 (see
+Sec. XII above).
+        For each level, the percentage composition is listed for the
+three largest eigenvector components (first in the primary
+representation JK, and then in the secondary representation LS),
+provided CRIT1 = 0.0.  (If CRIT1 is greater than zero, the program
+chooses the first component so that no two levels have a first
+component belonging to the same basis state; in cases of strong
+basis-state mixing, the first component for some levels may be
+rather small.  The remaining two printed components for a given
+level are then the two largest ones other than the first printed
+component.)  Also listed is the dominant electron configuration,
+determined by summing over all basis states of each configuration;
+note that this dominant configuration is not necessarily the same
+as the configuration to which the leading eigenvector component
+belongs.
+        Unfortunately, the quantum-number designations for the three
+eigenvector components are frequently incomplete, except in the
+case of two-subshell configurations in the LS representation.
+Complete basis-state designations for the LS and JJ representa-
+tions can be obtained from the quantum-number-listing section of
+the RCG output file; for other representations, they can only be
+inferred from the coding details in RCG subroutine CPL37.
+Correlation of complete basis-state designations with the
+eigenvector-component labels in the LEVELS1-LEVELS3 files can, in
+ambiguous cases, be obtained only by working back via the
+eigenvalues to the complete eigenvector printout in the main RCE
+output file OUTE20.
+        It should be noted that the LEVELS1-LEVELS3 output
+corresponds to the final cycle of the RCE run.  If, through some
+quirk of instability in the RCE iteration, the final cycle is no
+good and one wishes results for an earlier cycle, one can make an
+RCE rerun with NOCYCE=0, using input parameters obtained from the
+appropriate section of the PARVALS file.  This will likewise
+provide (on the new PARVALS file) the proper set of parameter
+values for making an RCG rerun (Sec. XI).
+
+
+XIV. Notes regarding convergence problems
+        Obtaining satisfactory convergence of the least-squares
+level fitting can be a tricky business requiring several reruns,
+especially when several interacting configurations are present.
+Suggested items to watch out for are the following:
+        (1)  The number of free parameters (counting each set of
+linked parameters as one, and excluding parameters held fixed via
+|LF(L)| = 100) must of course be no greater than the number of
+levels being fit (not counting levels for which NF < 0); in complex
+multi-configuration cases, the former number should preferably be
+considerably less than the latter.
+        (2)  When coupling conditions are close to pure LS coupling,
+the number of free Coulomb parameters (including Eav) should be no
+greater than the number of LS terms having levels included in the
+fit.
+        (3)  If the number of parameters needs to be reduced in
+order to keep the iteration from wandering aimlessly, the prime
+candidates for parameters to be held fixed or linked to other
+parameters are those that oscillate erratically from one cycle to the
+next, or ones that show large values of the standard deviation SDX on
+the OUTE20 file (especially a value that is large compared with
+the value of the parameter itself).  Such parameters are likely to be
+spin-orbit parameters for excited electrons (especially of large l),
+or CI parameters that produce only minor perturbations.
+             (3a)  In configurations like 2p3p or 3d4d, only the sum
+of the two spin-orbit parameters zi is well determined, and it is
+usually necessary to fix the z for the outer electron or to link
+the two z's together.
+             (3b)  In configurations ln where levels are known for
+only one LS term, or configurations lnl2 where levels based on
+only one ln parent are known, then all Fk(ll) must be held fixed,
+or all Fk(ll) linked together and Eav held fixed.  [This is just a
+special case, for each configuration or for each parent, of item
+(2) above.]  Violation of such requirements will usually lead to
+very wild parameter-value changes and huge values of SDX!
+        (4)  In some cases, one may wish to include a configuration
+for which no levels are known experimentally--because, for
+example, this configuration is suspected of significantly
+perturbing known levels.  One approach is to include the RCG
+theoretical levels in the fit, as though they were experimental
+ones, and leave the associated parameter values free (to
+compensate for shifts in eigenvalues of other configurations,
+which then result in changes in CI effects on the configuration in
+question).  However, probably a better approach is to delete the
+unknown levels from the fit, and to hold fixed at their
+theoretical values all parameters that involve the unknown
+configuration.  In either case, it is of course important that one
+properly correct for any systematic (Eav) error in the unknown
+configuration, as indicated by similar errors (for known
+configurations) in the RCG calculation that provided the starting
+values of the X(L).  Otherwise, computed CI perturbations will be
+inaccurate, and perhaps even in the wrong direction.  The
+situation is even worse when some, but not all, levels are known.
+If the theoretical values for the unknown levels are not properly
+corrected, then they may (for example) lie below known levels of
+other configurations when they should lie above.  RCE will then
+probably make incorrect correlations of computed eigenvalues with
+input term values, throwing off the path of the parameter-value
+iteration, even though the unknown levels have nominally been
+omitted from the fitting process;  this is particularly likely to
+happen if correlation is done solely by numerical order of term
+value and eigenvalue (CRIT = 0.0) rather than by dominant
+eigenvector component (CRIT @ 0.85).
+        (5)  As noted in Sec. XII, RCG initially links together the
+various CI parameters in groups as follows: all parameters
+involving configuration 1 are in the first group (LF = -51), all
+remaining parameters involving configuration 2 are in the second
+group (LF = -52), all remaining parameters involving configuration 3
+are in the third group (LF = -53), etc.  On early RCE runs in
+complicated cases it is probably best to link all CI parameters
+into a single group.  On later runs one may then experiment with
+combinations of greater flexibility involving more than one group.
+
+
+
+                     Notes regarding Tables I and II
+
+
+XMAX(L) and XMIN(L)
+        On cards (8), page 6 above, quantities XMAX(L) may be read
+in, zeroes being replaced by 10**10.  Quantities XMIN(L) are
+calculated by the code, and the parameters restricted during the
+least-squares-fitting iteration to the range
+
+        XMIN(L).LE.X(L).LE.XMAX(L) .
+
+The quantities XMAX are determined by
+
+                  (  max[X(L), XMAX(L)],     XMAX(L).NE.0
+        XMAX(L) = (
+                  (  10**10 ,                XMAX(L) = 0
+
+and the quantities XMIN by
+
+                  (  max[10-6, X(L)-(XMAX(L)-X(L))],   LF(L) > -50
+        XMIN(L) = (
+                  (  -XMAX(L) ,                        LF(L) œ -50
+
+These relations, plus changes in LF and in XMAX and XMIN when F
+reaches unity, are summarized in Table I.
+        Alterations in LF before each type of least-squares
+calculation, and the effect of LF(L) on X(L), are summarized in
+Table II.  Values of LF(L) are printed out each cycle so that one
+can tell which LSQM is being used, which parameters are linked or
+held fixed, etc.
+
+                                                 TABLE I
+
+                                                                  Change in LF         Changes in LF, XMAX,
+Input value                                                       after setting        XMIN when F reaches 1
+of LF(L)               Initial values of XMAX(L), XMIN(L)          XMAX, XMIN          (LSQM = 0 or +1 only)
+-----------          --------------------------------------      -------------    ------------------------------------
+                       XMAX =0              XMAX.ne.0                              XMAX=10**10       XMAX.lt.10**10
+                      ---------        --------------------                       ------------   ---------------------
+                   /                 /                                                           /
+LF.ge.100        _|  XMAX=10**10   _|  XMAX=max(X,XMAX)               none             none    _|  LF=0       (LSQM=0)
+                  |  XMIN=10**-6    |  XMIN=max(10**-6,2*X-XMAX)                                |  LF=1 or 2  (LSQM=1)
+                   \                 \                                                           \
+                                                                            \        /
+0.lt.LF.lt.100            "                  "                         LF=0  |      |        XMAX=10**10
+                                                                             |>    <|  If XMIN.lt.0, set XMIN=-10**10
+    0                     "                  "                         none  |      |  If XMIN.gt.0, set XMIN=10**-6
+                                                                            /        \
+
+
+-50.lt.LF.lt.0            "                  "                         none              "                "
+
+                    /                 /
+-98.le.LF.le.-50  _|  XMAX=10**10   _|  XMAX=max(X,MMAX)             LF=LF+50            "                "
+                   |  XMIN=-10**10   |  XMIN=-XMAX
+                    \                 \
+
+LF=-99                    "                  "                         LF=0              "                "
+
+                                                                                                  /
+LF.le.-100                "                  "                         none            none     _|  LF=0       (LSQM=0)
+                                                                                                 |  LF=1 or 2  (LSQM=1)
+                                                                                                  \
+
+
+
+
+                                                 TABLE II
+
+Value of LF
+before first          Changes before                                 Changes before    Changes before
+least squares            LSQM=-1                Effect of LF(L)          LSQM=0           LSQM=+1         Effect of LF(L)
+calculation            calculation                  on X(L)           calculation       calculation           on X(L)
+-------------   ----------------------------    ---------------      --------------    --------------     ---------------
+                 XMAX=10**10  XMAX.lt.10**10
+                ------------  --------------
+
+LF.ge.100           none       same as LF=0        hold fixed              none             none              hold fixed
+
+              /                                                                         /
+              |   Change to successively more                                          |    LF=2        Fit gross structure
+LF=0         <|   neg. values than those already       "                   none       <|     or
+              |   in the range -1 to -49                                               |    LF=1         Fit fine structure
+              \                                                                         \
+
+                                                 /
+                                                |  Change X(L) with
+-50.lt.LF.lt.0      none           none        <|   equal LF by a          LF=0         (LF has been
+                                                |   common factor                      changed to zero.)
+                                                 \
+
+LF.le.-100          none       same as LF=0        hold fixed              none             none              hold fixed
+
+
+
+
+
+     TABLE III.  Input for, and Monitor-screen and OUTGINE files from, RCG
+
+
+    1   -13 2 20 0 00         01                00 1000.0000 0.00     01-6 0 0
+s 1  p 5  d 0
+s 2  p 3  d 1
+                    -55555555.
+                    -99999999.
+   -1
+
+
+
+rcg mod 11    ls coupling    nsconf= 3 2 2    0 0  0    iabg=0   iv=0   119 010000000 99.0 99.0  print=00000 500 1 0 0 0
+
+finished lncuv at  0.005 min
+finished plev at   0.006 min
+finished pfgd at   0.013 min
+finished prk at    0.016 min
+finished calcfc at 0.039 min
+
+
+start rceinp at time=  0.041 min
+
+end calc of matrix  1 of  6;   time=   0.053,   size=  5,   npars=  10
+end calc of matrix  2 of  6;   time=   0.060,   size= 11,   npars=  10
+end calc of matrix  3 of  6;   time=   0.067,   size= 11,   npars=  10
+end calc of matrix  4 of  6;   time=   0.074,   size=  9,   npars=  10
+end calc of matrix  5 of  6;   time=   0.081,   size=  5,   npars=  10
+end calc of matrix  6 of  6;   time=   0.088,   size=  1,   npars=  10
+
+cset number   1 written on tape 2 at time=  0.089  for couplings      ls    and      jj
+
+
+npars,noic,noicmup,nord=   10      0    0      0    0      0
+
+STOP (normal exit)
+
+
+
+    1   30    5        -6                                                 *  NOCYPR, etc.
+    1    0    1    1     0.000    1    1    1.0000                        *  NCDES, etc.
+                                                                          *  ELEMID & confs.
+eav       zeta 2    g1(12)    eav       f2(22)    zeta 2    zeta 3        **  XID
+f2(23)    g1(23)    g3(23)     1 21d2213                                  **
+    0.0000    0.0000    0.0000    0.0000    0.0000                        *  T  * J=0
+         1         2         3         4         5                        *  NF *  "
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000          * J=1
+    0.0000    0.0000    0.0000    0.0000                                        *  "
+         1         2         3         4         5         6         7          *  "
+         8         9        10        11                                        *  "
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000          * J=2
+    0.0000    0.0000    0.0000    0.0000                                        *  "
+         1         2         3         4         5         6         7          *  "
+         8         9        10        11                                        *  "
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000          * J=3
+    0.0000    0.0000                                                            *  "
+         1         2         3         4         5         6         7          *  "
+         8         9                                                            *  "
+    0.0000    0.0000    0.0000    0.0000    0.0000                              * J=4
+         1         2         3         4         5                              *  "
+    0.0000                                                                      * J=5
+         1                                                                         "
+         0         0         0         0         0         0         0    *  LF
+         0         0         0       -51                                  *  ""
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    *  XMAX
+    0.0000    0.0000    0.0000    0.0000                                  *    "
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    *  X
+    0.0000    0.0000    0.0000    0.0000                                  *  "
+       1.0       0.0      -1.0 0.00 1000     1.000  10000.00 0.30 0.00-1  *  F0, etc.
+   -1                                                                     *  exit card
+
+
+
+
+    TABLE IV.  Input for RCN and RCN2, output file OUT2ING from RCN2
+               (which is also the input file ING11 for RCG), and
+               output file OUTGINE from RCG
+
+
+2  -5    2   10  1.0    5.e-08    1.e-11-2   090   1.0  0.65  0.0 0.00   -6
+   29   14CuXIV 3s 3p5    3s 3p5
+   29   14CuXIV 3p3 3d    3s2 3p3 3d
+   -1
+
+
+g5inp    1000 450.00          00                009099909090 0.00     01229
+        -1
+
+
+
+    1   -13 2 20 0 00         00                00 1000.0000 0.00     01-6 0 0
+s 1  p 5  d 0  s 0  s 0  s 0  s 0  s 0  CuXIV  3s 3p5       -345915.172   0.0000
+s 2  p 3  d 1  s 0  s 0  s 0  s 0  s 0  CuXIV  3p3 3d       -345783.197   0.0000
+CuXIV 3s 3p5       3  45000000   1878932  18821734        00        00hf90999090
+CuXIV 3p3 3d       7  58197480  14568911   1878402    195472  14486193hf90999090
+  16454234  10712534
+3s 3p5   -3p3 3d  1 172.24795   0.00005   0.00005   0.00005   0.00005hf90999090
+                    -55555555.
+                    -99999999.
+   -1
+
+
+
+    1   30    5        -6
+    1    0    1    1     0.000    1    1    1.0000
+CuXIV     3s 3p5    3p3 3d
+eav 3s 3p5zeta 2    g1(12)    eav 3p3 3df2(22)    zeta 2    zeta 3
+f2(23)    g1(23)    g3(23)     1 21d2213
+  382.3404  477.2642  532.5568  593.5412  678.2602
+         1         2         3         4         5
+  371.5288  450.3499  477.7646  518.5799  586.6236  596.5524  645.1191
+  665.0452  679.0597  699.3160  769.2944
+         1         2         3         4         5         6         7
+         8         9        10        11
+  355.7872  478.1020  508.2362  522.8549  576.1982  598.7570  602.7810
+  614.2886  659.6079  690.8297  710.5173
+         1         2         3         4         5         6         7
+         8         9        10        11
+  478.7353  515.5883  527.2983  548.7192  599.1607  613.6588  648.7939
+  678.8232  733.9648
+         1         2         3         4         5         6         7
+         8         9
+  481.0237  534.3001  552.5638  563.9309  604.1965
+         1         2         3         4         5
+  556.9239
+         1
+         0         0         0         0         0         0         0
+         0         0         0       -51
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000
+    0.0000    0.0000    0.0000    0.0000
+  450.0000   18.7893  188.2173  581.9748  145.6891   18.7840    1.9547
+  144.8619  164.5423  107.1253  172.2479
+       1.0       0.0      -1.0 0.00 1000     1.000  10000.00 0.30 0.00-1
+   -1
+
+
+
+
+    TABLE V.  Input for RCN and RCN2, and output file OUT2ING from RCN2
+              (which is also the input file ING11 for RCG).  Note that
+              on the g5inp and RCG control cards, NLSMAX has been set
+              to 250 and KCPLD to 0101111, so that in RCE the primary
+              and secondary coupling representations will be jK and LS.
+
+
+2  -5    2   10  1.0    5.e-08    1.e-11-2   090   1.0  0.65  0.0 0.00   -6
+   14    3Si III 3s2      3s2
+   14    3Si III 3p2      3p2
+   14    3Si III 3s 3d    3s 3d
+   14    3Si III 3s 3p    3s 3p
+   14    3Si III 3p 3d    3p 3d
+   -1
+
+
+
+g5inp    1000 4.0000  250     0101111           008299828282 0.00     01229
+        -1
+
+
+
+    1   -13 3 33 2 20 250     0101111           00 1000.0000 0.00     01-6 0 0
+s 2  p 0  d 0  s 0  s 0  s 0  s 0  s 0  Si III 3s2           -63429.454   0.0000
+s 0  p 2  d 0  s 0  s 0  s 0  s 0  s 0  Si III 3p2           -63301.407   0.0000
+s 1  p 0  d 1  s 0  s 0  s 0  s 0  s 0  Si III 3s 3d         -63290.803   0.0000
+s 1  p 1  d 0  s 0  s 0  s 0  s 0  s 0  Si III 3s 3p         -63374.942   0.0000
+s 0  p 1  d 1  s 0  s 0  s 0  s 0  s 0  Si III 3p 3d         -63223.246   0.0000
+Si III 3s2         1    400000        00        00        00        00hf82998282
+Si III 3p2         3  13204700   3762581     21402        00        00hf82998282
+Si III 3s 3d       3  14265140       282   2625164        00        00hf82998282
+ 3s2     - 3p2     1  51.54765   0.00005   0.00005   0.00005   0.00005hf82998282
+ 3p2     - 3s 3d   1  42.57735   0.00005   0.00005   0.00005   0.00005hf82998282
+Si III 3s 3p       3   5851180     21122   5148764        00        00hf82998282
+Si III 3p 3d       6  21020840     22972       322   3095933   3864384hf82998282
+   2334854
+ 3s 3p   - 3p 3d   2  44.02455  32.46835   0.00005   0.00005   0.00005hf82998282
+Si III 3s2          Si III 3s 3p           2.07471( 3s//r1// 3p)-1.000hf -98-100
+Si III 3s2          Si III 3p 3d           0.00000(   //r1//   )0.0000hf   0   0
+Si III 3p2          Si III 3s 3p          -2.04899( 3p//r1// 3s)-1.000hf -98-100
+Si III 3p2          Si III 3p 3d           3.34581( 3p//r1// 3d)-0.997hf -92 -98
+Si III 3s 3d        Si III 3s 3p          -3.35083( 3d//r1// 3p)-0.997hf -91 -98
+Si III 3s 3d        Si III 3p 3d           2.00905( 3s//r1// 3p)-1.000hf -98-100
+                    -55555555.
+                    -99999999.
+   -1
+
+
+
+
+     TABLE VI.  OUTGINE output file from RCG, using the file
+                    from Table V as input file ING11.
+
+
+    1   30    5        -6
+    1    0    1    1     0.000    1    1    1.0000
+Si III     3s2       3p2       3s 3d
+eav  3s2  eav  3p2  f2(22)    zeta 2    eav  3s 3dzeta 3    g2(13)
+ 1 21d1122 2 31d2213
+   -1.8295  127.3148  155.9400
+         1         2         3
+  127.4249  140.0220
+         1         2
+  120.4735  127.6408  140.0248  166.6136
+         1         2         3         4
+  140.0290
+         1
+         0         0         0         0         0         0         0
+       -51       -52
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000
+    0.0000    0.0000
+    4.0000  132.0470   37.6258    0.2140  142.6514    0.0028   26.2516
+   51.5476   42.5773
+       1.0       0.0      -1.0 0.00 1000     1.000  10000.00 0.30 0.00-1
+   -1
+    1   30    5        -6
+    2    0    1    1     0.000    1    1    1.0000
+Si III     3s 3p     3p 3d
+eav  3s 3pzeta 2    g1(12)    eav  3p 3dzeta 2    zeta 3    f2(23)
+g1(23)    g3(23)     1 21d1223 1 22e1223
+   48.8961  212.3303
+         1         2
+   49.0002   78.2922  212.2660  213.2683  234.5227
+         1         2         3         4         5
+   49.2105  199.6473  201.8703  212.1539  213.3161
+         1         2         3         4         5
+  199.7703  213.3622  231.2989
+         1         2         3
+  199.9290
+         1
+         0         0         0         0         0         0         0
+         0         0       -51       -51
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000
+    0.0000    0.0000    0.0000    0.0000
+   58.5118    0.2112   51.4876  210.2084    0.2297    0.0032   30.9593
+   38.6438   23.3485   44.0245   32.4683
+       1.0       0.0      -1.0 0.00 1000     1.000  10000.00 0.30 0.00-1
+   -1
+
+[Note: When this file is used without change as input file INE20 to RCE,
+       appreciable changes in the values of Eav(3s2) and R1(3s2,3p2)
+       will be seen in the first-parity calculation, because these two
+       parameters are the only ones of importance for the two 1S0 levels,
+       and effects of their changes can offset each other; thus these
+       parameter changes do not indicate any error in the RCE code.
+       No similar peculiarities will be seen in the second parity.]
+
+
+
+
+     TABLE VII.  File of Table VI, as modified to be input file INE20 to
+                 RCE, including replacement of theoretical energy levels
+                 by experimental values, change of scale factor S from
+                 1.0 to 1000.0 (so as to give energies in cm-1 instead
+                 of kK in output files LEVELS1, LEVELS2, and LEVELS3),
+                 and change of LF(9) in the even parity from -52 to -51
+                 (so as to link together the two CI parameters).
+
+
+    1   30    5        -6
+    1    0    1    1     0.000    1    1    1000.0
+Si III     3s2       3p2       3s 3d
+eav  3s2  eav  3p2  f2(22)    zeta 2    eav  3s 3dzeta 3    g2(13)
+ 1 21d1122 2 31d2213
+    0.0000  129.7085  153.4442
+         1         2         3
+  129.8420  142.9483
+         1         2
+  122.2145  130.1005  142.9458  165.7650
+         1         2         3         4
+  142.9437
+         1
+         0         0         0         0         0         0         0
+       -51       -51
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000
+    0.0000    0.0000
+    4.0000  132.0470   37.6258    0.2140  142.6514    0.0028   26.2516
+   51.5476   42.5773
+       1.0       0.0      -1.0 0.00 1000     1.000  10000.00 0.30 0.00-1
+   -1
+    1   30    5        -6
+    2    0    1    1     0.000    1    1    1000.0
+Si III     3s 3p     3p 3d
+eav  3s 3pzeta 2    g1(12)    eav  3p 3dzeta 2    zeta 3    f2(23)
+g1(23)    g3(23)     1 21d1223 1 22e1223
+   52.7247  216.3503
+         1         2
+   52.8533   82.8844  216.2887  217.3858  228.6998
+         1         2         3         4         5
+   53.1150  198.9232  205.0291  216.1902  217.4399
+         1         2         3         4         5
+  199.0265  217.4895  235.4139
+         1         2         3
+  199.1641
+         1
+         0         0         0         0         0         0         0
+         0         0       -51       -51
+    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000    0.0000
+    0.0000    0.0000    0.0000    0.0000
+   58.5118    0.2112   51.4876  210.2084    0.2297    0.0032   30.9593
+   38.6438   23.3485   44.0245   32.4683
+       1.0       0.0      -1.0 0.00 1000     1.000  10000.00 0.30 0.00-1
+   -1
+
+
+
+
+    TABLE VIII.  RCE output file PARVALS produced by the input file
+                 INE20 of Table VII.
+
+
+
+Si III     3s2       3p2       3s 3d
+ parameter values,  cycle number  0,  avdev=   2.378
+    4.0000  132.0470   37.6258    0.2140  142.6514    0.0028   26.2516
+   51.5476   42.5773
+ parameter values,  cycle number  1,  avdev=   0.003
+    5.2934  133.6052   30.2933    0.2565  144.8944    0.0000   19.4906
+   48.5343   40.0884
+ parameter values,  cycle number  2,  avdev=   0.001
+    5.2996  133.6039   30.2821    0.2562  144.8950    0.0000   19.4971
+   48.5306   40.0853
+ parameter values,  cycle number  3,  avdev=   0.001
+    5.2996  133.6039   30.2821    0.2562  144.8950    0.0000   19.4971
+   48.5306   40.0853
+ parameter values for rcg input
+Si III 3s2              5.2996
+Si III 3p2            133.6039  30.2821    0.2562
+Si III 3s 3d          144.8950   0.0000   19.4971
+ 3s2    - 3p2         48.5306
+ 3p2    - 3s 3d       40.0853
+
+Si III     3s 3p     3p 3d
+ parameter values,  cycle number  0,  avdev=   3.774
+   58.5118    0.2112   51.4876  210.2084    0.2297    0.0032   30.9593
+   38.6438   23.3485   44.0245   32.4683
+ parameter values,  cycle number  1,  avdev=   0.824
+   60.9787    0.2621   46.8715  212.4723    0.5776    0.0437   27.8896
+   43.7723   11.5244   26.8414   19.7956
+ parameter values,  cycle number  2,  avdev=   0.775
+   60.9813    0.2610   46.7864  212.4745    0.6015    0.0519   27.8891
+   43.7709   11.5902   22.0929   16.2936
+ parameter values,  cycle number  3,  avdev=   0.774
+   60.9802    0.2610   46.7823  212.4746    0.6110    0.0509   27.8939
+   43.7693   11.5950   21.5831   15.9177
+ parameter values,  cycle number  4,  avdev=   0.774
+   60.9803    0.2610   46.7828  212.4747    0.6098    0.0513   27.8933
+   43.7694   11.5940   21.5825   15.9172
+ parameter values,  cycle number  5,  avdev=   0.774
+   60.9804    0.2610   46.7829  212.4747    0.6095    0.0515   27.8931
+   43.7695   11.5937   21.5815   15.9165
+ parameter values for rcg input
+Si III 3s 3p           60.9804   0.2610   46.7829
+Si III 3p 3d          212.4747   0.6095    0.0515   27.8931   43.7695 ls99999999
+  11.5937
+ 3s 3p  - 3p 3d       21.5815   15.9165
+
+
+
+
+           TABLE IX.  RCE output file LEVELS1 produced by the input file of Table VII.
+                      The columns are T, W, T-W (all in cm-1), Lande g-value, dominent
+                      configuration, J-value, and percent contribution of the three
+                      largest eigenvector components, sorted primarily by parity and
+                      secondarily by J-value, in the jK- and LS-coupling representations.
+                      Note that for both parities, LS is much the better representation.
+
+
+Si III     3s2       3p2       3s 3d
+        0.000         0.      0.000  0.000  3s2    j= 0.0    96.5   3s2   0.0k 0.0     3.5   3p2   0.0k 0.0     0.0   3p2   0.0k 1.0
+   129708.500    129709.     -0.042  0.000  3p2    j= 0.0   100.0   3p2   0.0k 1.0     0.0   3p2   0.0k 0.0     0.0   3s2   0.0k 0.0
+   153444.200    153444.      0.000  0.000  3p2    j= 0.0    96.5   3p2   0.0k 0.0     3.5   3s2   0.0k 0.0     0.0   3p2   0.0k 1.0
+   129842.000    129842.      0.064  1.501  3p2    j= 1.0   100.0   3p2   0.0k 1.0     0.0   3s 3d 0.5k 1.5
+   142948.300    142945.      2.970  0.499  3s 3d  j= 1.0   100.0   3s 3d 0.5k 1.5     0.0   3p2   0.0k 1.0
+   122214.500    122214.      0.000  1.000  3p2    j= 2.0    65.5   3p2   0.0k 2.0    20.7   3s 3d 0.5k 2.5    13.8   3s 3d 0.5k 1.5
+   130100.500    130101.     -0.022  1.501  3p2    j= 2.0   100.0   3p2   0.0k 1.0     0.0   3p2   0.0k 2.0     0.0   3s 3d 0.5k 2.5
+   142945.800    142945.      0.469  1.167  3s 3d  j= 2.0    60.0   3s 3d 0.5k 1.5    40.0   3s 3d 0.5k 2.5     0.0   3p2   0.0k 2.0
+   165765.000    165765.      0.000  1.000  3s 3d  j= 2.0    39.3   3s 3d 0.5k 2.5    34.5   3p2   0.0k 2.0    26.2   3s 3d 0.5k 1.5
+   142943.700    142945.     -1.633  1.334  3s 3d  j= 3.0   100.0   3s 3d (2s) 3d
+Si III     3s2       3p2       3s 3d
+        0.000         0.      0.000  0.000  3s2    j= 0.0    96.5   3s2   (1s) 1s      3.5   3p2   (1s) 1s      0.0   3p2   (3p) 3p
+   129708.500    129709.     -0.042  0.000  3p2    j= 0.0   100.0   3p2   (3p) 3p      0.0   3p2   (1s) 1s      0.0   3s2   (1s) 1s
+   153444.200    153444.      0.000  0.000  3p2    j= 0.0    96.5   3p2   (1s) 1s      3.5   3s2   (1s) 1s      0.0   3p2   (3p) 3p
+   129842.000    129842.      0.064  0.000  3p2    j= 1.0   100.0   3p2   (3p) 3p      0.0   3s 3d (2s) 3d
+   142948.300    142945.      2.970  0.000  3s 3d  j= 1.0   100.0   3s 3d (2s) 3d      0.0   3p2   (3p) 3p
+   122214.500    122214.      0.000  0.000  3p2    j= 2.0    65.5   3p2   (1d) 1d     34.5   3s 3d (2s) 1d      0.0   3p2   (3p) 3p
+   130100.500    130101.     -0.022  0.000  3p2    j= 2.0   100.0   3p2   (3p) 3p      0.0   3s 3d (2s) 1d      0.0   3p2   (1d) 1d
+   142945.800    142945.      0.469  0.000  3s 3d  j= 2.0   100.0   3s 3d (2s) 3d      0.0   3p2   (1d) 1d      0.0   3s 3d (2s) 1d
+   165765.000    165765.      0.000  0.000  3s 3d  j= 2.0    65.5   3s 3d (2s) 1d     34.5   3p2   (1d) 1d      0.0   3p2   (3p) 3p
+   142943.700    142945.     -1.633  0.000  3s 3d  j= 3.0   100.0   3s 3d (2s) 3d
+Si III     3s 3p     3p 3d
+    52724.700     52725.     -0.293  0.000  3s 3p  j= 0.0    99.9   3s 3p 0.5k 0.5     0.1   3p 3d 1.5k 0.5
+   216350.300    215994.    356.552  0.000  3p 3d  j= 0.0    99.9   3p 3d 1.5k 0.5     0.1   3s 3p 0.5k 0.5
+    52853.300     52854.     -0.741  1.501  3s 3p  j= 1.0    66.0   3s 3p 0.5k 0.5    33.9   3s 3p 0.5k 1.5     0.1   3p 3d 1.5k 0.5
+    82884.400     82882.      2.054  1.000  3s 3p  j= 1.0    65.4   3s 3p 0.5k 1.5    33.6   3s 3p 0.5k 0.5     0.3   3p 3d 0.5k 1.5
+   216288.700    215843.    445.209  1.485  3p 3d  j= 1.0    63.3   3p 3d 1.5k 0.5    25.6   3p 3d 0.5k 1.5    11.0   3p 3d 1.5k 1.5
+   217385.800    217871.   -485.429  0.515  3p 3d  j= 1.0    53.7   3p 3d 1.5k 1.5    44.8   3p 3d 0.5k 1.5     1.5   3p 3d 1.5k 0.5
+   228699.800    228878.   -178.072  1.000  3p 3d  j= 1.0    29.2   3p 3d 0.5k 1.5    35.0   3p 3d 1.5k 1.5    34.8   3p 3d 1.5k 0.5
+    53115.000     53116.     -0.533  1.501  3s 3p  j= 2.0    99.9   3s 3p 0.5k 1.5     0.1   3p 3d 0.5k 1.5     0.1   3p 3d 1.5k 1.5
+   198923.200    199325.   -401.450  0.669  3p 3d  j= 2.0    84.1   3p 3d 0.5k 2.5    15.6   3p 3d 1.5k 2.5     0.2   3p 3d 0.5k 1.5
+   205029.100    202574.   2454.821  0.997  3p 3d  j= 2.0    52.2   3p 3d 1.5k 2.5    21.7   3p 3d 0.5k 1.5    18.6   3p 3d 1.5k 1.5
+   216190.200    215617.    572.853  1.495  3p 3d  j= 2.0    58.1   3p 3d 0.5k 1.5    40.7   3p 3d 1.5k 1.5     0.9   3p 3d 1.5k 2.5
+   217439.900    218045.   -605.465  1.173  3p 3d  j= 2.0    40.5   3p 3d 1.5k 1.5    31.3   3p 3d 1.5k 2.5    20.0   3p 3d 0.5k 1.5
+   199026.500    199709.   -682.209  1.084  3p 3d  j= 3.0    46.0   3p 3d 0.5k 2.5    42.0   3p 3d 1.5k 3.5    12.0   3p 3d 1.5k 2.5
+   217489.500    218215.   -725.599  1.334  3p 3d  j= 3.0    77.8   3p 3d 1.5k 2.5    22.2   3p 3d 0.5k 2.5     0.0   3p 3d 1.5k 3.5
+   235413.900    235140.    274.071  1.000  3p 3d  j= 3.0    57.9   3p 3d 1.5k 3.5    31.9   3p 3d 0.5k 2.5    10.2   3p 3d 1.5k 2.5
+   199164.100    200190.  -1025.768  1.251  3p 3d  j= 4.0   100.0   3p 3d (2p) 3f
+Si III     3s 3p     3p 3d
+    52724.700     52725.     -0.293  0.000  3s 3p  j= 0.0    99.9   3s 3p (2s) 3p      0.1   3p 3d (2p) 3p
+   216350.300    215994.    356.552  0.000  3p 3d  j= 0.0    99.9   3p 3d (2p) 3p      0.1   3s 3p (2s) 3p
+    52853.300     52854.     -0.741  0.000  3s 3p  j= 1.0    99.9   3s 3p (2s) 3p      0.1   3p 3d (2p) 3p      0.0   3s 3p (2s) 1p
+    82884.400     82882.      2.054  0.000  3s 3p  j= 1.0    99.0   3s 3p (2s) 1p      1.0   3p 3d (2p) 1p      0.0   3s 3p (2s) 3p
+   216288.700    215843.    445.209  0.000  3p 3d  j= 1.0    98.3   3p 3d (2p) 3p      1.5   3p 3d (2p) 3d      0.1   3s 3p (2s) 3p
+   217385.800    217871.   -485.429  0.000  3p 3d  j= 1.0    98.3   3p 3d (2p) 3d      1.6   3p 3d (2p) 3p      0.1   3p 3d (2p) 1p
+   228699.800    228878.   -178.072  0.000  3p 3d  j= 1.0    98.8   3p 3d (2p) 1p      1.0   3s 3p (2s) 1p      0.1   3p 3d (2p) 3d
+    53115.000     53116.     -0.533  0.000  3s 3p  j= 2.0    99.9   3s 3p (2s) 3p      0.1   3p 3d (2p) 3p      0.0   3p 3d (2p) 1d
+   198923.200    199325.   -401.450  0.000  3p 3d  j= 2.0    99.0   3p 3d (2p) 3f      1.0   3p 3d (2p) 1d      0.0   3p 3d (2p) 3d
+   205029.100    202574.   2454.821  0.000  3p 3d  j= 2.0    99.0   3p 3d (2p) 1d      1.0   3p 3d (2p) 3f      0.1   3p 3d (2p) 3p
+   216190.200    215617.    572.853  0.000  3p 3d  j= 2.0    98.0   3p 3d (2p) 3p      1.8   3p 3d (2p) 3d      0.1   3s 3p (2s) 3p
+   217439.900    218045.   -605.465  0.000  3p 3d  j= 2.0    98.2   3p 3d (2p) 3d      1.8   3p 3d (2p) 3p      0.0   3p 3d (2p) 3f
+   199026.500    199709.   -682.209  0.000  3p 3d  j= 3.0   100.0   3p 3d (2p) 3f      0.0   3p 3d (2p) 3d      0.0   3p 3d (2p) 1f
+   217489.500    218215.   -725.599  0.000  3p 3d  j= 3.0   100.0   3p 3d (2p) 3d      0.0   3p 3d (2p) 1f      0.0   3p 3d (2p) 3f
+   235413.900    235140.    274.071  0.000  3p 3d  j= 3.0   100.0   3p 3d (2p) 1f      0.0   3p 3d (2p) 3d      0.0   3p 3d (2p) 3f
+   199164.100    200190.  -1025.768  0.000  3p 3d  j= 4.0   100.0   3p 3d (2p) 3f
+
+
+
+
+           TABLE X.  RCE output file LEVELS2 produced by the input file of Table VII,
+                     sorted primarily by parity and secondarily by energy, for both
+                     the jK- and LS-coupling representations.
+
+
+Si III     3s2       3p2       3s 3d
+        0.000         0.      0.000  0.000  3s2    j= 0.0    96.5   3s2   0.0k 0.0     3.5   3p2   0.0k 0.0     0.0   3p2   0.0k 1.0
+   122214.500    122214.      0.000  1.000  3p2    j= 2.0    65.5   3p2   0.0k 2.0    20.7   3s 3d 0.5k 2.5    13.8   3s 3d 0.5k 1.5
+   129708.500    129709.     -0.042  0.000  3p2    j= 0.0   100.0   3p2   0.0k 1.0     0.0   3p2   0.0k 0.0     0.0   3s2   0.0k 0.0
+   129842.000    129842.      0.064  1.501  3p2    j= 1.0   100.0   3p2   0.0k 1.0     0.0   3s 3d 0.5k 1.5
+   130100.500    130101.     -0.022  1.501  3p2    j= 2.0   100.0   3p2   0.0k 1.0     0.0   3p2   0.0k 2.0     0.0   3s 3d 0.5k 2.5
+   142948.300    142945.      2.970  0.499  3s 3d  j= 1.0   100.0   3s 3d 0.5k 1.5     0.0   3p2   0.0k 1.0
+   142945.800    142945.      0.469  1.167  3s 3d  j= 2.0    60.0   3s 3d 0.5k 1.5    40.0   3s 3d 0.5k 2.5     0.0   3p2   0.0k 2.0
+   142943.700    142945.     -1.633  1.334  3s 3d  j= 3.0   100.0   3s 3d (2s) 3d
+   153444.200    153444.      0.000  0.000  3p2    j= 0.0    96.5   3p2   0.0k 0.0     3.5   3s2   0.0k 0.0     0.0   3p2   0.0k 1.0
+   165765.000    165765.      0.000  1.000  3s 3d  j= 2.0    39.3   3s 3d 0.5k 2.5    34.5   3p2   0.0k 2.0    26.2   3s 3d 0.5k 1.5
+Si III     3s2       3p2       3s 3d
+        0.000         0.      0.000  0.000  3s2    j= 0.0    96.5   3s2   (1s) 1s      3.5   3p2   (1s) 1s      0.0   3p2   (3p) 3p
+   122214.500    122214.      0.000  0.000  3p2    j= 2.0    65.5   3p2   (1d) 1d     34.5   3s 3d (2s) 1d      0.0   3p2   (3p) 3p
+   129708.500    129709.     -0.042  0.000  3p2    j= 0.0   100.0   3p2   (3p) 3p      0.0   3p2   (1s) 1s      0.0   3s2   (1s) 1s
+   129842.000    129842.      0.064  0.000  3p2    j= 1.0   100.0   3p2   (3p) 3p      0.0   3s 3d (2s) 3d
+   130100.500    130101.     -0.022  0.000  3p2    j= 2.0   100.0   3p2   (3p) 3p      0.0   3s 3d (2s) 1d      0.0   3p2   (1d) 1d
+   142948.300    142945.      2.970  0.000  3s 3d  j= 1.0   100.0   3s 3d (2s) 3d      0.0   3p2   (3p) 3p
+   142945.800    142945.      0.469  0.000  3s 3d  j= 2.0   100.0   3s 3d (2s) 3d      0.0   3p2   (1d) 1d      0.0   3s 3d (2s) 1d
+   142943.700    142945.     -1.633  0.000  3s 3d  j= 3.0   100.0   3s 3d (2s) 3d
+   153444.200    153444.      0.000  0.000  3p2    j= 0.0    96.5   3p2   (1s) 1s      3.5   3s2   (1s) 1s      0.0   3p2   (3p) 3p
+   165765.000    165765.      0.000  0.000  3s 3d  j= 2.0    65.5   3s 3d (2s) 1d     34.5   3p2   (1d) 1d      0.0   3p2   (3p) 3p
+Si III     3s 3p     3p 3d
+    52724.700     52725.     -0.293  0.000  3s 3p  j= 0.0    99.9   3s 3p 0.5k 0.5     0.1   3p 3d 1.5k 0.5
+    52853.300     52854.     -0.741  1.501  3s 3p  j= 1.0    66.0   3s 3p 0.5k 0.5    33.9   3s 3p 0.5k 1.5     0.1   3p 3d 1.5k 0.5
+    53115.000     53116.     -0.533  1.501  3s 3p  j= 2.0    99.9   3s 3p 0.5k 1.5     0.1   3p 3d 0.5k 1.5     0.1   3p 3d 1.5k 1.5
+    82884.400     82882.      2.054  1.000  3s 3p  j= 1.0    65.4   3s 3p 0.5k 1.5    33.6   3s 3p 0.5k 0.5     0.3   3p 3d 0.5k 1.5
+   198923.200    199325.   -401.450  0.669  3p 3d  j= 2.0    84.1   3p 3d 0.5k 2.5    15.6   3p 3d 1.5k 2.5     0.2   3p 3d 0.5k 1.5
+   199026.500    199709.   -682.209  1.084  3p 3d  j= 3.0    46.0   3p 3d 0.5k 2.5    42.0   3p 3d 1.5k 3.5    12.0   3p 3d 1.5k 2.5
+   199164.100    200190.  -1025.768  1.251  3p 3d  j= 4.0   100.0   3p 3d (2p) 3f
+   205029.100    202574.   2454.821  0.997  3p 3d  j= 2.0    52.2   3p 3d 1.5k 2.5    21.7   3p 3d 0.5k 1.5    18.6   3p 3d 1.5k 1.5
+   216190.200    215617.    572.853  1.495  3p 3d  j= 2.0    58.1   3p 3d 0.5k 1.5    40.7   3p 3d 1.5k 1.5     0.9   3p 3d 1.5k 2.5
+   216288.700    215843.    445.209  1.485  3p 3d  j= 1.0    63.3   3p 3d 1.5k 0.5    25.6   3p 3d 0.5k 1.5    11.0   3p 3d 1.5k 1.5
+   216350.300    215994.    356.552  0.000  3p 3d  j= 0.0    99.9   3p 3d 1.5k 0.5     0.1   3s 3p 0.5k 0.5
+   217385.800    217871.   -485.429  0.515  3p 3d  j= 1.0    53.7   3p 3d 1.5k 1.5    44.8   3p 3d 0.5k 1.5     1.5   3p 3d 1.5k 0.5
+   217439.900    218045.   -605.465  1.173  3p 3d  j= 2.0    40.5   3p 3d 1.5k 1.5    31.3   3p 3d 1.5k 2.5    20.0   3p 3d 0.5k 1.5
+   217489.500    218215.   -725.599  1.334  3p 3d  j= 3.0    77.8   3p 3d 1.5k 2.5    22.2   3p 3d 0.5k 2.5     0.0   3p 3d 1.5k 3.5
+   228699.800    228878.   -178.072  1.000  3p 3d  j= 1.0    29.2   3p 3d 0.5k 1.5    35.0   3p 3d 1.5k 1.5    34.8   3p 3d 1.5k 0.5
+   235413.900    235140.    274.071  1.000  3p 3d  j= 3.0    57.9   3p 3d 1.5k 3.5    31.9   3p 3d 0.5k 2.5    10.2   3p 3d 1.5k 2.5
+Si III     3s 3p     3p 3d
+    52724.700     52725.     -0.293  0.000  3s 3p  j= 0.0    99.9   3s 3p (2s) 3p      0.1   3p 3d (2p) 3p
+    52853.300     52854.     -0.741  0.000  3s 3p  j= 1.0    99.9   3s 3p (2s) 3p      0.1   3p 3d (2p) 3p      0.0   3s 3p (2s) 1p
+    53115.000     53116.     -0.533  0.000  3s 3p  j= 2.0    99.9   3s 3p (2s) 3p      0.1   3p 3d (2p) 3p      0.0   3p 3d (2p) 1d
+    82884.400     82882.      2.054  0.000  3s 3p  j= 1.0    99.0   3s 3p (2s) 1p      1.0   3p 3d (2p) 1p      0.0   3s 3p (2s) 3p
+   198923.200    199325.   -401.450  0.000  3p 3d  j= 2.0    99.0   3p 3d (2p) 3f      1.0   3p 3d (2p) 1d      0.0   3p 3d (2p) 3d
+   199026.500    199709.   -682.209  0.000  3p 3d  j= 3.0   100.0   3p 3d (2p) 3f      0.0   3p 3d (2p) 3d      0.0   3p 3d (2p) 1f
+   199164.100    200190.  -1025.768  0.000  3p 3d  j= 4.0   100.0   3p 3d (2p) 3f
+   205029.100    202574.   2454.821  0.000  3p 3d  j= 2.0    99.0   3p 3d (2p) 1d      1.0   3p 3d (2p) 3f      0.1   3p 3d (2p) 3p
+   216190.200    215617.    572.853  0.000  3p 3d  j= 2.0    98.0   3p 3d (2p) 3p      1.8   3p 3d (2p) 3d      0.1   3s 3p (2s) 3p
+   216288.700    215843.    445.209  0.000  3p 3d  j= 1.0    98.3   3p 3d (2p) 3p      1.5   3p 3d (2p) 3d      0.1   3s 3p (2s) 3p
+   216350.300    215994.    356.552  0.000  3p 3d  j= 0.0    99.9   3p 3d (2p) 3p      0.1   3s 3p (2s) 3p
+   217385.800    217871.   -485.429  0.000  3p 3d  j= 1.0    98.3   3p 3d (2p) 3d      1.6   3p 3d (2p) 3p      0.1   3p 3d (2p) 1p
+   217439.900    218045.   -605.465  0.000  3p 3d  j= 2.0    98.2   3p 3d (2p) 3d      1.8   3p 3d (2p) 3p      0.0   3p 3d (2p) 3f
+   217489.500    218215.   -725.599  0.000  3p 3d  j= 3.0   100.0   3p 3d (2p) 3d      0.0   3p 3d (2p) 1f      0.0   3p 3d (2p) 3f
+   228699.800    228878.   -178.072  0.000  3p 3d  j= 1.0    98.8   3p 3d (2p) 1p      1.0   3s 3p (2s) 1p      0.1   3p 3d (2p) 3d
+   235413.900    235140.    274.071  0.000  3p 3d  j= 3.0   100.0   3p 3d (2p) 1f      0.0   3p 3d (2p) 3d      0.0   3p 3d (2p) 3f
+                                                                                                                                                                                                                                                                                                                                                                  Code/Makefile                                                                                       0000755 0170214 0001750 00000007501 10503362467 012700  0                                                                                                    ustar   cormac                          cormac                                                                                                                                                                                                                 # The programs to be made are
+PROGRAMS=   rcnucd rcnlanl rcn2ucd rcn2lanl rcgucd rcglanl rce \

@@ -1,0 +1,2339 @@
+
+            PROGRAMS  RCN MOD36 / HF MOD8 / RCN2 (Mod 36)
+             COMPUTATION OF ATOMIC RADIAL WAVEFUNCTIONS
+
+                        Robert D. Cowan
+                 Los Alamos National Laboratory
+                 August 1993 (revised June 1994)
+
+                            CONTENTS
+
+I.  SUMMARY OF PROGRAMS
+      A. Introduction                                             2
+      B. Program RCN Mod36                                        2
+      C. Program HF Mod8                                          3
+      D. Program RCN2                                             3
+      E. Computing times                                          4
+
+II. PROGRAM RCN36
+      A. Program outline                                          5
+      B. Input                                                    8
+      C. Calculational procedure                                 13
+      D. Input/output units                                      15
+      E. Output                                                  15
+      F. Hartree-Fock calculations                               16
+      G. Calculation of continuum functions                      18
+      H. Vinti integrals                                         18
+      I. Correlation potential                                   19
+      J. Frozen-orbital options                                  20
+      K. Negative-ion calculations                               20
+      L. Dielectronic recombination calculations                 22
+      M. Storage requirements                                    23
+      N. Conversion to other computers                           23
+
+III. PROGRAM HF8
+      A. Outline                                                 24
+      B. Input                                                   25
+      C. Input/output units                                      26
+      D. Storage requirements                                    26
+      E. Miscellaneous                                           27
+
+IV. PROGRAM RCN2
+      A. Outline                                                 27
+      B. Input                                                   28
+      C. Calculational procedure                                 31
+      D. Input/output units                                      34
+      E. Output                                                  34
+      F. Plane-wave-Born calculations in RCG                     34
+      G. Photoionization and autoionization calculations in RCG  36
+      H. Storage requirements                                    36
+      I. Conversion to other computers                           36
+
+V. PROGRAM USAGE AND EXAMPLE    
+      A. Execution                                               37
+      B. Sample input and output                                 38
+      C. Command-file methods                                    39
+      D. Sample monitor screen output
+
+
+
+                      I. SUMMARY OF PROGRAMS
+
+
+A. Introduction
+        This is a set of three FORTRAN 77 programs used on 64-bit-
+word CRAY or CDC CYBER 205 computers for the self-consistent-field 
+calculation of atomic radial wavefunctions, and of various radial 
+integrals involved in the calculation of atomic energy levels and 
+spectra.  RCN and RCN2 are easily adaptable to VAX, IBM RISC, SUN, 
+Macintosh, and similar 32-bit-word computers because of the 
+following coding features:
+        (1)  IMPLICIT REAL*8 (A-H,O-Z) statements have been included 
+in all program units, so that floating-point variables will be double
+precision for 32-bit computers.  (These statements can be commented
+out if necessary on 64-bit machines.)
+        (2)  Generic names have been used for intrinsic functions, 
+with arguments that are never numbers, but rather are variables 
+defined by statements, such as HALF=0.5 or TWO=2.0, so that 
+conversion to double precision will be automatically performed on 
+32-bit machines.
+        (3)  Named common blocks of a given name have the same length 
+in all subroutines.  In all cases, there are an even number of 
+integer storage spaces if followed by a floating-point variable.
+        The programs can be run in a chain in any of the following 
+four combinations:
+                RCN
+                RCN/RCN2
+                RCN/HF
+                RCN/HF/RCN2
+        The primary input information is always to RCN, and each 
+program automatically provides input information to the succeeding 
+program of the chain.  Details of the programs will be described 
+later; here we outline only the basic purpose of each program.
+        NOTE:  The program RCN Mod36 still contains the possibility 
+of feeding information into HF.  However, unlike in pre-1981 
+versions, RCN can itself calculate Hartree-Fock wavefunctions.  
+Therefore the program HF is no longer used, and is not supplied; 
+the pertinent option in RCN has been retained for use by anyone 
+desiring wavefunctions on the logarithmic radial mesh used by HF.
+
+
+B. Program RCN Mod36
+        Program RCN calculates single-configuration radial 
+wavefunctions Pnl(r) for a spherically symmetrized atom via any 
+one of the four following homogeneous-differential-equation 
+approximations to the Hartree-Fock method. 
+        (1)  Hartree (H);
+        (2)  Hartree-Fock-Slater, with any desired value of the 
+coefficient for Slater's approximate exchange term, and either 
+without (HFS) or with (HFSL) Latter's tail cutoff in the central-
+field potential-energy function;
+        (3)  Hartree-plus-statistical-exchange (HX);
+        (4)  Hartree-Slater (HS).
+        (5)  RCN can also be used for true Hartree-Fock (HF) 
+calculations, either for the spherically symmetrized atom (center-
+of-gravity energy of the configuration), or for the energy of a 
+specific LS term of the configuration (LSD-HF) provided there 
+exists only one LS term having that value of LS.
+        Normally the HX method or the center-of-gravity HF method is 
+the only one used.
+        In addition to the radial wavefunctions, also calculated for 
+each configuration are various radial integrals (r^n, Fk, Gk, z), 
+and the total energy of the atom (Eav) including approximate 
+relativistic and correlation energy corrections.  Relativistic 
+terms can be included in the potential function of the 
+differential equation (HXR or HFR) to give approximate 
+relativistic corrections to the radial wavefunctions, as well as 
+improved relativistic energy corrections in heavy atoms (important 
+for outer orbitals only if Z > 50, and for inner orbitals if Z > 20).  
+Similarly, a correlation term can be included in order to make the 
+potential function more negative, and thereby help to bind 
+negative ions.  Options are available to provide radial 
+wavefunctions as input to either program RCN2 or program HF8.
+
+
+C. Program HF Mod8
+        Program HF8 calculates single-configuration Hartree-Fock 
+radial wavefunctions corresponding to either the center-of-gravity 
+energy of the configuration, or to any specified LS term of the 
+configuration (provided the LS value of interest appears only once 
+in that configuration).  Radial integrals, Eav, and relativistic 
+and correlation corrections are calculated as in RCN.  Except for 
+a universal control card, input is entirely from RCN; output 
+wavefunctions provide input to RCN2.  Relativistic terms can be 
+included in the HF equations if desired (HFR).  Inasmuch as RCN 
+can be used to compute HF or HFR wavefunctions, program HF8 is of 
+little utility; in contrast to RCN, HF8 does have the advantage 
+that off-diagonal Lagrangian parameters are included to ensure 
+orthogonality between radial functions of the same l but different 
+n (provided the two orbitals have unequal occupation numbers), but 
+it cannot handle one-electron configurations nor any single-
+subshell configuration nlw, and it cannot be used to compute 
+unbound (continuum) functions.
+
+
+D. Program RCN2
+        Program RCN2 accepts radial wavefunctions (for one or more 
+different configurations of one or more atoms or ions) from either 
+RCN or HF, and for each atom calculates various two-configuration 
+radial integrals: overlap integrals <Pnl|Pn'l'>, configuration-
+interaction Coulomb integrals Rk and spin-orbit integrals znln'l', 
+and radial electric-dipole and electric-quadrupole integrals.  In 
+its most commonly used option, it automatically computes all 
+quantities required for calculating energy levels and spectra of 
+an atom, and writes a file containing this information in exactly 
+the form required for input to program RCG, which performs these 
+calculations.  For plane-wave-Born calculations in RCG, 
+calculation of radial multipole integrals in RCN2 is replaced by 
+calculation of radial integrals of spherical Bessel functions.
+        For the theory behind all of the above programs, see Robert 
+D. Cowan, The Theory of Atomic Structure and Spectra (University 
+of California Press, Berkeley, 1981), Chap. 7, and Secs. 8-1, 16-
+1, and 18-13 -- hereafter referred to as TASS.
+
+
+E. Computing Times
+        Approximate computing times for RCN and HF on CRAY-1 
+computers are as listed below.  Times on a CRAY-YMP would be two 
+or three times shorter.  Times on the CYBER 205 would be about the 
+same as listed below; times on the CDC 7600 or IBM 360/95 or 
+370/195 would be about 3 times longer; times on the CDC 6600 or 
+SUN Sparcstation would be about 10 times longer; times on the 
+Macintosh Centris 650 would be about 15 times longer; times on the 
+VAX 8200, CDC 6500, or IBM 7094 would be about 40 times longer; 
+and times on the VAX 11/780 would be about 100 times longer.
+
+                                   Time (sec)
+                 --------------------------------------------                                              
+                         RCN                  RCN + HF8    
+                 -------------------     ---------------------
+    Config.      HX   HXR   HF   HFR     HXa+ HF     HXRb+ HFR
+Ar I  3p6        2     2    1     1        1 + 1       1 + 1
+Kr I  4p6        3     3    3     3        2 + 2       1 + 3
+Xe I  5p6        4     4          5        3 + 4       1 + 5
+Dy I  4f10 6s2   6     7         10        4 + 6       2 + 8
+Rn I  6p6        6     7         13        4 + 9       2 + 11
+U I 5f3 6d 7s2   7     9         17        5 + 18      3 + 30
+-------------
+aTime for SCF calc (TOLEND = 5x10-8) + ZETA1
+bTime for SCF calc (TOLEND = 5x10-2) only
+
+        Computing time for RCN2 is usually only a small fraction of 
+the RCN or HF time.  However, if there are a large number of 
+configurations on the TAPE2N input file to RCN2 (say, > 20) and the 
+configurations in question are the ones with high serial number, 
+read and rewind times can be uncomfortably long, especially if the 
+file is on a tape rather than a disk unit.
+
+
+
+
+
+                         II. PROGRAM RCN36
+
+
+
+A. Program outline
+        This is a FORTRAN 77 program for the calculation of radial 
+wavefunctions Pnl(r) of a spherically symmetrized atom, 
+corresponding to the center-of-gravity energy Eav of an electron 
+configuration
+
+             (n1l1)w1 (n2l2)w2 ... (nqlq)wq   .            (1)
+
+Computed from these radial wavefunctions are the Coulomb integrals 
+Fk and Gk and the spin-orbit integrals  znl, along with radial 
+integrals required to give kinetic and electron-nuclear energies,
+and rough relativistic and correlation corrections to both the
+one-electron binding energies and the total electronic binding
+energy Eav.
+        The program was originally (January 1964) based on the SHARE 
+program 1417  (ML HFSS)  described by Herman and Skillman, Atomic 
+Structure Calculations (Prentice-Hall, 1963), and this reference 
+may be used for a description of the radial integration mesh and 
+basic numerical methods used in RCN.  However, except for the 
+subroutine CROSYM and part of SCHEQ, the original program has been 
+changed beyond recognition [including notational changes from 
+SNL(M,I) and SNLO(I) to PNL(I,M) and PNLO(I), and a redefinition 
+of NNLZ from 100n+10l+const. to 100n+l].  Options are still 
+available for making calculations via the Hartree-Fock-Slater 
+approximation used by Herman and Skillman either with or without 
+Latter's tail cutoff in the one-electron potential, using either 
+Slater's original exchange coefficient 3/2 or Kohn and Sham's 
+modified value of 1 (or any other value).  However, these 
+approximations are all considered to be unsatisfactory; a much 
+better option utilizes the Hartree-plus-statistical-exchange (HX) 
+approximation described in my book TASS, which should be consulted 
+for theoretical discussions.  Still further options are the HS 
+approximation of Lindgren and Rosen [Int. J. Quant. Chem. S5, 411 
+(1971);  Phys. Scripta 6, 109 (1972), or TASS], and full Hartree-
+Fock calculations.  Hartree-Fock is the preferred option.
+        Normally, all radial functions are iterated to self-
+consistency.  However, on configurations other than the first one, 
+any desired number of inner orbitals can be held fixed (frozen-
+core approximation; see discussion below concerning the variable 
+IBB1, and Secs. II-J and II-K).
+
+
+        The program is all in FORTRAN 77, and consists of a main 
+program and thirty-odd subprograms.
+        RCN36 is the main program, and mostly just decides whether a 
+normal calculation is to be performed, or one pertinent to 
+dielectronic-recombination.
+        RCN is the main subroutine.  It handles all input (for normal 
+calculations) and some output, controls the self-consistent-field 
+iteration, and does portions of the detailed calculation.
+        ANALYZ and SETCFG interpret the configuration-definition 
+input and estimate initial values of the one-electron eigenvalues.
+        DIEL and ANALYZ1 are subroutines used to reduce handwork 
+involved in setting up dielectronic-recombination runs; details 
+are discussed in Sec. II-L.
+        SCHEQ integrates the one-electron radial wave equation, and 
+controls the iteration on the one-electron eigenvalue E=EE(M) to 
+give a radial wavefunction Pnl(r)=rRnl(r)=PNLO(I)=PNL(I,M) that 
+satisfies the boundary conditions at r=0 and infility. It also properly 
+normalizes the function for either a bound electron (E < 0) or a 
+free electron (E > 0); it will not handle the case E=0.  The 
+normalization for a free electron is likely to be inaccurate if E > 
+0.1 rydberg (because of too coarse an integration mesh) unless  
+EMX/10 < E < EMX and very large dimensions are used for PNL, R, and 
+other variables (see remarks below regarding continuum-
+wavefunction calculations--Sec. II-G).  Appropriate small non-zero 
+values of EMX also make possible calculation of Pnl for large n 
+(about 15 to 40) by bringing into use the full 1801-point mesh 
+instead of the 641-point mesh used when EMX=0; too large a value 
+of EMX (or too large n) will result in convergence failure because 
+even the 1801-point mesh will not extend to large enough radii.
+        OUTPT handles most of the printed output (in part, via calls 
+to POWER, ZETA1, and SLI1) and the wavefunction output to disk 
+file 2 or (via a call to HFWRTP) to disk file 7, which provides 
+input to program RCN2 or HF8, respectively.
+        SUBCOR calculates a modified free-electron correlation energy 
+for a specified electron density.
+        CROSYM solves a system of linear equations to provide a value 
+of
+              AZ = [ Pnl(r)/r**(l+1) ]  at r=0   .          (2)
+        POWER computes values of <r^m> for -3>= m >=6 (except m=5) for 
+each orbital.
+        ZETA1 computes spin-orbit parameter values znl from the 
+central-potential formula
+                                             1   dV   
+   znl = Integral(0 to inf.)  [  Pnl**2(r)   -   --  dr ] ,     (3)
+                                             r   dr 
+                                        
+and also via the Blume-Watson method  [Proc. Roy. Soc. (London) 
+A270, 127 (1962),  A271, 565 (1963)]; the latter method gives much 
+more accurate values and so provides the numbers used in practice.  
+Also computed and printed are the one-electron kinetic-plus-
+nuclear energy Inl , and the relativistic mass-velocity and Darwin 
+corrections.  (Actually, Inl is computed in RCN3S, and only 
+printed in ZETA1.)
+        SLI1 computes and prints all Slater integrals Fk and Gk (in 
+units of both rydbergs and cm-1); it also computes overlap 
+integrals and calls RCN3S.
+        RCN3S prints the overlap integrals, and calculates (from the 
+Fk and Gk, with the aid of subroutine S3J0SQ) and prints the 
+Coulomb interaction energy between each pair of electrons.  It 
+then calculates correlation-energy corrections, and (using values 
+of Inl from ZETA1) calculates and prints one-electron binding 
+energies and the total binding energy of the atom (see TASS for 
+equations).  It also prints those single-configuration parameter 
+values Eav, Fk(ii), zi, Fk(ij), and Gk(ij) required for the 
+calculation of atomic energy levels; the total binding energy Eav 
+is given in rydbergs, whereas all other parameter values are in kK 
+(units of 1000 cm-1).
+        S3J0SQ calculates the value of
+
+          ( j1   j2   j3 )        where      ( j1    j2    j3 )
+          ( 0    0    0  )                   ( m1    m2    m3 )
+
+is a 3-j symbol; though not used here, for other purposes there 
+exists also a function routine S3J.
+        FCTRL calculates the factorial of an integer A, required by 
+S3J0SQ and S3J.
+        HFWRTP interpolates values of each wavefunction from the 
+(periodically doubled) linear mesh used by RCN to points on the 
+logarithmic mesh used by HF8, and writes on tape 7 these 
+wavefunctions and other input data for a Hartree-Fock calculation 
+via program HF8.
+        HFPOT calculates for a given orbital the Hartree-Fock 
+potential (excluding the classical-potential terms, which are 
+calculated in the main subroutine), written in the form of an 
+effective homogeneous-equation local-potential function.  (This is 
+necessary because RCN is basically a homogeneous-equation program.  
+The singularities that are present in the potential at zeroes of 
+the orbital in question are smoothed out by means of a linear 
+interpolation from the second mesh point below to the second mesh 
+point above each zero.)
+        QUAD2 calculates the classical potential via a Simpson's-rule 
+quadrature.
+        QUAD5 is a general-purpose five-interval quadrature routine.
+        QUADK is used by HFPOT for the evaluation of Hartree's Yk 
+function.
+        ZETABW evaluates spin-orbit parameters via the Blume-Watson 
+method, using function routines SM, SN, ZK, VK, and DYK patterned 
+after those in HF8.
+        S6J evaluates the 6-j symbol
+
+                         ( j1    j2    j3 )
+                         (                )
+                         ( l1    l2    l3 )
+
+with the aid of a function routine DELSQ .
+        CLOCK is a subroutine used to call a CPU-time system-routine 
+SECOND, which contains sections appropriate to a CRAY, VAX or 
+Macintosh, SUN, and IBM RISC; SECOND may be replaced by a dummy 
+do-nothing routine if desired.
+        PHSHIFT is a subroutine that for continuum orbitals computes 
+and prints the phase shift of the (distorted-wave) continuum 
+function relative to the phase of a pure (non-relativistic) 
+Coulomb function.  (This phase shift does not become quite 
+constant at large r, indicating some inaccuracy in numerical 
+integration of the differential equation.  Because of this, and 
+because of omission in each phase of a term consisting of the 
+argument of a complex gamma function, only the phase shift is 
+significant, not the distorted-wave and Coulomb phases 
+individually.)
+        VINTI computes values of the Vinti integrals and associated 
+weighting factors and sum (see Sec. II-H).
+        EBREIT, BRTINT , and S3J are used for evaluation of 
+approximate Breit magnetic and retardation energies, if IREL=2.  
+The approximation is poor and inclusion of this option seems to 
+provide no improvement between theory and experiment; if one 
+wishes to save storage space, he can change the dimensions of the 
+approximate small-component relativistic wavefunction 
+QNL(KMSHQ,KOQ) from (1801,20) to (1,1), in which case the Breit 
+energies will not be computed even with IREL=2.
+
+
+B. Input
+        For simplicity in the following, terminology will be used in 
+places that dates from the time when computer input consisted of 
+punched cards: The word "card" may be used to refer to a line of 
+an input file or FORTRAN source file, and the word "deck" to refer 
+to an input file--set of cards--or portion thereof.  Characters 
+"punched" in specific columns of these cards are, of course, to be 
+typed into the corresponding columns of the input line.  
+Statements that various information is "printed" means that 
+information is written to the output print file 9, but in many 
+cases only if certain print options are in effect.
+        Normal input, read in subroutine RCN, consists of a control 
+"card," and one configuration "card" for each configuration to be 
+computed (not necessarily all of the same element nor ion stage)--
+additional cards are required if an LS-term HF calculation is to 
+be done; see Sec. II-F.  Normally, the control card is nearly 
+universal and is seldom changed from one run to the next, except 
+to switch from non-relativistic (HF) to relativistic (HFR) 
+calculations, or to include or delete correlation corrections in 
+the effective central-field potential function.
+        (1)  Control card: this is read at statement 200 of the main 
+subroutine, and contains the following quantities.
+
+                           normal value 
+                           -------------------------------------                       
+                            RCN36              RCN36  + HF8 
+                           ---------------     ----------------     
+  cols   format variable    HX        HF       HX+HF    HF only
+ -----   ------ --------   ------    -----     ------   -------
+    1      I1    ITPOW      2         2          2        0
+    2      I1    IPTVU      0         0          0        0
+    3      I1    IPTEB      0         0          0        0
+   4-5     I2    NORBPT    -9        -9         -9       -9
+    6      I1    IZHXBW     0         0          0        0
+   7-8     I2    IPHFWF     0         0          0        0
+   9-10    I2    IHF        0         2          1        1
+  11-13    I3    IBB        0         0          0        0
+  14-15    F2.1  TOLSTB    1.0       1.0        1.0      1.0
+  16-20    E5.1  TOLKM2    2.0       2.0        2.0      2.0
+  21-30    E10.1 TOLEND    5.E-08    5.E-08     5.E-08   5.E-02a
+  31-40    E10.1 THRESH    1.E-11    1.E-11     1.E-11   1.E-05a
+  41-42    I2    KUTD      -2        -2         -2       -2
+  43-44    I2    KUT1       0         0          0        0
+   45      I1    IVINTI     0         0          0        0
+   46      I1    IRELb      0         0          0        0
+  47-48    I2    MAXIT     90        90         90       90
+  49-50    I2    NPR        0         0          0        0
+  51-55    F5.5  EXF10     1.0       1.0        1.0      1.0
+  56-60    F5.5  EXFM1     0.65      0.65       0.65     0.65
+  61-65    F5.5  EMXc      0.0       0.0        0.0      0.0
+  66-70    F5.5  CORRFd    1.0       1.0        1.0      1.0
+  71-75    I5    IW6e      -6        -6         -6   -6
+_____________________________
+aUse 5.E-08 and 1.E-11 if IREL=0, and HX relativistic energy  
+     corrections to Eav are desired.
+bUse IREL=1 for HXR or HFR; use IREL=2 to include Breit energies.
+cSee notes regarding continuum-wavefunction calculations, p. 5 and 
+     Sec. II-G.
+dSee Sec. II-I below.
+eUse IW6=0 if output to the monitor screen is not desired on the
+     progress of the calculation.  The value used here for IW6 is 
+     automatically carried through to subsequent programs RCN2, 
+     RCG, and RCE.
+
+        The first seven quantities and NPR control the amount of 
+printed output, as follows:
+
+ITPOW:  =1 or >2,  print SCF iteration information (NITER, DELT,
+                         ALFM); this information is sent to the 
+                         monitor screen if IW6 < 0.
+        >1,  call POWER to print <r**m>
+
+IPTVU:  >0,  print Fk and Gk
+        >1,  print Coulomb interaction energies
+        >2,  print wavefunction overlap integrals
+        >3,  print HFS potentials (RU, RUEE, etc)
+        >4,  print HX or HF potentials (Vnl)
+        >5,  in SCHEQ, print relativistic contribution to potential
+
+IPTEB:  >0,  print EE, JJJ, R(JJJ), AZ
+        >1,  print Ekin , etc
+
+NORBPT:  <0,  do not print wavefunctions
+         >0,  print first two and last NORBPT wavefunctions at
+                   every fifth mesh point
+         >5,  print continuum wavefunctions at every mesh point
+                   (for configurations 1, 5, 10, 15, ... only, 
+                         if 0 < NORBPT < 6)
+        any,  write on tape 2 or 7 the last |NORBPT|  
+                   wavefunctions (at least 2;  if |NORBPT|=9, 
+                   write all wavefunctions)
+
+IZHXBW:  >0,  in HF8, calculate and print all quantities using 
+                   the (HX) input wavefunctions (primarily to give
+                   zeta calculated by the Blume-Watson method; 
+                   of no great use, as the Blume-Watson method is 
+                   now used in RCN as well as in HF8)
+
+IPHFWF:  >0,  in HF8, print the last |IHFWF| wavefunctions at
+                   every mesh point
+         <0,  same, except print at only every fourth mesh point
+         9 or -9,  print all wavefunctions
+
+IHF:  =0,  signifies an RCN calculation only (hence, do not load HF8)
+      =1,  RCN output wavefunctions are for input to HF8 
+                   (via tape 7, rather than for RCN2 (via tape 2); 
+                   if IREL > 1, RCN calculation of radial integrals 
+                   is skipped; if IREL=0 and TOLEND < 1.E-4, only 
+                   ZETA1 is called (to calculate relativistic 
+                   energy correction for Eav in HF8)
+       =2,  carry out a Hartree-Fock calculation within RCN
+
+NPR:  not 0,  diagnostic potentials and diagnostic wavefunctions
+                   are printed during the course of the RCN SCF 
+                   iteration
+
+The significance of the other input quantities is as follows.
+        IBB not 0 sets the outer boundary of the atom at mesh point IBB; 
+do not use this option, as it is not completely debugged. 
+        TOLEND is the maximum permissible value of DELTA (the 
+absolute value of the change in RU) for ending the SCF iteration 
+(see the main program, statements number 530-550 and 700-780).
+        THRESH is the maximum permissible fractional change in the 
+value of the eigenvalue E to end the eigenvalue iteration (SCHEQ, 
+statements 805 and 205).
+        MAXIT is the maximum allowable number of SCF iterations; if 
+convergence has not been reached within MAXIT cycles, the 
+calculation is continued for 4 more cycles with diagnostic 
+printout produced via NPR > 0 (RCN, 710-729).
+        EXF10 is the coefficient of Slater's exchange term for an HFS 
+calculation with no tail cutoff (KUT=1) or with tail cutoff 
+(KUT=0) (RCN 411-417).  EXF10=1.5 is Slater's original value and 
+EXF10=1.0 is Kohn and Sham's modified value.
+        EXFM1, CAO, and CA1 are values of k1, k3, and k2, 
+respectively, for KUT=-1 in an HX calculation [Phys. Rev.163, 54 
+(1967), Eqs. (13)-(14) or TASS, Eqs. (7.49)-(7.50)].  Provided 
+IHF=0, EXFM1=0.0 will give a Hartree calculation for KUT=-1, and 
+KUT=-2 gives an HS calculation.  (CAO and CA1 are no longer read 
+in from the control card, but simply set to 0.5 and 0.7, 
+respectively, in the code.)
+        If IREL=0, relativistic terms are omitted from the 
+differential equations (HX or HF); if IREL > 0, these terms are 
+included (HXR or HFR).  If IREL > 1, approximate Breit magnetic and 
+retardation energies will be included, provided the dimensions of 
+QNL are the same as those of PNL.  If IREL > 3, some diagnostic 
+printouts will occur.
+        Other quantities will be discussed later.
+
+        (2)  Configuration card: This is read at statement 210 of 
+subroutine RCN and contains the following information.
+
+ cols format variable              significance                   
+----- ------ --------   --------------------------------------------              
+  1     I1    NHFTRM    Number of LS terms for which HF calculations
+                are to be made
+
+ 2-5    I4    IZ        Atomic number (fixed point)
+
+6-8     I3    IBB1      For this configuration only, overrides the
+                        value IBB read from the control card, 
+                        provided IBB1 > KO, the storage dimension 
+                        for the maximum number of orbitals.  If 
+                        0.LE.IBB1.LE.KO, then the input value is 
+                        interpreted as a quantity N1SCF, and IBB1 is 
+                        set to zero.  All radial functions with 
+                        serial number equal to or less than N1SCF 
+                        are held frozen at their form in the 
+                        preceding configuration; see examples 
+                in Secs. II-J and K.
+
+9-10    I2    NSPECT    1+degree of ionization (1=neutral, 2=singly
+                ionized, 3=doubly ionized, etc.)
+
+11-28   3A6   CONF      BCD configuration label (eg, Ca I  4s 3d), 
+                        for identification purposes only.  (For 
+                        clarity of RCN2 and RCG output, columns 
+                        11-16 should contain the element and ion 
+                        stage, and the configuration label should
+                be restricted to columns 17-24).
+
+29-32   2I2   IALFMIN   Iteration control variables (normally left
+                        blank)
+              IALFMAX   --if IALFMIN is non-blank, then so also 
+                        must be IALFMAX.  (Each must consist of two 
+                        non-blank digits, and represents a value in 
+                        percent.)
+
+33-35   A3    NLBCD8(1) Orbital specification (eg, " 4s", "12d", 
+                        etc.)
+36-37   A2    WWNL8(1)  Occupation number (0^ means 0, ^^ or 1^ 
+                        means 1, 2^ means 2, etc, where ^ 
+                        signifies a blank)
+  .      .       .
+  .      .       .
+  .      .       .     
+
+68-70   A3    NLBCD8(8) Orbital specification
+71-72   A2    WWNL8(8)  Occupation number (default value is 1)
+
+73-74   I2    KUT       For this configuration only, KUT.NE.0 overrides
+                        the value of KUT1 from the control card.  
+                        (See examples in Sec. II-K.)
+
+75-80   F6.5  EE8       Eigenvalue (kinetic energy in rydbergs) of 
+                        the outermost orbital for a free electron.
+                        (EE8 must be greater than 0; the last-
+                        punched value of NLBCD8 must be "99s", 
+                        "99p", "99d", etc, and the corresponding 
+                         value of WWNL8 must be blank or one.)
+
+        The above column-number restrictions for the variables in 
+columns 11 to 80 may be adhered to if desired, but actually a 
+blank-delimited, semi-free-form format is permissible, as follows:
+        (a)  The CONF field begins in column 11 and extends to at 
+least column 16, but terminates at column 28 or whenever three 
+successive blanks occur-- whichever happens first.
+        (b)  The IALFMIN/IALFMAX field, if present at all, appears 
+next--two successive non-blank digits if only IALFMAX is present, 
+four successive non-blank digits if IALFMIN and IALFMAX are both 
+present.  Floating-point control variables are calculated via
+                          ALFMIN=0.01*IALFMIN
+                          ALFMAX=0.01*IALFMAX   ,
+default values being 0.20 and 1.00, respectively.
+        (c)  The subshell nl values and occupation numbers come next-
+-any number of subshells up to eight, each with format  A3,A2 (or 
+A2,A2 is OK if n < 10).
+        (d)  KUT (1 or -1) and/or EE8 (any number of digits, with 
+decimal point) come last, in either order, default values being  0  
+and  0.0  .
+        Thus, beginning with column 11, one has almost complete 
+freedom as to the columns in which information is to be typed.  
+For example, for ionized copper plus a free p electron (denoted by 
+using n=99) with kinetic energy of 13.6268 Ry, the nominal formats 
+given in the above table would require
+   29    1Cu I  d10 13.6p        3d1099p              13.627
+but actually any one of the following is equally valid:
+   29    1Cu I  d10 13.6p        3d1099p      13.627
+   29    1Cu I  d10 13.6p        3d10 99p          13.6268
+   29    1Cu I  d10 13.6p   3d10 99p 13.626793
+This semi-free-form flexibility is provided by reading columns 11-
+80 with format  A70 , and then interpreting this information by 
+means of subroutine ANALYZ (or ANALYZ1, when subroutine DIEL is 
+used).
+
+
+C. Calculational Procedure
+        After reading the control card, the following is done for 
+each configuration card:
+        (a)  If IZ > 0 but columns 11-16 are blank (first 
+configuration card only), the output from IZ completed 
+configurations done on previous runs is skipped over on tape2n, so 
+that results for configurations in the present run will be added 
+on to those done previously.
+        If IZ=0, go back and read a new control card.  (This feature 
+makes it possible, for example, to make both HF and HFR 
+calculations in a single run.)
+        If IZ < 0, write EOF on tape 2 (and on tape7 if IHF=0), and 
+exit.
+        If IZ > 0 and columns 11-16 are not all blank, this is a 
+genuine configuration card, and a calculation is made as follows:
+        (b)  Calculate the number of electrons in the atom from
+                       N = IZ + 1 - NSPECT    .
+Set up the heaviest noble-gas core (ground configuration of He, 
+Ne, Ar, Kr, Xe, Rn, or Z=118) having no more than N electrons.  
+Modify or add to this core according to any values of NLBCD8/WWNL8 
+punched on the configuration card, so as to obtain the final 
+desired configuration, Eq. (1).  [Note that any orbital in the 
+noble-gas core modified via NLBCD8/WWNL8 with WWNL8=0 is deleted 
+completely from the final configuration unless it is one of the 
+frozen-core orbitals, in which case the orbital is retained with 
+zero occupation number.]  Estimate a value of the eigenvalue for 
+each orbital (unless EE8 is non-zero, in which case this value is 
+used for the outermost orbital.)  [Decoding of WWNL8 (subroutine 
+SETCFG, statements 230-233) and of NLBCD8 (statements 237-242) is 
+done partly via table look-up.]
+        In setting up each configuration card, it is worth noting 
+that the spectrum number punched in columns 9-10 of the card is 
+used only to find the noble-gas configuration from which to start 
+in setting up the desired final configuration.  Fictitious numbers 
+sometimes can be used to simplify the card punching.  For example, 
+the following two cards will produce exactly the same results for 
+neutral germanium:
+   32    1Ge I  4p 4d      3d10 4s2 4p 4d
+   32   -3Ge I  4p 4d      4p 4d
+The former starts with Ar I 3p6 and adds on 14 more electrons; the 
+latter starts with Kr I  4p6, changes 4p6 to 4p1, and adds on 4d1.
+        (c)  A radial integration mesh is set up in terms of a 
+universal mesh X(I), scaled via  R(I)=C*X(I) ,  where  
+C=0.88534138/Z1/3 (RCN, 290-295).
+        (d)  A suitable starting atomic potential RU(I) for the 
+current value of Z is obtained by scaling a universal input 
+potential RU0 (Herman and Skillman's function U for argon, first 
+configuration only) or the final SCF potential from the preceding 
+configuration (RCN, statements 270-290).
+        (e)  A SCF iteration is carried out by repeatedly (up to 
+MAXIT times): calling SCHEQ to integrate the differential equation 
+to obtain a radial function PNL(I,M) for each orbital M; 
+recalculating the potential RU from the PNL; comparing the PNL 
+and/or RU with values from the preceding cycle, and revising as 
+appropriate.
+        An HX or HF calculation is started by first making an HFS 
+calculation (KUT=0) for at least two cycles to obtain approximate 
+wavefunctions (required for the calculation of HX or HF potential 
+functions for use in the differential equation), and then 
+automatically switching to HX or HF (KUT=-1) when DELTA < TOLKM2 
+(RCN, statements 730-735).  [To calculate via HFS only, make 
+TOLKM2=0 on the control card; to calculate for two or more values 
+of KUT in succession (in the order +1, 0, -1, -2), make 
+TOLKM2=TOLEND on the control card, KUT1=1 (or 0, if KUT=1 is not 
+desired), and KUTD=0 if KUT=0 is not desired (see RCN, statements 
+990-end).]  On other than the first configuration, the initial HFS 
+calculation can be skipped and the HX or HF calculation started 
+immediately by setting KUT=-1 on the configuration card, provided 
+all orbitals in the new configuration are present also (in the 
+same order) in the preceding configuration; for examples, see Sec. 
+II-K.
+        Stabilization of the SCF iteration is via RU on early cycles 
+(RCN, statements 600-660), and on the PNL on later cycles (454-
+490).  The control involves quantities ALF(M), recomputed each 
+cycle within the range ALFMIN to ALFMAX (normally 0.2 to 1.0).  If 
+convergence is not obtained on a run, rerun it with ITPOW=1 or 3 
+to print values of DELTA (unless IW6 < 0, in which case this 
+information is already available on the monitor-screen output).  
+If the SCF iteration seems to be progressing satisfactorily (DELTA 
+changing more or less monotonically toward zero), but not 
+satisfying the criterion  |DELTA| < TOLEND  in MAXIT cycles, MAXIT 
+and/or IALFMIN can be increased on the control card.  If the SCF 
+iteration should fail to converge because of oscillatory instabil-
+ities (very unlikely), three things can be tried:  (1) decrease 
+the values of IALFMIN and IALFMAX read in on the configuration 
+card; (2) increase the value of TOLEND on the control card; (3) in 
+the FORTRAN statement just before statement 708 of RCN, increase 
+the number "5.E-06", which is an upper bound on the fractional 
+change allowed in the tail of each wavefunction.
+        (f)  Using the final SCF radial wavefunctions PNL, various 
+one-electron radial integrals (eg, kinetic energy and electron-
+nuclear potential energy) are computed, the subroutines POWER, 
+ZETA1, SLI1, and RCN3S are called, and output is written on a BCD 
+output print unit 9 (external name OUT36); also, provided there 
+exists no asterisk anywhere in columns 11-16 of the configuration 
+card, then wavefunctions and other information are written on 
+output file tape2n for use by the computer program RCN2, or (if 
+IHF=1) HFWRTP is called to convert from a linear to a logarithmic 
+mesh and write tape7 for use by program HF8 (see subroutine OUTPT, 
+statements 989-990) .
+        (g)  If the values of TOLKM2, TOLEND, KUT, and KUTD so 
+indicate, additional calculations are automatically made for the 
+same configuration, but with different values of KUT [see under 
+(e) above].
+
+
+D. Input/output units
+        Data input and printed output are via files 10 and 9 
+(external names IN36 and OUT36), respectively.  In addition, 
+binary file 2 (external name TAPE2N) or 7 is used for output 
+wavefunctions (input to RCN2 or HF8, respectively), and binary 
+file 4 is used for temporary scratch storage.  If IW6 < 0, then the 
+progress of the SCF iteration for each configuration is sent to 
+the monitor screen via unit 6.
+
+
+E. Output
+        The amount of printed output is controlled by the quantities 
+ITPOW, IPTVU, IPTEB, IHF, and NPR punched on the control card, in 
+ways described under "Input," Sec. II-B.  If  NORBPT > 0 , the first 
+two and the last NORBPT radial wavefunctions are printed out.  For 
+each function, the value is printed at every fifth mesh point in a 
+two-column format (mesh points 1, 11, 21, 31, ... in the first 
+column, and mesh points 6, 16, 26, 36, ... in the second column); 
+the radius is printed only at mesh points 1, 11, etc.  (If IREL=2 
+and subroutine EBREIT is in use, then the small-component 
+relativistic function QNL at points 1, 11, 21, ... is printed in 
+place of PNL at points 6, 16, 26, ...)  If NORBPT > 5, continuum 
+wavefunctions are printed in the above manner, and also at every 
+mesh point in a ten-column format.
+        Coulomb interaction energies between two electrons, and one-
+electron and total binding energies (without corrections, and with 
+relativistic and/or correlation corrections) are printed out on 
+the final page; all values are in rydbergs, except that spin-orbit 
+parameters are given in both rydbergs and cm-1.
+        The final line of each listing (except for timing 
+information) contains the configuration identification CONF, the 
+number of parameters required for an energy-level calculation in 
+the single-configuration approximation, and a list of the 
+parameter values together with an integer code number:
+
+           0:  Eav = total binding energy, including corrections
+                           (in rydbergs)
+           1:  Fk(lili)     (in units of 1000 cm-1)
+           2:  zi                      "
+           3:  Fk(lilj)                "
+           4:  Gk(lilj)                "
+The order of the parameters is the same as that required as input 
+to program RCG.
+        Finally, provided there is no asterisk in columns 11-16 of 
+the configuration card (columns 1-6 of the element/configuration 
+variable CONF) and IHF=0 or 2, then in subroutine OUTPT (statement 
+989) most of the important output information is written on file 
+2. This information includes a configuration serial number ("1" 
+for the first configuration, and automatically made one greater 
+for each succeeding configuration), the atomic number IZ and 
+ionization stage ION (0=neutral), and a number of wavefunctions 
+which for the first configuration of given IZ and ION is 
+determined by NORBPT, and which for later configurations is such 
+as to delete any wavefunctions deleted from the the first 
+configuration.  (The purpose here is to delete most inner closed-
+subshell wavefunctions, which are not needed by RCN2, so as to 
+decrease required disk read/write and storage requirements in 
+RCN2.  Note, however, that if inner-subshell excitations are 
+involved in a set of configurations, then it is essential that 
+|NORBPT| be large enough that the inner-subshell orbital in 
+question is written onto unit 2 for all configurations--otherwise 
+RCN2 will put out diagnostic remarks to the effect that orbital 
+so-and-so could not be found, and RCN2 output will be incorrect!  
+To be safe in all cases, one can always use |NORBPT|=9.)
+        If IHF=1, then wavefunctions and other information required 
+to start a Hartree-Fock calculation via program HF8 are written on 
+unit 7 instead of on unit 2.  Most radial integrals are not 
+computed in RCN--only the call of ZETA1 to calculate a 
+relativistic energy correction for carryover to HF8; if  IREL > 0 , 
+HF8 calculates its own relativistic energy, and time can be saved 
+by using TOLEND equal about 0.05, so that the RCN SCF iteration is 
+not carried out to final convergence.
+
+
+F. Hartree-Fock calculations 
+        If  IHF > 0 , then a Hartree-Fock (HF) calculation (rather 
+than HFS, HX, or HS) is to be carried out--either through the use 
+of program HF8 (IHF=1), or self-contained within program RCN 
+(IHF=2).
+        In either case, it is possible to calculate radial 
+wavefunctions that minimize the energy of a particular LS term 
+instead of the center-of-gravity energy of the configuration, and 
+the added input to RCN is identical in the two cases.  This option 
+is called by placing a non-zero value of NHFTRM (number of HF 
+terms) in column one of the configuration card, and following the 
+configuration card by NHFTRM LS-term cards (or sets of cards) 
+containing the following information for the ith LS term:
+
+      
+cols  format  variable              significance               
+----  ------  --------  ------------------------------------------               
+ 1-7   A7     T1HF(I)   Unused identification information (eg, the 
+                        configuration "pd", "p4 d", etc)
+
+ 8-10  A3     T2HF(I)   LS term identification (eg, "3P  " for 3P,  
+                        etc.)
+
+11-15  I5     NFG       Number of Slater integrals (Fk and Gk) 
+                        involved in  the diagonal energy-matrix 
+                        element for this LS term (excluding Eav)
+
+21-29  F9.8   CFG(1,I)  Coefficient fk or gk of the jth Fk or Gk in 
+                        the matrix element (relative to Eav)
+
+ 30    A1     FG(1,I)   "F" or "G",  as appropriate
+
+ 31    I1     KFG(1,I)  Value of k
+
+33-35  A3     IFG(1,I)  Orbital codes; eg, " 3p" and " 3d" for 
+37-39  A3     JFG(1,I)  F2(3p,3d) or Gk(3p,3d). 
+                        For legibility, column 32 may contain
+                        a left parenthesis, column 36 a comma, and 
+                        column 40 a right parenthesis.
+
+41-60                   Same as 21-40 for the second Fk or Gk
+
+71-80                   Same as 21-40 for the third Fk or Gk
+
+If more than three Slater integrals are involved in the expression 
+for the energy of this LS term (relative to Eav), then the 
+remaining coefficients and integral names are punched four to a 
+card in columns 1-20, 21-40, 41-60, and 61-80.  (If a HF 
+calculation for the center-of-gravity energy is desired in 
+addition to one or more calculations for specific LS terms, this 
+can be done by faking an LS-term card with T2HF=C-G, NFG=1, 
+CFG(1,I)=0.0, IFG and JFG equal any two orbitals of the 
+configuration.)  For IHF=1, none of this information is used in 
+RCN, but is simply passed on unchanged to program HF8; for IHF=2, 
+this information is used in subroutine HFPOT, and in SLI1 
+(statements 650-700).
+        The required values of fk and gk can in many cases be 
+obtained from tables in J. C. Slater, Quantum Theory of Atomic 
+Structure (McGraw-Hill, New York, 1960), Vol. II, App. 21.  
+Alternatively, they can be computed with the aid of program RCG, 
+using the option ICPC > 4 (see RCG writeup, or subroutine PFGD, 
+statements 499-900).  This option will write the above information 
+out on file 11, except that the first two characters of IFG and 
+JFG will be the serial numbers of the orbitals in the RCG 
+calculation, and will have to be changed to the appropriate 
+principal quantum numbers before use as input to RCN.
+
+           
+G. Calculation of continuum functions
+        A continuum wavefunction is computed when the last orbital 
+defined on the configuration card is singly occupied, has a 
+"principal quantum number" of 99 (ie, has NLBCD8="99s", "99p", 
+"99d", etc), and a positive eigenvalue (kinetic energy) EE8 (in 
+rydbergs) has been included on the card.
+        In columns 61-65 of the control card, a quantity EMX may be 
+punched with a value approximately equal to the largest value of 
+EE8 contained on any of the configuration cards; if EMX is left 
+zero, RCN will automatically search the input file, and by default 
+set EMX equal to the largest value of EE8 found.  The action of 
+EMX > 0 is firstly to set the size (MESH) of the integration mesh to 
+KMSH, the dimension of R, PNL, etc (instead of to 641), and 
+secondly to change the radial integration mesh that is set up: 
+instead of
+               del R = R(I) - R(I-1)
+being doubled at mesh points 41, 81, 121, 161, ..., no further 
+doubling is done after  del R becomes  > 0.40/SQRT(EMX) .  This ensures 
+that the mesh interval will not become so large but what there 
+will still be about 10 mesh points within each half-wavelength of 
+the continuum function, even at large R.
+        It is of course necessary that the dimension of the 
+integration mesh be great enough (hence the use of MESH=1801), or 
+that EMX be small enough, so that sufficiently large radii can be 
+reached for accurate asymptotic normalization--the value of "F" 
+printed via format 97 of SCHEQ should not differ from unity by 
+more than about 0.05 or 0.1 .
+        Small non-zero values of EMX can also be used to handle 
+large-n bound functions (n equal about 15 to perhaps 40), which 
+extend to radii too large for the normal 641-point integration 
+mesh.  Use of too large a value of n or an inappropriate value of 
+EMX usually causes eigenvalue-iteration convergence failures or 
+causes execution to bomb on an overflow.
+
+
+H. Vinti integrals
+        If the quantity IVINTI read from column 45 of the control 
+card is non-zero, the subroutine VINTI is called from subroutine 
+RCN just before statement 850:
+        IVINTI = 0          no call of subroutine VINTI
+        IVINTI > 0          Vinti integrals calculated and printed
+        IVINTI > 1          some debugging information printed
+For any two orbitals nili and njlj with  lj = li - 1,  the Vinti 
+integral [J.P. Vinti, Phys.Rev. 56, 1120 (1939)] is defined as
+
+                                   (    dPj        Pj  )
+         J(i,j)  =  Int(0 to Inf.) ( Pi ---  -  li --  ) dr    (4)
+                                   (    dr         r   )  
+
+In a treatment of specific mass shift, this integral is weighted 
+by a factor
+
+                           2 li wi wj
+              Wij  = --------------                        (5)
+                     (4li+2)(4lj+2)
+
+The information printed is
+
+           J(i,j)          J2(i,j)          Wij * J2(i,j)
+
+for each (i,j), and also the sum over i and j of
+
+           Wij * [J(i,j)]**2
+
+
+I. Correlation Potential
+        The quantity CORRF read from columns 66-70 of the control 
+card is used as a multiplying factor for a theoretical approximate 
+correlation potential.
+
+        CORRF = 0.0     effectively deletes the potential                                                                          
+                        (equivalent to past versions of RCN)
+
+        CORRF = 1.0     is the theoretically correct value, and is the 
+                        suggested standard for future use
+
+        CORRF > 1.0     exaggerates the correlation potential.
+
+Physically unreal values greater than unity may be needed for 
+negative-ion calculations.  For example,
+
+        CORRF = 0.0     is adequate to bind Hg- 5d9 6s2 6p2  ;
+        CORRF = 1.0     is adequate to bind Hg- 5d10 6s 6p2 , 
+                                  F- 2p43s2,  and F- 2p43p2  ;
+        CORRF = 1.5     is needed to (barely) bind F- 2p4 3s3p  ;
+        CORRF = 2.0     is needed to (barely) bind Hg- 5d10 6s2 6p  .   
+
+        It is worth commenting on relationships between the output-
+listing quantities EE (eigenvalue of the Schroedinger equation), 
+EPSFG (one-electron binding energy calculated from the kinetic 
+energy and the Slater Fk and Gk integrals), and EPSFGC (same, 
+except with added perturbation correlation energy correction).
+        For HF (or HFR) calculations with CORRF=0, EE is equal to 
+EPSFG--this is basically Koopmans' theorem.  With CORRF=1, EE is 
+more negative than EPSFG, but is equal to EPSFGC, as is to be 
+expected.  With  CORRF > 1 , EE is more negative even than EPSFGC, 
+and in fact the latter may become positive (in which case SCHEQ 
+may mistakenly treat the radial wavefunction as if it were a 
+continuum function and produce completely incorrect normalization) 
+        As a function of CORRF, the total binding energy of the atom 
+excluding the perturbation correlation correction is a variational 
+minimum for CORRF=0, but the total binding energy including the 
+correlation correction (which is the total energy passed on to 
+RCN2 and RCG) is a variational minimum for CORRF=1.  It thus seems 
+appropriate to consider CORRF=1 (rather than CORRF=0) to be the 
+standard value.  This results in more-contracted radial wave-
+functions and hence in somewhat larger values (usually by only 1 
+or 2%) of the Slater integrals Fk and Gk; these values are already 
+too large even for CORRF=0, but this can be compensated for by 
+using slightly smaller values of the scale factors in RCN2.
+
+
+J. Frozen-orbital options
+        If the quantity IBB1 read from columns 6 to 8 of the 
+configuration card is no larger than the dimensional parameter KO 
+(currently KO=20) for storing radial wavefunctions, then this 
+quantity is instead interpreted as N1SCF (and IBB1 set to zero).  
+The first N1SCF orbitals of this configuration are then held fixed 
+at their form in the preceding configuration.  If desired, all 
+orbitals can be frozen. For example, with input
+   13    1Al I         3s2 3p
+   13  5 1Al I         3s  3p2   ,
+all five orbitals of the configuration 3s3p2 (including 1s, 2s, 
+and 2p as well as 3s and 3p) will be held fixed at the form they 
+had in 3s23p.
+        Also, an orbital with zero occupancy can be retained if its 
+serial number is no greater than N1SCF.  For example, with input
+   13    1Al I         3s2  3p
+   13  4 1Al I         3s0  3p3
+   13  4 1Al I         3s   3p2   ,
+the orbitals 1s, 2s, and 2p of 3p3, and the orbitals 1s, 2s, 2p 
+and 3s of 3s3p2, will all be the same as the corresponding 
+orbitals of 3s23p.  Further examples are discussed in the 
+following section.
+
+
+K. Negative-ion calculations
+        In principle, if some value of CORRF can be found that will 
+bind the electrons of a negative ion in the HF (or HFR) method, 
+then it should be straightforward to make a calculation.  In 
+practice, the procedure can be tricky and may require several 
+trial-and-error attempts.  As an example, we consider the 
+following set-up which has been found to work for
+F- 2p43s2 + 2p43p2 - 2p43s3p   (with CORRF = 1.5 and IREL = 1).
+
+    9    9F I*  3S  2P4     3S   1S2   2S2   2P4              (a)
+    9  1 9F -*  3S2 2P4     3S2  1S2   2S2   2P4              (b)   
+    9    9F -   3S2 2P4     3S2  1S2   2S2   2P4   -1         (c)
+    9  1 9F I*  3S03P P4    3S0  3P    1S2   2S2  2P4         (d)
+    9  1 9F -   3P2 2P4     3S0  3P2   1S2   2S2  2P4   -1    (e)
+    9  1 9F -*  3S 3P P4    3S   3P    1S2   2S2  2P4   -1    (f)
+    9    9F -   3S 3P P4    3S   3P    1S2   2S2  2P4   -1    (g)
+
+        In all configurations, NSPECT (column 10) has been taken as 
+9 so that the code will not set up any noble-gas core to start with 
+(and therefore the 1S2 and 2S2 have to be explicitly provided 
+everywhere).  The calculation starts [configuration (a)] with a 
+neutral fluorine case that includes a 3s electron to provide a 
+starting wavefunction for (b) and (c).  In (b), a calculation 
+(initially via a couple of HFSL cycles and then changing 
+automatically to HFR) is made for F- 2p43s2, with the 3s orbital 
+fixed at the form obtained in case (a) by including the 1 in 
+column 8.  Then in (c), the 3s orbital is allowed to vary freely; 
+by including the variable  KUT=-1 , the calculation begins 
+immediately via the HFR method, without initially backing up to 
+HFSL, which would have wrecked the convergence.
+        In (d), we go back to neutral fluorine (and, initially, HFSL) 
+in order to introduce a 3p orbital, holding fixed the F- 3s 
+orbital (with zero occupancy) for later use.  In (e) we go to F- 
+3p2, starting immediately with HFR (KUT=-1); it proved to be 
+unnecessary to include here an intermediary calculation analogous 
+to (b), presumably because the 3p electron in (d)--unlike the 3s 
+electron in (a)--does not much penetrate the core, so that the 1s, 
+2s, and 2p HFR orbitals in (d) already provide adequate starting 
+functions for (e).
+        In (f) we make a first calculation for F- 2p43s3p, using as 
+starting point the 3s function from (c) and the 3p (and other) 
+functions from (e), but holding 3s fixed while the 3p and other 
+functions are allowed to vary from their forms in 2p43p2.  
+Finally, in (g) the 3s function is allowed to vary freely to 
+obtain the final 2p43s3p result.  [It proved not to be possible to 
+delete (f), presumably because introduction of the 3s affected the 
+core orbitals too much to allow everything to vary 
+simultaneously].
+
+        Several additional remarks are appropriate:
+        (1) Asterisks have been included within columns 11 to 16 of 
+four of the configuration cards, so that results for only the 
+three fully relaxed F-  calculations will be passed on to RCN2 and 
+RCG (see Sec. II-C(f), page 15).
+        (2) Use of IREL=1 (rather than zero) provides an additional 
+small attractive potential, which helps to bind negative ions; 
+this will of course be more helpful in heavy atoms than in 
+something as light as fluorine.
+        (3) Numerous attempts were made to make a calculation for 
+2p43s3d, none of them successful.  This is not surprising:  In 
+fluorine, a 3d orbital is essentially hydrogenic, with very little 
+core penetration; the correlation formulation used in RCN depends 
+entirely on wavefunction overlap with other orbitals, so that the 
+correlation potential for 3d is very small.  (Physically, 3d may 
+be bound via polarization of the core, but the correlation 
+algorithm used here does not adequately mimic polarization).
+        (4) Final results should be obtained using a value of
+CORRF=1 if possible, or if not, then as small a value as will give 
+convergence.  If on early attempts a value  CORRF=2 (say) is used 
+in order to help ensure success, then an estimate of the smallest 
+possible value of CORRF can be made as follows:  For the most 
+weakly bound orbital, note on the final page of the output listing 
+the values of EE (eigenvalue) and ECT (in the column following the 
+column labeled N*RC).  Unit decrease in CORRF will decrease the 
+magnitude of EE by approximately the magnitude of ECT; thus if the 
+magnitude of EE is only about one-third the magnitude of ECT, then 
+it is safe to try a new run in which CORRF is decreased by no more 
+than about one third of a unit--in the present example, from 2.0 
+to about 1.7.  
+        As an illustration of the sensitivity of Coulomb integrals to 
+the value of CORRF, in the case of F- 2p43p2, decreasing CORRF 
+from 2.3 to 1.0 decreased the 2p-3p Coulomb integrals by about 
+20%; for F- 2p43s3p, a decrease from 2.3 to 1.5 decreased the 
+inter-subshell integrals by 30 to 50%.
+
+
+L. Dielectronic recombination calculations
+        RCN input for making dielectronic-recombination calculations 
+in RCG requires knowing the kinetic energies of the free electrons 
+that can be captured into the autoionizing configuration of 
+interest.  This requires making preliminary RCN calculations for 
+the autoionizing configuration and for the ion configuration(s) 
+involved to get the kinetic energy (by differencing total binding 
+energies), as well as figuring out by hand the possible value(s) 
+of the angular momentum of the free electron.  This hand work can 
+be eliminated and final RCN input constructed automatically by 
+using the subroutine DIEL of RCN36.  To do this, the RCN input 
+file IN36 is constructed so as to contain only the exit card with  
+-1  in columns 4-5, and input to DIEL is set up in a separate file 
+named INDIEL (internal file 12).  This latter file contains:
+        (1)  the usual RCN control card;
+        (2)  a card for the ground configuration of the ion (it being 
+assumed that this is the initial configuration for electron 
+capture), and one for each excited configuration of the ion that 
+the captured atom might autoionize into (a maximum of 5 ion 
+configurations, total);
+        (3)  a card for each of the singly excited configurations 
+that the doubly excited configuration might decay to radiatively 
+so as to produce a system stable against autoionization;
+        (4)  a card for the doubly excited (autoionizing) 
+configuration (program dimensions allow more than one such 
+configuration, but if more than one is used, the RCG output print 
+of individual-level autoionization rates must be interpreted with 
+care and the overall dielectronic-recombination-rate number is 
+incorrect);
+        (5)  the usual  "-1"  exit card.
+        Further sets of cards (2)-(5) for other doubly excited 
+configurations may be included if desired, provided that in all 
+sets the radiative-decay configurations have the same parity.  
+(But unlike normal RCN input, all such cards will be utilized--not 
+just the cards in front of the first exit card!)  Note also that 
+in this INDIEL file, each configuration card must contain 
+explicitly any orbital (even though full or empty) that is listed 
+as other than the final (outermost) orbital on any other 
+configuration!  Also, the value used for NSPECT for the ion 
+configurations (2) must be different from that used for the "atom" 
+configurations (3)-(4).
+        RCN36 will then first call DIEL to find kinetic energies, 
+determine orbital angular momenta for the free electrons, and set 
+up complete input for the final RCN run--which will then be 
+carried out automatically in the normal way.  
+
+
+M. Storage requirements
+        Memory storage requirements for 20 orbitals and an 
+integration mesh of 561 points (adequate for n up to about 10) or 
+1801 points (needed for continuum functions or large n) is, on the 
+CRAY-1, about as follows (number of 64-bit words, octal):
+
+                                             561           1801
+                                        ------------    -----------         
+                                        no QNL   QNL    no QNL  QNL
+                                        ------  ----    ------  ---
+FORTRAN code (2 to 4 instrs. per word)    27K    27K      27K   27K
+Utility/library                           46K    46K      46K   46K
+Data storage                              61K   106K     221K  327K 
+                                         ----   ----     ----  ----
+       Total (excluding I/O buffers      156K   203K     316K  424K
+
+On a Macintosh Centris, the minimum RAM for execution is about 1.5 
+Mbytes with QNL and 1801-point mesh.
+        Storage requirements can be reduced in various ways, 
+depending on the kinds of calculations one is interested in.  The 
+parameter KO can be reduced if one is interested only in atoms 
+involving fewer than 20 orbitals, and KMSH can be reduced to, say, 
+521 if one is not interested in continuum or large-n bound 
+orbitals.  If the option IREL=2 is not desired (and, in fact, the 
+Breit magnetic and retardation corrections seem to provide no 
+increase in accuracy even for very high Z), then KMSHQ and KOQ can 
+each be reduced to 1 and routines EBREIT, BRTINT, and S3J can be 
+discarded.  If RCN is used only to provide input to HF8 (IHF=1), 
+the subroutines POWER, SLI1, RCN3S, S3J0SQ, FCTR, and all routines 
+from HFPOT on may be discarded.  If IHF=1 and IREL > 0, then 
+subroutine ZETA1 may be discarded as well.
+
+              
+N. Conversion to other computers
+        Conversion problems to other computers having a FORTRAN 77 
+compiler should be minor except for the following:
+        The SCF iteration must be carried out to very tight tolerance 
+if one wishes to compute meaningful excitation energies by 
+differencing values of Eav for two configurations, because many 
+significant figures are lost in this difference (about 6 or 7 
+significant figures for an actinide).  This means that most 
+calculations must be done with a precision of 9 or more 
+significant figures.  On machines using 60- or 64-bit basic 
+floating-point word lengths, this is no problem.  On VAX or IBM 
+32-bit machines (about 7 significant figures), it is necessary to 
+compile using 64-bit floating-point numbers--preferably using, if 
+available, a large-exponent-range option (10^(+/-350) rather than 
+10^(+/-38)) such as the VAX G_FLOATING compiler option.  This means 
+using basically double-precision floating-point numbers.  To 
+simplify converting back and forth between CRAY and VAX-type 
+machines, the following program modifications have been 
+incorporated, as mentioned earlier:
+        (1)  PROGRAM cards have been included both with and without 
+file-definition names included, and there have also been included 
+file-name definitions via OPEN statements.  On CRAY and CYBER 
+machines, the simple PROGRAM card can be commented out and III in 
+the main program set to 2, which causes the OPEN statements to be 
+bypassed.  On VAX-type computers, the file-definition PROGRAM card 
+is the one to be commented out, and III set to 1 to define all 
+file names via OPEN statements.  (On VAX machines, III may 
+alternatively be set to zero, in which case some file names are 
+set by typing them in interactively.) 
+        (2)  In all subroutines there are included IMPLICIT REAL*8(A-
+H,O-Z) statements, which may be commented out if necessary for 64-
+bit machines.
+        (3)  Generic library subroutine names (e.g., MAX in place of 
+AMAX1 or DMAX1) have been used so that the compiler will 
+automatically use the single-precision or double-precision 
+version, depending on the type of the argument variables.  In all 
+argument lists, constants have been replaced by variable names; 
+the variable being given a value in a replacement statement such 
+as
+        TWO=2.0,
+so that in the 32-bit-machine case it will automatically be 
+converted to double precision.
+
+
+
+
+
+III. PROGRAM  HF8
+
+
+A. Outline
+        This is a FORTRAN IV program based on the well-known program 
+of C. Froese-Fischer [Can. J. Phys. 41, 1895 (1963); Report ANL-
+7404 (1968); Comp. Phys. Commun. 1, 151 (1969)].  It has been 
+extensively modified, to accept input from RCN and with the multi-
+configuration option removed, by  D. C. Griffin (Thesis, Purdue 
+University, (1970).  Further modifications make possible inclusion 
+of relativistic terms in the differential equation if IREL > 0 
+(TASS) and incorporate a new method of stabilizing the SCF 
+iteration [R. D. Cowan and J. B. Mann, J. Comput. Phys. 16, 160 
+(1974) or TASS, Eq. (7.27).]
+        Because RCN contains a built-in Hartree-Fock capability, 
+program HF8 is not of great interest (and it is in any case not 
+useable for calculation of continuum or large-n bound functions 
+because it employs a logarithmic radial mesh that becomes much too 
+coarse at large radii).  Nevertheless, we describe it here in case 
+one wishes to use it for comparison purposes.
+        The program consists of a main program and 42 subprograms, of 
+which only a few of the more important ones will be described.
+        HFMOD8 is the main program, and does little except read a 
+control card and call various subroutines.
+        DATA reads the input information that RCN has written on unit 
+7, and sets up calculations accordingly.
+        SCF controls the self-consistent-field iteration for a given 
+configuration (or for a given LS term of a given configuration).  
+One iteration cycle consists of two parts:  (1) A considerable 
+number of calculations are made for different orbitals, in an 
+order that depends on which orbital appears to be farthest from 
+self consistency;  (2) each orbital is recalculated once in the 
+order from innermost to outermost subshell.  (The iteration cycle 
+in RCN consists of only this second phase, and hence convergence 
+requires many more overall SCF cycles to reach self consistency; 
+the total number of orbital calculations is, however, 
+approximately the same in RCN as in HF8.)
+        SOLVE controls the iteration on the orbital eigenvalue to 
+obtain a normalized radial function having positive initial slope 
+and the correct number of nodes (=n-l-1).
+        HXWRTP converts the wavefunctions from the HF8 logarithmic 
+mesh to the linear mesh used by RCN and RCN2, and writes results 
+on unit 2 in the form required as input to RCN2.
+    
+
+B. Input
+        Most of the input has already been discussed in the RCN 
+section of this writeup.  Here we need describe only the HF 
+control card (actually, two cards):
+
+        cols    format   variable   normal value  
+       -----    ------   --------   ------------
+        1-10     E10.2    WFTOL     1.E-07
+       13-15     I3       NITER     15
+       38-40     F3.1     ACMIN     (default=0.2)
+       43-45     I3       ISCACC     0
+       48-50     I3       ISEND      0
+       53-55     I3       IGRANG     0
+       61-65     F5.0     TIMPM     (default=280 sec)
+       68-70     I3       IPRINT     0
+       76-80     F5.3     HXFAC      0.95
+
+         1-5     I5       NSLV       51
+        6-10     I5       ITERSL     0
+       11-15     F5.3     QNRNG      0.5
+       16-20     F5.3     FACHL      0.65
+       26-30     I5       IRCN       0
+
+        WFTOL is the maximum allowable absolute change in any 
+wavefunction (at any mesh point) from one SCF cycle to the next 
+before ending the iteration.
+        NITER is the maximum allowable number of SCF cycles.  (If 
+exceeded before WFTOL is satisfied, the calculation is ended and 
+no output written on unit 2 for this case).
+        ACMIN is the minimum allowed value of the acceleration factor 
+(amount of trial function included in the trial function for the 
+next cycle).
+        If ISCACC=0, the acceleration factor ACC(M) for the mth 
+orbital will be automatically modified (between the limits ACMIN.LE. 
+ACC(M).LE.0.994) in an attempt to speed the SCF convergence.  (Note 
+that ACC in HF8 is equal to 1-ALF of RCN.)
+        ISEND=0 deletes portion (1) of the calculation described 
+under subroutine SCF.
+        IGRANG.NE.0 excludes the off-diagonal Lagrangian multipliers
+eij that enforce orthogonality between orbitals of like l but 
+different n (and different occupation number).
+        TIMPM is the maximum computational time (in seconds) allowed 
+for RCN and HF8 before exiting from HF8 to load RCN2.
+        If IPRINT.NE.0, eigenvalue-iteration information is printed
+(for only the outermost two orbitals, if IPRINT=1).
+        HXFAC determines the magnitude of the term that modifies the 
+inhomogeneous differential equation to make it approximately 
+homogeneous in order to eliminate convergence difficulties (J. 
+Comput. Phys. paper mentioned above).  If HXFAC > 0 and the atom is 
+less than three-fold ionized, this modification is used for the 
+outermost two orbitals if they are singly occupied.
+        IRCN accomplishes the same thing as the variable IZHXBW of 
+RCN.
+
+        The remaining quantities on the second control card deal with 
+calls of subroutines SOLVE1 and SLVTST (at the end of SCF, if 
+ITERSL=0 and the above HXFAC is in effect for the outermost 
+orbital) to make a diagnostic calculation of the shape of the 
+normalization curve.
+        (Several variables not listed above are read from the control 
+card, but are no longer used in the code.)
+
+
+C. Input/output units
+    Control-card input is via unit 5, and printed output is via 
+unit 6.  Input from RCN is via unit 7, and wavefunction output to 
+RCN2 is via unit 2.  Printed output is in a rather different 
+format from that of RCN, but is basically the same in scope.
+
+
+D. Storage requirements
+        Storage requirements for an integration mesh of 200 points 
+(561 in HXWRTP) and up to 20 orbitals is, on the CDC 7600 (60-bit 
+words, octal):
+
+        FORTRAN code          22K
+        Utility/library       32K
+        Data storage          70K
+                             ----
+                Total        144K   (plus I/O buffers)
+
+
+
+E. Miscellaneous
+        If no diagnostic norm curves are to be computed (ITERSL=0), 
+then subroutines SOLVE1 and SLVTST may be discarded.  In any case, 
+the code sections in SLVTST and HXPOT having to do with microfilm 
+plotting (involving library subroutine PLOJB) should be deleted or 
+replaced with whatever analogous plotting routine may be 
+available.
+        The program HF8 was designed to handle only inhomogeneous 
+differential equations, which excludes all configurations for 
+which there are no exchange terms (namely, all single-subshell 
+configurations--the most important cases being one-electron atoms, 
+and s2 configurations of helium-like ions).  This is no great 
+limitation, even if RCN is used in the HX mode, for the following 
+reasons.  (a) For hydrogenic (one-electron) ions, HX gives the 
+equivalent of Hartree-Fock results;  (b) even when nominally using 
+the HF8 option (IHF=1) for He-like (two-electron) configurations, 
+RCN writes HX results on tape2 for single-subshell configurations 
+(1s2, 2s2, 2p2, ..., HX results being identical with HF in these 
+cases), and makes HF8 calculations only for two-subshell 
+configurations (1s2s, 1s2p, etc).  However, if RCN2 is to be used, 
+the single-subshell configurations must all come before the two-
+subshell configurations, and of course the HX convergence criteria 
+TOLEND and THRESH must be small.
+
+
+
+
+           
+
+
+
+
+
+
+IV. PROGRAM RCN2
+
+
+A. Outline
+        This is a FORTRAN 77 program for the CRAY-1 or CDC CYBER 
+205 computer, or for VAX, Sun, IBM RISC, or Macintosh and similar 
+computers.  It reads information from the output disk unit 2 of 
+RCN or HF8, calculates configuration-interaction radial Coulomb 
+integrals Rk and electric dipole and quadrupole reduced matrix 
+elements
+           P(k)ll' = < l || r(k) || l >                (k=1 or 2) 
+or analogous matrix elements of spherical Bessel functions, scales 
+all energy-level-structure parameters  Fk, Gk, Rk, and zeta, and 
+writes on unit 11 a complete file of input data for making energy-
+level and spectrum calculations via program RCG.  [Note: For HF 
+wavefunctions, RCN2 output is useful mainly for center-of-gravity 
+(not LS-term-dependent) calculations; nominally, RCG assumes c-g 
+results exclusively.]
+        The program consists of a main program and nine subroutines.
+        MAIN reads control cards and calls various subroutines 
+accordingly.
+        OVER computes an overlap integral between two specified 
+radial wavefunctions from the same or from different 
+configurations.
+        ZETA2 computes single-configuration or configuration-
+interaction spin-orbit parameters [using the simple central-field 
+formula (3)].  The former are computed by ZETA1 of RCN, and the 
+latter are usually so small as to be negligible, so in practice 
+this subroutine is almost never used.
+        DIP computes electric dipole and quadrupole integrals  
+P(k)ll'  or matrix elements of spherical Bessel functions.
+        SLI2 computes configuration-interaction radial integrals  
+Rk(l1l2,l3l4).
+        G5INP is a master program that calls SLI2 and DIP as 
+appropriate, and prepares the input file for RCG.  (Note: The name 
+"G5INP" refers to the preparation of input for RCG Mod5, which is 
+now a misnomer since the current version of RCG is Mod 11.)
+        S3J calculates the 3-j symbol
+              ( j1   j2   j3 )
+              ( m1   m2   m3 ) 
+        S3J0SQ calculates values of
+              ( j1   j2   j3 ) 
+              ( 0    0    0  )
+        FCTRL calculates the factorial of an argument A for use by 
+S3J and S3J0SQ.
+        SBESS evaluates the spherical Bessel function of specified 
+order for a given radius and wavenumber.
+
+
+B. Input
+        Input consists of radial wavefunctions and other information 
+written on unit 2 (in a file named TAPE2N) by program RCN or by 
+program HF8, and of one control card for each calculation being 
+made.  The control card is read as a string of 80 BCD characters 
+at statement 200 of MAIN, and then is decoded according to a 
+format appropriate to subroutines other than G5INP.  The first 
+three characters (columns 1-3 on the control card) specify the 
+subroutine to be called and columns 11-20 (format 2I5) specify the 
+serial numbers of the two configurations from which wavefunctions 
+are to be selected; the orbitals themselves are specified in 
+columns 21-30 [format 2(2X,A3) for OVER, ZETA2, and DIP] or 
+columns 21-40 [format 4(2X,A3) for SLI2].  The main program RCN2 
+usually is no longer used to call the subroutines OVER, DIP, and 
+SLI2 directly, but only via G5INP.  Hence we shall not describe 
+these options further, but consider only the case in which the 
+first 3 characters of the data card are "G5I".
+        In this case, control is transferred to subroutine G5INP, 
+which decodes the control card according to a new format 
+(statement 100):
+
+  cols  format  variable                normal value
+ -----  ------  -----------  ------------------------------------                  
+  1-5    A3,2X   -----       g5inp
+  6-7    A2      NCK         blank (or as desired for RCG input)
+   8     I1      IOVFACT     0
+  9-10   I2      NOCET       blank (or 1 to produce input for RCE)
+  11     I1      NSCONF(3,1) 0  (or as desired for RCG input)
+ 12-13   I2      NSCONF(3,2) 0  (or as desired for RCG input)
+ 14-20   F7.4    EAV11       0.0  (or as desired for RCG input)
+  21     I1      IABG        0  (or as desired for RCG input)
+ 22-49   3A8,A4  OPTION      blank  (or as desired for RCG input)
+  50     I1      IQUAD       0  (non-zero for E2 spectra)
+ 51-60   5I2     IFACT       9999999999, 8099808080, 9399939393, etc
+ 61-65   A5      DMIN        blank  (or as desired for RCG input)
+ 66-70   A5      IPRINT      blank  (or as desired for RCG input)
+  71     A1      IENGYD      blank  (or as desired for RCG input)
+  72     A1      ISPECC      blank  (or as desired for RCG input)
+  73     I1      ICON        2
+  74     I1      ISLI        2  (0 for more printout)
+  75     I1      IDIP        9 (0 for plane-wave-Born calcns., 5, 6,
+                                7, or 8 for photoionization calcns.)
+ 76-80   F5.0    ALF         blank (0.0)
+
+        IOVFACT if non-zero multiplies Rk values or radial multipole 
+integrals or both by the product of overlap integrals for all 
+spectator electrons for the subshells included in the RCN2 output, 
+according as IOVFACT is 1, 2, or greater than 2, respectively.
+        NOCSET is normally zero, but if not (normally +1), the RCG 
+input file OUT2ING will be set up to provide input files for RCE.
+        Any punches in columns 6-7, 22-49, and 61-72 are unused in 
+RCN2, and are simply transferred unchanged to the same columns of 
+the RCG input control card; likewise, punches in columns 11, 12-
+13, and 21 are transferred unchanged to columns 15 and 19-21. (See 
+the description of this control card in Sec. IV(4)(A) of the RCG 
+program writeup).  For a modification of these remarks when column 
+33 contains a number greater than 4, see Sec. IV-F of this writeup 
+(page 34).
+        EAV11 is the value desired for the center-of gravity energy 
+Eav of the first configuration (in units of 1000 cm-1).  It merely 
+shifts the energy scale of all energy levels calculated by RCG.
+        If IABG > 0, it is a signal that the effective-operator 
+parameters  alpha,  beta,  gamma  are to be included in the RCG
+calculation.  Values of these parameters cannot easily be computed 
+theoretically; hence, RCN2 simply leaves room at the proper places 
+on the single-configuration parameters cards of the RCG input 
+file, where empirical parameter values can be inserted by hand 
+(except that the number ALF punched in columns 76-80 of the G5INP 
+control card will be punched for alpha).
+        IQUAD (column 50) causes electric-quadrupole radial integrals 
+to be computed for configurations of the first, second, or both 
+parities according as IQUAD=1, 2, or 3, respectively; the value of 
+IQUAD is also transferred unchanged to column 50 of the RCG 
+control card.
+        All this provides a means of controlling within RCN2 the 
+various RCG options in a chained RCN/RCN2/RCG or RCN/HF8/RCN2/RCG 
+run.
+        The values of IFACT(5) are converted to floating point and 
+divided by 100 to provide scale factors FACT(5); if IFACT=01 or 
+99, FACT is set to 0.001 or 1.00, respectively.  The values of 
+FACT(5) are fudge factors to be applied to the theoretical values 
+of the parameters  Fk(li,li),  zetai,  Fk(li,lj),  Gk(li,lj),  and 
+Rk(lilj,l'il'j), respectively, to give scaled-down parameters for 
+input to RCG.  It is known empirically that computed energy-level 
+intervals will agree better with experiment if the Coulomb 
+parameter values are 5 to 30% smaller than theoretical.  Values of 
+FACT of 0.85, 0.95, 0.85, 0.85, 0.85 are assumed by the code if 
+zeroes are read in.  Values of 0.90, 1.00, 0.90, 0.90, 0.90 are about 
+right for HF calculations on about 5- or 10-fold ionized atoms.  
+The first and the last three values should be more like 0.80 for 
+most neutral atoms (except about 0.70 for lanthanides and 
+actinides), and should be 0.92 to 0.95 for very highly ionized 
+atoms.  (All values should be about 0.05 smaller if HX calculations
+are used instead of HF.)
+
+      ICON   = 1    the RCG-input control and config. cards are not 
+                        punched
+             > 1    the number of subshells set up on the configuration 
+                        cards is limited to no more than ICON if possible
+
+      ISLI   = 0    print maximum SLI2 output
+             = 1    omit page restore and most printout
+             = 2    omit all but final punched card image (except that
+                      parameter values are printed unscaled as well as  
+                      scaled)
+             = 3    omit all printout
+
+      IDIP   = 1    do not punch dipole cards
+             = 5    configuration-interaction radial matrix elements 
+                      between a bound and a continuum configuration are
+                      set to zero if the two configurations have the same
+                      total energy; otherwise, as for IDIP=9
+             = 6    configuration-interaction matrix elements involving
+                      a continuum electron are set to zero except for 
+                      core bound-bound interactions in the case of two  
+                      continuum configurations for which the free 
+                      electrons have the same angular momenta and kinetic 
+                      energies
+             = 7    values of Rk and dipole integrals in Rydberg series
+                      will be modified appropriately for pseudo-discrete
+                      calculations.  [Each Rydberg-series configuration 
+                      is given an effective-energy-width weighting 
+                      factor DE, which is unity for successive-n discrete
+                      configurations, greater than one for non-
+                      successive-n discrete configurations, and an 
+                      effective width in rydbergs for continuum config-
+                      urations.  Rk values are weighted by the square 
+                      root of delE1 * delE2,  and discrete-continuum 
+                      dipole integrals are weighted by the square root 
+                      of delE2--see the RCG writeup, Sec. XI(B).]
+             = 8    modifications will automatically be made for simple 
+                      photoionization calculations in RCG.  [The value of
+                      NSCONF(3,2) on the RCG control card is set to -8, 
+                      and all Rk involving a continuum configuration are 
+                      set to zero--see the RCG writeup, Sec. XI(A)]
+             = 9    values of Eav, Rk, and dipole integrals involving 
+                      continuum functions will be modified appropriately 
+                      for perturbation calculation of autoionization 
+                      transition probabilities in program RCG. [The 
+                      continuum Eav are changed to large negative values, 
+                      and the continuum-continuum Rk and discrete-
+                      continuum dipole integrals are set to zero--see the 
+                      RCG writeup, Sec. XII].  The value IDIP=9 can be 
+                      used as a universal value for runs not involving 
+                      continuum configurations.
+
+
+C. Calculational procedure
+        In order for G5INP to properly prepare input decks for RCG, 
+it is necessary that the pertinent configurations be arranged on 
+unit 2 in a specific order, and hence that the input configuration 
+cards for RCN also be arranged in this order:
+        (a)  All configurations of given IZ and ION that are to be 
+included in one RCG calculation must be arranged in succession.  
+Usually the lowest-energy configuration is chosen as the first 
+one; all configurations of this same parity follow, and then come 
+all configurations of the opposite parity (if any).  Within a 
+given parity, all configurations that are members of a single 
+Rydberg series (eg, 3p5 3d, 3p5 4d, 3p5 5d,...) should preferably 
+be placed in succession.  Each input configuration card for RCN 
+should be punched so that all orbitals (other than the outer, 
+most-weakly-bound, singly occupied orbital) are arranged in order 
+of increasing n, and for given n in order of increasing l; if 
+orbitals are not arranged this way, G5INP attempts to rearrange 
+things so, but the code is not bug-proof.  [Note the exception to 
+this order in the negative-ion example of Sec. II-K, necessitated 
+by the fact that only the "inner" (ie, first-listed) orbitals can 
+be held frozen.]
+        (b)  In multi-configuration runs involving excitations out of 
+inner subshells, RCN2 may incorrectly give zero for certain radial 
+dipole integrals unless the configurations are arranged in such an 
+order that the different nl values of the outermost excited 
+electron first appear in the same order in each parity; for 
+example, if the even parity configurations are
+                2s2 2p2
+                2s2 2p 3p
+                2s 2p2 3s
+                2s 2p2 3d
+(outer electrons in the order 3p, 3s, 3d), then for the second 
+parity the order should be
+                2s 2p2 3p
+                2s2 2p 3s
+                2s2 2p 3d     .
+If the first-parity configuration 2s 2p2 3s is omitted, then the 
+second-parity order should be
+                2s 2p2 3p
+                2s2 2p 3d
+                2s2 2p 3s     .
+This caveat can probably be ignored if ICON on the G5INP control 
+card is set to two.
+        (c)  G5INP will process sets of configurations in groups such 
+that each group ends when (a) G5INP has already found two parities 
+for a given ion and encounters on unit 2 the first parity again, 
+or (b) it encounters a different element or ionization stage.  For 
+example, if A, B, C, D, and E represent five sets of consecutive 
+configurations, all configurations of a given set belonging to the 
+same ion and parity, and of the following sort (ION = degree of 
+ionization):
+
+        set      Z      ION       parity   
+        ---     --      ---     -----------
+         A      12       9      even
+         B      12       9      odd
+         C      12       9      even
+         D      14       9      even or odd
+         E      14       7      even or odd
+
+then A and B will be processed together (including calculation of 
+radial dipole integrals), but C, D, and E will each be processed 
+individually.  If for some reason one had desired that A and B 
+also be processed individually (or that the set C be processed as 
+two separate subsets), this could have been accomplished by 
+separating A and B (or the two subsets of C) by, say, the set E or 
+by some single dummy configuration with Z=12 and/or ION=9.
+        The calculational procedure is as follows:
+        (1)  Disk unit 2 ("tape2n") is searched to find a group of 
+consecutive configurations of the type described above--all having 
+the same Z and same ION, and of at most two non-interleaved 
+parities.  (With current dimensions, the maximum number of 
+configurations in any one group is 90.)
+        (2)  The configurations of the first parity are copied onto 
+disk unit 31, and those of the second parity (if any) are copied 
+onto unit 32.  (This is done to reduce disk search times after 
+rewinding in the case of configuration sets D, E, ... far from the 
+beginning of the file on disk unit 2.)
+        (3)  All subshells lw that are full (w=4l+2) in all 
+configurations of the group are ignored.  The remaining subshells 
+in the various configurations are ascertained, and arranged 
+according to the requirements of RCG.
+        (4)  The RCG control card is "punched" (ie, written on file 
+11--external name "out2ine"); this card contains the total number 
+of subshells and the number of configurations of each parity 
+[NSCONF(2,K)], among other things.
+        (5)  The l and w values are punched for each configuration.  
+[The configuration label and total binding energy (in units of 
+1000 cm-1) are also punched, though this information is not used 
+by RCG.]
+        (6)  The single-configuration parameter values VPAR supplied 
+by RCN (via disk 2) are rearranged if necessary [see the remark in 
+Sec. C(a) above], scaled by the factors FACT, and punched.  [First 
+parity only]
+        (7)  Parameter values Rk for all possible configuration 
+interactions are computed with the aid of calls to SLI2, and 
+punched.  [First parity]
+        (8)  If the value of IQUAD so indicates, values of the 
+electric quadrupole reduced matrix element P(2)ll' [or of the 
+appropriate spherical Bessel function, if IGEN (column 33 of the 
+G5INP control card) <= 5] are computed via calls to DIP and punched.  
+[First parity]
+        (9)  If configurations of both parities are present, (6)-(8) 
+are repeated for the second parity, and then values of the 
+electric dipole reduced matrix element [or of the spherical Bessel 
+function] are computed via calls to DIP and punched.
+        (10)  A card with "-99999999." in columns 21-30 is punched to 
+provide the "end" card for an RCG calculation.  (If the value of 
+NCMAX is non-zero, a similar card with fives instead of nines is 
+punched first.)
+        (11)  Disk unit 2 is searched to see if there exist 
+additional configurations.  If so, items (2)-(10) are repeated for 
+each remaining group of configurations.  [If the new group of 
+configurations is identical with the preceding set so far as the 
+liwi are concerned, then ICTC=1 is punched in column 78 of the RCG 
+control card and step (5) above omitted, so that RCG will not 
+waste time repeating the calculation of quantum numbers and 
+angular matrix elements--see the RCG writeup, SEC. IV(4)(A).]
+        (12)  When unit 2 has been exhausted, a return is made to the 
+main program, and a new RCN2 control card is read and processed.  
+(This feature could, for example, be used to run RCG with two 
+different sets of scale factors by including two G5INP control 
+cards.)  A final "control card" containing a negative number in 
+columns 8-10 results in an exit from RCN2 (after writing to file 
+11 an RCG exit card--a card with a negative number in columns 1-
+5).
+      Note:  The identification labeling that RCN2 provides on the 
+configuration-interaction-parameter cards consists of whatever 
+appears in columns 17-25 of the two RCN configuration-definition 
+cards involved.  For maximum legibility, it is suggested that 
+these latter cards contain (insofar as possible) the element and 
+ion stage in columns 11-16 and the configuration label in columns 
+17-25 (or, even better, in columns 17-24, because of some eight-
+character limitations in labeling in RCE).
+
+
+D. Input/output units
+        Data input and output are via units 10 and 9 (external names 
+IN2 and OUT2), respectively.  In addition, disk unit 2 (external 
+name TAPE2N) is used for input wavefunctions from RCN or HF8, and 
+unit 11 (external name OUT2ING) is used for the output file that 
+will be the input file for RCG.  Disk units 31 and 32 are used for 
+scratch storage in the manner described earlier.
+
+
+E. Output
+        Output includes the ASCII file OUT2ING on unit 11 ready to 
+be used directly as input to program RCG.  Such a file may be used 
+without change (except for the name change to ING11) or it may be 
+modified by hand in various obvious ways.  For example, the print 
+options in columns 66-70 of the RCG control card may be modified; 
+if one wishes to add or delete calculation of magnetic dipole 
+spectra, that can be done simply by changing column 49 
+appropriately; if configurations of both parity were included in 
+the RCN/RCN2 run but one wishes to include only the first parity 
+in the RCG calculation, it is only necessary to insert zeroes in 
+columns 16-20 of the control card, and delete all configuration-
+definition and parameter-value cards for the second parity, and 
+remove all electric dipole cards; if one wishes to make the RCG 
+calculation in the JJ- rather than LS-coupling representation, 
+column 5 of the control card can be changed from 1 to 2; etc.
+        Parameter values in file OUT2ING are always in kK (units 
+of 1000 cm-1).  Decimal points are usually omitted to provide an 
+extra column to obtain an additional significant figure; values 
+are read in RCG (subroutine ENERGY) with a format such that the 
+implied decimal point lies between columns 5 and 6 of the 10-digit 
+parameter field.  (Note: The tenth digit is not actually part of 
+the parameter value, but is rather a code number that indicates 
+the type of parameter--see Sec. X of the RCG writeup.)
+        In addition to the file 11 output, all information in this 
+file is also printed via the output file 9 (OUT2), as is some 
+additional detail regarding the calculation of the Rk and the 
+P(k)ll' .
+
+
+
+F. Plane-wave-Born calculations in RCG
+        Input for plane-wave-Born collision-strength calculations 
+via program RCG is prepared when column 33 of the G5INP control card
+of RCN2 is greater than 4.  In this case, certain columns of the 
+control card are interpreted differently from the manner indicated 
+in Sec. IV-B:
+
+      cols    format   variable           normal value
+     -----    ------   --------    -------------------------------                          
+     23-25      I3      NBIGKS     41 or blank  (default=41)
+     26-27      I2      NENRGS     blank  (default=21)
+      33        I1      IGEN       9  (or as desired for RCG input)
+      34        I1      IRNQ       (default=0)
+      35        I1      IRXQ       (default=IRNQ)
+      36        I1      IRND       (default=1)
+      37        I1      IRXD       (default=IRND)
+      50        I1      IQUAD   
+      73        I1      ICON       0
+      75        I1      IDIP       0
+
+After interpretation of the above information, columns 22-29 are 
+in effect reset to blanks, and then columns 22-50 transferred 
+directly on to the RCG control card just as when column 33 is less 
+than 5; ICON and IDIP are also ultimately reset to zero.
+        The amount of printed output in RCG for IGEN > 4 is smaller 
+the larger the value of IGEN; the value IGEN=9 is recommended. The 
+effect within RCN2 is the same for any value IGEN > 4, and is to 
+cause matrix element
+           < l || jt(Kr) C(t) || l' >
+of the spherical Bessel function jt(Kr) to be computed in DIP 
+instead of the electric multipole reduced matrix element
+           < l || rt C(t) || l' >    ;
+see TASS, Secs. 18-12 and 18-13 for details.  Calculations will be 
+made for
+           t = IRNQ, IRNQ+2, ... , IRXQ
+in the case of parity-conserving excitations (called for by 
+IQUAD=0 in the usual fashion), and/or for
+           t = IRND, IRND+2, ... , IRXD
+in the case of parity-changing excitations, at NBIGKS different 
+values of the momentum transfer K.  The values of IRNQ and IRXQ 
+must be even integers covering the range of values of  t  needed 
+for all parity-conserving excitations included in the present 
+calculation, as specified by NCK(1) [default=1 when IGEN > 4] and 
+NCK(2); similarly, ICND and IRXD are odd integers covering the 
+range needed for all parity-changing excitations.  [Note:  For 
+intra-configuration excitations, calculations are made 
+(incorrectly in some cases, just as for electric quadrupole 
+radiative transitions) for a given partially filled subshell only 
+if there exists no other less-tightly-bound, non-s, partially 
+occupied orbital.]
+        The values of K are equally spaced on a logarithmic scale, 
+covering an energy-transfer range from 10-3 Ry to 4.4*XMAX*ENMAX, 
+where ENMAX is the difference between the highest and lowest 
+values of Eav [or is the value of VPAR(2) if there is only one 
+configuration present].  Values of collision strength are to be 
+computed in RCG at NERGS values of X=E/(delE) on a logarithmic mesh 
+from XMIN to XMAX, where E is the kinetic energy of the impacting 
+electron, DE is the excitation energy, and
+
+                1.01       if ICON=0
+                1.1        if ICON=1
+        XMIN =  ICON       if ICON=2 to 8
+                10         if ICON=9
+
+                100        if IDIP=0
+                20         if IDIP=1
+        XMAX =  100*IDIP   if IDIP=2 to 8
+                1000       if IDIP=9
+
+
+
+G. Photoionization and autoionization calculations in RCG
+        Calculation of photoionization cross sections can be carried 
+out in RCG in various ways.  The value of IDIP in column 75 of the 
+RCN2 G5INP control card needs to be chosen appropriate to the 
+method to be used in RCG.  In one method (appropriate only if all 
+configuration interactions involving continuum configurations may 
+be neglected), IDIP should be eight.  In another method (in which 
+all interactions are to be retained, with no necessity for 
+handwork in the preparation of input to RCG), IDIP should be equal 
+to seven; the kinetic energies of the free electron in the various 
+continuum configurations then need to be chosen judiciously, and 
+RCN2 will modify the various Rk and radial multipole integrals in 
+a manner appropriate to the energy spacings between successive 
+configurations of each Rydberg series.
+        If detailed autoionization calculations (by perturbation 
+methods) are to be made in RCG, then IDIP should be nine.  In this 
+case, RCN2 will modify Eav for continuum configurations to 
+appropriate large negative values, and will set to zero all 
+continuum-continuum Rk and all radial multipole integrals 
+involving a continuum configuration.
+        See Sec. IVB above--for further details, see the RCG program 
+writeup.
+
+
+
+H. Storage requirements
+        Storage requirements for up to 90 configurations of given IZ 
+and ION, 20 orbitals per configuration (so far as the information 
+written on unit 2 is concerned), and 561 or 1801 mesh points are, 
+for the CRAY-1, about as follows (number of 64-bit words, octal):
+
+   FORTRAN code  (2 to 4 instructions/word)     16K        16K
+   Utility/library                              46K        46K
+   Data storage                                130K       234K
+                                               ----       ----
+           Total   (excluding I/O buffer)      214K       320K
+
+On a Macintosh Centris, execution requires a minimum RAM of about 
+1.5 Mbytes.
+
+
+I. Conversion to other computers
+        Conversion problems to other computers should be minor, 
+in the same manner discussed for program RCN36 (Sec. II-N).   
+Except for the calculation of values of delEav, double-precision 
+calculations  are probably not really necessary, but floating-
+point variables have to be defined consistently with RCN because 
+of the binary information passed from RCN to RCN2 via TAPE2N.)
+        If plane-wave-Born calculations are of no interest, 
+subroutine SBESS can be deleted and the dimension KBGKS reduced to 
+unity, thus reducing data storage requirements by about 14K octal 
+words.
+
+
+
+
+
+
+V. PROGRAM USAGE AND EXAMPLE
+
+
+A. Execution
+        At Los ALamos, an RCN/RCN2 calculational session might go as 
+follows:
+        (1)  Assuming that one is going to be running on a CRAY, get 
+RCN and RCN2 executable files, and sample IN36 and IN2 input 
+files, from the common file system (CFS):  These are present in 
+the directory /045706 with names rcn.out, rcn2.out, etc., and, 
+for rcg11 runs, rcg.out, tape72, tape73, and tape74.
+        (2)  Edit any desired changes into the RCN control card (eg, 
+change to desired values of IREL, CORRF, IW6, etc.).
+        (3)  Following the control card, type in the desired 
+configuration cards, followed by an exit card (-1 in columns 4-5).
+        (4)  Make any desired changes in the RCN2 G5INP control card.
+        (5)  Execute RCN and then RCN2.
+        (6)  Ship desired output (OUT36 and OUT2) to the printer, 
+save any desired files on the common file system, and destroy 
+unwanted files (such as TAPE2N and TAPE4).  The name of the RCN2 
+output file OUT2ING can be changed to ING11, ready for use as 
+input to an RCG calculation.
+
+        The source programs rcn.f, rcn2.f, and rcg.f are available on
+the cfs, and are also available by anonymous ftp:
+The three source files (SUN versions) and various sample input data
+files have been placed in a public ftp directory
+             ftp/pub/cowan
+on the Los Alamos t4 network, and can be accessed by anyone
+having an FTP facility, in the following way:
+      type       ftp t4.lanl.gov
+When asked for sign-on name, use       anonymous
+(with no blank spaces, only a return after the word "anonymous",)
+and for password use your e-mail address.
+Then type        cd pub/cowan
+                 ls         (to list file names)
+and get each file in turn by typing
+                 get (file name)
+or type          mget *
+and then answer y for each file presented by the interactive query.
+Use control-D or bye to exit from ftp.
+        For use on a CRAY, VAX, or IBM, in each of the three programs
+modify the timing routine SUBROUTINE SECONDS by commenting out the
+SUN section and uncommenting the appropriate section.
+        For a first RCG calculation, use ing11k (renamed ing11)
+as input in order to calculate binary files TAPE72, TAPE73, and TAPE74
+for subsequent RCG calculations; this input file contains all cfp
+decks that can be used in RCG with the dimensions provided.  The file
+CFP includes additional cfp decks (for f5, f6, f7, f8, f9, and f10),
+but these can be used in RCG only if numerous dimensions are increased
+appropriately, as described by comment cards in the RCG source
+program, lines 75 to 95; the file rcglg.f is such a large-dimension
+version.
+
+
+B. Sample input and output
+        Sample RCN36 and RCN2 input files, and output from execution 
+of the two programs follows.
+
+
+
+            Sample RCN input file,  in36
+
+
+333 9    2   10  0.2    5.e-08    1.e-11-2   190    1.0 0.65  0.0  0.0  -6
+    1    1H I   1s      1s
+   19    6K VI  3s2 3p2     3s2 3p2
+   19    6K VI  3p4         3p4
+   19    6K VI  3p 3d       3s2 3p 3d
+   -1
+   29    1Cu I 1s2 4s        1s2 3d10 4s
+   29    1Cu I 1s 4s .1p     1s  3d10 4s 99p  0.1
+   29    1Cu I 1s 4s 1.p     1s  3d10 4s 99p  1.0
+   -1
+   10    1Ne I  2p6         2p6
+   10    1Ne I  2p5 3d      2p5 3d
+   10    1Ne I  2p5 4d      2p5 4d
+   10    1Ne I  2p5 6d      2p5 6d
+   10    1Ne I  2p5 8d      2p5 8d
+   10    1Ne I  2p5 .1d     2p5 99d  0.1
+   10    1Ne I  2p5 .2d     2p5 99d  0.2
+   10    1Ne I  2p5 1.d     2p5 99d  1.0
+   10    1Ne I  2p5 2.d     2p5 99d  2.0
+   -1
+
+The above control card is for long output print (for debugging 
+purposes, for example); for nornal output, use
+
+
+2   9    2   10  0.2    5.e-08    1.e-11-2   190    1.0 0.65  0.0  0.0  -6
+
+
+
+
+
+
+            Sample RCN2 input file,  in2
+
+
+g5inp     000 0.0000          01                  9099909090 0.00     07229
+        -1
+
+
+(The "1" on the control card deletes printing in RCG of 
+eigenvectors in the JJ-coupling representation, and the scale 
+factors of "90" are appropriate for 5- to 10-fold ionized atoms.)
+
+
+
+C. Command-file methods
+        As an alternative to launching each program one at a time, 
+one can use a command file to run each program in turn, with the 
+input files contained within the command file.
+
+
+C1. UNIX command file for running RCN/RCN2/RCG
+        A sample command file for running a three-configuration 
+problem in 5-fold ionized potassium on UNIX machines, including 
+execution of RCG as well as of RCN and RCN2, is the following:
+
+
+#!/bin/csh -f
+rm in36 in2 inputg ing11
+cat << eod36 > in36
+2  -9    2   10  0.2    5.e-08    1.e-11-2   090    1.0 0.65  0.0  0.0   -6
+   19    6K VI  3s2 3p2     3s2 3p2
+   19    6K VI  3p4         3p4
+   19    6K VI  3p 3d       3s2 3p 3d
+   -1
+    1    1H I   1s      1s
+   29    1Cu I 1s2 4s        1s2 3d10 4s
+   29    1Cu I 1s 4s .1p     1s  3d10 4s 99p  0.1
+   29    1Cu I 1s 4s 1.p     1s  3d10 4s 99p  1.0
+   -1
+eod36
+rcn36.out
+cat << eod2 > in2
+g5inp     000 0.0000          00                  9099909090 0.00     07229
+        -1
+eod2
+rcn2.out
+cat << eodg > inputg
+    3     10e-350e05    000005   10.        0 5.0  2.0  1.0  0.5  0.2
+    0                         0000000000           1000.0000
+eodg
+cat inputg out2ing >> ing11
+rcg11.out
+cat in36 out36 in2 out2 ing11 outg11 >> out$1
+
+
+        Let us suppose that this command file is named "cosmos", 
+for example.  Any desired input changes can be edited by hand into 
+this file, and then the command      
+
+chmod 777 cosmos
+
+will probably have to be given before it can be executed.  If it 
+is launched by the command
+
+cosmos .KVI
+
+then the final combined output file will be named
+
+out.KVI
+
+
+
+
+
+
+
+C2. UNIX command file for a dielectronic-recombination run, using 
+the DIEL feature:
+
+
+
+#!/bin/csh -f
+rm indiel in36 in2 inputg ing11
+cat << eoddiel > indiel
+2  -9    2   10  0.2    5.e-08    1.e-11-2   090    1.0 0.65  0.0  0.0   -6
+   34   26Se+25 s2 p5       2s2 2p5
+   34   25se+24 s2 p5 9i    2s2 2p5 9i
+   34   25se+24 sp6 9i      2s 2p6 9i
+   -1
+eoddiel
+cat << eod36 > in36
+   -1
+eod36
+rcn36.out
+cat << eod2 > in2
+g5inp     000 0.0000          00                  9099909090 0.00     07229
+        -1
+eod2
+rcn2.out
+cat << eodg > inputg
+    3     10e-350e05    000005   10.        0 5.0  2.0  1.0  0.5  0.2
+    0                         0000000000           1000.0000
+eodg
+cat inputg out2ing >> ing11
+rcg11.out
+cat in36 out36 in2 out2 ing11 outg11 >> out$1
+
+
+
+
+
+
+
+C3. Command file for VMS operating systems analogous to C1:
+
+
+
+$create in36.dat
+2  -9    2   10  0.2    5.e-08    1.e-11-2   090    1.0 0.65  0.0  0.0   -6
+   19    6K VI  3s2 3p2     3s2 3p2
+   19    6K VI  3p4         3p4
+   19    6K VI  3p 3d       3s2 3p 3d
+   -1
+    1    1H I   1s      1s
+   29    1Cu I 1s2 4s        1s2 3d10 4s
+   29    1Cu I 1s 4s .1p     1s  3d10 4s 99p  0.1
+   29    1Cu I 1s 4s 1.p     1s  3d10 4s 99p  1.0
+   -1
+$run rcn36.exe
+$create in2.dat
+g5inp     000 0.0000          00                  9099909090 0.00     07229
+        -1
+$run rcn2.exe
+$create inputg.dat
+    3     10e-350e05    000005   10.        0 5.0  2.0  1.0  0.5  0.2
+    0                         0000000000           1000.0000
+$copy inputg.dat,out2ing.dat ing11.dat
+$run rcg11.exe
+$copy in36.dat,out36.dat,in2.dat,out2.dat,ing11.dat,outg11.dat  'P1'.dat
+
+
+
+If this file is named "cosmos.com"
+and launched via
+
+@cosmos KVI
+
+then the combined output file will be named  KVI.dat
+
+D. Sample monitor screen output
+
+D1. Output from RCN run for K VI
+     SCF iteration information written in subroutine rcn, formats 37 and 55;
+Eav (in rydbergs) and Coulomb and spin-orbit radial integrals (in units of
+1000/cm) written in subroutine rcn3s, format 58; times printed in subroutine
+rcn, format 85 (for a Macintosh Centris 650).
+
+it  time   delta  idel kut itp  1s   2s   2p   3s   3p  
+                                2.   2.   6.   2.   2.
+ 1  1.57  4.744663 141  0   1  0.40 0.00 0.00 0.00 0.00
+ 2  2.70  2.327262 144  0   1  0.40 0.00 0.00 0.00 0.00
+ 3  3.85  0.790523 146  0   1  0.50 0.00 0.00 0.00 0.00
+ 4  4.95  0.188284 147  0   2  0.62 0.62 0.62 0.62 0.62
+ 5  6.80 -0.031513 117 -1   2  0.62 0.62 0.62 0.62 0.62
+ 6  8.12  0.008342 252 -1   3  0.62 0.94 0.94 0.94 0.94
+ 7  9.37  0.002091 127 -1   4  0.42 0.94 0.94 0.94 0.94
+ 8 10.58 -0.000486 128 -1   5  0.63 0.94 0.94 0.94 0.94
+ 9 11.75  0.000110  64 -1   6  0.94 1.00 0.63 1.00 1.00
+10 12.93 -0.000012 168 -1   7  0.94 1.00 0.63 0.67 0.67
+11 14.05 -0.000003 202 -1   8  0.94 1.00 0.94 1.00 0.67
+12 15.12  0.000000 164 -1   9  0.94 1.00 0.94 1.00 0.67
+13 16.17  0.000000 196 -1  10  0.94 1.00 1.00 1.00 1.00
+14 17.20  0.000000 199 -1  11  0.94 1.00 1.00 1.00 1.00
+Eav & pars     3  -1187.7217 0 84.5526 1  1.7868 2
+finished  K VI  3p2       at   t(run)= 26.57,    t(job)=  26.57 seconds
+
+
+it  time   delta  idel kut itp  1s   2s   2p   3p  
+                                2.   2.   6.   4.
+ 1  0.93 -0.187125 172  0   1  0.40 0.00 0.00 0.00
+ 2  1.57 -0.088873 173  0   1  0.40 0.00 0.00 0.00
+ 3  3.07  0.012388 112 -1   2  0.50 0.50 0.50 0.50
+ 4  4.07  0.030905 172 -1   3  0.75 0.75 0.75 0.75
+ 5  5.10  0.003080 248 -1   4  0.80 0.80 0.80 0.80
+ 6  6.05  0.000440 251 -1   5  0.80 0.80 0.80 0.80
+ 7  6.97  0.000077 251 -1   6  0.80 0.80 0.80 0.80
+ 8  7.87  0.000014 252 -1   7  0.80 0.80 0.80 0.80
+ 9  8.70  0.000003 252 -1   8  0.80 0.80 0.80 0.80
+10  9.53  0.000000 253 -1   9  0.80 0.80 0.80 0.80
+11 10.37  0.000000 253 -1  10  0.80 0.80 0.80 0.80
+12 11.20  0.000000 253 -1  11  0.80 0.80 0.80 0.80
+Eav & pars     3  -1184.5862 0 84.1596 1  1.7842 2
+finished  K VI  3p4       at   t(run)= 14.50,    t(job)=  41.07 seconds
+
+
+it  time   delta  idel kut itp  1s   2s   2p   3s   3p   3d  
+                                2.   2.   6.   2.   1.   1.
+ 1  1.52 -0.089080 261  0   1  0.40 0.00 0.00 0.00 0.00 0.00
+ 2  2.42 -0.050812 262  0   1  0.40 0.00 0.00 0.00 0.00 0.00
+ 3  4.78  0.045897 170 -1   2  0.50 0.50 0.50 0.50 0.50 0.50
+ 4  6.45  0.032785 171 -1   3  0.75 0.75 0.75 0.75 0.75 0.75
+ 5  8.12  0.004219 254 -1   4  0.75 1.00 0.75 1.00 1.00 1.00
+ 6  9.65 -0.000521 116 -1   5  1.00 1.00 1.00 1.00 1.00 1.00
+ 7 11.13  0.000177 127 -1   6  1.00 1.00 1.00 1.00 1.00 1.00
+ 8 12.63 -0.000039 129 -1   7  1.00 0.67 0.67 0.67 0.67 0.67
+ 9 14.12 -0.000005 129 -1   8  0.67 0.67 0.67 0.67 0.67 0.67
+10 15.47 -0.000001 128 -1   9  1.00 0.67 0.67 0.67 0.67 0.67
+11 16.83  0.000000 122 -1  10  1.00 1.00 0.67 0.67 0.67 0.67
+12 18.18  0.000000 197 -1  11  1.00 1.00 0.44 0.67 0.67 0.44
+Eav & pars     6  -1185.6150 0  1.8036 2  0.0893 2 79.7522 3 98.1593 4
+ 61.2455 4
+finished  K VI  3p 3d     at   t(run)= 29.77,    t(job)=  70.83 seconds
+
+STOP (normal exit)
+
+
+D2. Output from RCN diel run for Se+24
+
+
+it  time   delta  idel kut itp  1s   2s   2p  
+                                2.   2.   5.
+ 1  0.75  7.676686 112  0   1  0.40 0.00 0.00
+ 2  1.25  4.506158 113  0   1  0.40 0.00 0.00
+ 3  1.68  2.125476 118  0   1  0.50 0.00 0.00
+ 4  2.08  0.726287 124  0   1  0.62 0.00 0.00
+ 5  2.63  0.151054 127 -1   2  0.78 0.78 0.78
+ 6  3.15 -0.008178  89 -1   3  0.52 0.78 0.52
+ 7  3.63 -0.003905  89 -1   4  0.78 0.78 0.78
+ 8  4.08 -0.000538  88 -1   5  0.78 1.00 0.78
+ 9  4.52 -0.000080  88 -1   6  1.00 1.00 0.78
+10  4.95 -0.000013  87 -1   7  1.00 1.00 0.78
+11  5.37 -0.000002  86 -1   8  1.00 1.00 0.78
+12  5.75  0.000000  85 -1   9  1.00 1.00 1.00
+13  6.15  0.000000  88 -1  10  1.00 1.00 1.00
+14  6.53  0.000000  92 -1  11  1.00 1.00 1.00
+Eav & pars     2  -3925.0252 0232.7731 2
+finished  Se+25 s2 p5     at   t(run)=  8.25,     t(job)=   8.25 seconds
+
+
+it  time   delta  idel kut itp  1s   2s   2p   9i  
+                                2.   1.   6.   1.
+ 1  0.58  2.000002 372  0   1  0.40 0.00 0.00 0.00
+ 2  1.32  1.200001 372  0   1  0.40 0.00 0.00 0.00
+ 3  1.75  0.600001 372  0   1  0.50 0.00 0.00 0.00
+ 4  2.73  0.225000 372 -1   2  0.62 0.62 0.62 0.62
+ 5  3.68 -0.001733  82 -1   3  0.62 0.94 0.94 0.42
+ 6  4.37 -0.001180 279 -1   4  0.94 0.94 0.94 0.63
+ 7  5.02 -0.000660 279 -1   5  0.94 0.94 0.94 0.94
+ 8  5.60 -0.000041 279 -1   6  0.94 0.94 0.94 0.94
+ 9  6.20 -0.000003 279 -1   7  0.94 0.94 0.94 0.94
+10  6.78  0.000000 279 -1   8  0.94 0.94 0.94 0.94
+11  7.37  0.000000 279 -1   9  0.94 0.94 0.94 0.94
+Eav & pars     3  -3918.1048 0  0.0120 2  0.0001 4
+finished  Se+24 sp6 9i    at   t(run)= 10.00,     t(job)=  18.25 seconds
+
+              **********************************************************
+              *  The above two calculations are made to obtain the     *
+              *    kinetic energy of the captured electron, then the   *
+              *    following new file in36 is constructed for an       *
+              *    automatic second RCN calculation, using 99 for the  *
+              *    principal quantum number of a free electron, and    *
+              *    the kinetic energy 6.9204 Ry determined above.      *
+              **********************************************************
+
+2  -5    2   10  1.0    5.e-08    1.e-11-2   190   1.0  0.65  0.0 0.00   -6     
+   34   25Se+24 s2 p5 9i      2s2 2p5 9i                                        
+   34   25Se+24 sp6 9i        2s  2p6 9i                                        
+   34   25Se+24a6.9204h          2s2  2p5 99h     6.9204                        
+   34   25Se+24a6.9204k          2s2  2p5 99k     6.9204                        
+   -1                                                                           
+
+              *****************************************
+              *   Monitor-screen output (continued)   *
+              *****************************************                  
+
+it  time   delta  idel kut itp  1s   2s   2p   9i  
+                                2.   2.   5.   1.
+ 1  1.20  6.956860 108  0   1  0.40 0.00 0.00 0.00
+ 2  2.32  4.073497 109  0   1  0.40 0.00 0.00 0.00
+ 3  3.45  1.904221 114  0   1  0.50 0.00 0.00 0.00
+ 4  4.48  0.646166 121  0   1  0.62 0.00 0.00 0.00
+ 5  6.02  0.128668 125 -1   2  0.78 0.78 0.78 0.78
+ 6  7.47 -0.007808  89 -1   3  0.52 0.52 0.52 0.52
+ 7  8.55 -0.004585  91 -1   4  0.78 0.78 0.78 0.78
+ 8  9.57 -0.000778  85 -1   5  0.78 0.78 0.78 1.00
+ 9 10.58 -0.000106  78 -1   6  0.78 0.78 0.78 1.00
+10 11.57 -0.000017  61 -1   7  0.52 1.00 0.78 1.00
+11 12.52  0.000000  90 -1   8  0.78 1.00 0.78 0.67
+12 13.43  0.000000  87 -1   9  0.78 1.00 1.00 1.00
+13 14.35  0.000000  75 -1  10  0.78 1.00 1.00 1.00
+Eav & pars     6  -3932.7436 0232.7731 2  0.0120 2  0.5703 3  0.0001 4
+  0.0001 4
+finished  Se+24 s2 p5 9i  at   t(run)= 17.63,     t(job)=  17.63 seconds
+
+
+it  time   delta  idel kut itp  1s   2s   2p   9i  
+                                2.   1.   6.   1.
+ 1  0.82  0.067759  91  0   1  0.40 0.00 0.00 0.00
+ 2  1.83  0.116740  87  0   1  0.40 0.00 0.00 0.00
+ 3  3.07  0.056327  88 -1   2  0.50 0.50 0.50 0.50
+ 4  4.18 -0.007341  78 -1   3  0.75 0.75 0.75 0.75
+ 5  5.23 -0.001129  83 -1   4  0.75 1.00 1.00 1.00
+ 6  6.23  0.000142  91 -1   5  1.00 1.00 1.00 1.00
+ 7  7.22 -0.000020  96 -1   6  1.00 1.00 1.00 1.00
+ 8  8.17  0.000002  98 -1   7  0.67 1.00 1.00 0.67
+ 9  9.10  0.000000  56 -1   8  1.00 1.00 1.00 1.00
+10 10.03  0.000000  88 -1   9  0.67 1.00 1.00 0.67
+11 10.95  0.000000  99 -1  10  0.67 1.00 1.00 0.67
+Eav & pars     3  -3918.1048 0  0.0120 2  0.0001 4
+finished  Se+24 sp6 9i    at   t(run)= 14.23,     t(job)=  31.87 seconds
+
+
+it  time   delta  idel kut itp  1s   2s   2p  99h  
+                                2.   2.   5.   1.
+ 1  0.67  1.573332 218  0   1  0.40 0.00 0.00 0.00
+ 2  1.30  0.943982 218  0   1  0.40 0.00 0.00 0.00
+ 3  2.47  0.472029 218 -1   2  0.50 0.50 0.50 1.00
+ 4  3.63 -0.010638  86 -1   3  0.75 0.33 0.33 1.00
+ 5  4.73 -0.009338  90 -1   4  0.75 0.50 0.50 1.00
+ 6  5.83 -0.006180  90 -1   5  0.50 0.75 0.75 1.00
+ 7  6.87 -0.000895  92 -1   6  0.75 0.75 0.75 1.00
+ 8  7.90 -0.000172  90 -1   7  1.00 1.00 0.75 1.00
+ 9  8.93 -0.000027  84 -1   8  1.00 1.00 0.75 1.00
+10  9.95 -0.000007  88 -1   9  1.00 1.00 1.00 1.00
+11 10.93  0.000001  93 -1  10  1.00 1.00 1.00 1.00
+12 11.90  0.000000  99 -1  11  1.00 1.00 1.00 1.00
+13 12.87  0.000000 106 -1  12  1.00 1.00 1.00 1.00
+Eav & pars     6  -3918.1048 0232.7731 2  0.0000 2  0.0000 3  0.0000 4
+  0.0000 4
+finished  Se+24a6.9204h   at   t(run)= 15.63,     t(job)=  47.50 seconds
+
+
+it  time   delta  idel kut itp  1s   2s   2p  99k  
+                                2.   2.   5.   1.
+ 1  1.17**********   1 -1   2  0.40 0.40 0.40 1.00
+ 2  2.37  0.016018  77 -1   2  0.40 0.40 0.40 1.00
+ 3  3.47  0.011961  86 -1   3  0.40 0.60 0.60 1.00
+ 4  4.57  0.005186  85 -1   4  0.27 0.90 0.90 1.00
+ 5  5.65  0.000943  36 -1   5  0.40 0.90 0.90 1.00
+ 6  6.70  0.000392  31 -1   6  0.60 0.90 0.90 1.00
+ 7  7.77  0.000189  33 -1   7  0.90 1.00 0.90 1.00
+ 8  8.77 -0.000051  43 -1   8  1.00 1.00 1.00 1.00
+ 9  9.75  0.000007  44 -1   9  1.00 0.67 1.00 1.00
+10 10.75 -0.000001  43 -1  10  1.00 0.67 0.67 1.00
+11 11.73  0.000000  35 -1  11  1.00 1.00 1.00 1.00
+12 12.70  0.000000  52 -1  12  0.67 1.00 1.00 1.00
+Eav & pars     6  -3918.1048 0232.7731 2  0.0000 2  0.0000 3  0.0000 4
+  0.0000 4
+finished  Se+24a6.9204k   at   t(run)= 15.43,     t(job)=  62.93 seconds
+
+STOP (normal exit)

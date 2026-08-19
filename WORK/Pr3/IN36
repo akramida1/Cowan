@@ -1,0 +1,41 @@
+200-90 0 2  01.  4.0    5.E-08    1.E-11-2 00290 0 1.0  0.65  0.0 1.00   -6
+   59    3Pr2+  4f3              4f3  5p6  5d0       
+   59    3Pr2+  f26p             4f2  5p6  5d0  6s0  6p   
+   59    3Pr2+  f27p             4f2  5p6  5d0  6s0  6p0  6d0  7s0  7p
+   59    3Pr2+  f25f             4f2  5p6  5d0  6s0  6p0  6d0  7s0  5f          
+   59    3Pr2+  f26f             4f2  5p6  5d0  6s0  6p0  6d0  7s0  6f
+   59    3Pr2+  f5d2             4f   5p6  5d2
+   59    3Pr2+  f5d6s            4f   5p6  5d   6s
+   59    3Pr2+  f5d7s            4f   5p6  5d   6s0  6p0  6d0  7s0  7s
+   59    3Pr2+  f5d6d            4f   5p6  5d   6s0  6p0  6d
+   59    3Pr2+  f5d7d            4f   5p6  5d   6s0  6p0  6d0  7s0  7d
+   59    3Pr2+  f6s2             4f   5p6  5d0  6s2
+   59    3Pr2+  f6d2             4f   5p6  5d0  6s0  6p0  6d2
+   59    3Pr2+  f6s7s            4f   5p6  5d0  6s   6p0  6d0  7s0  7s
+   59    3Pr2+  f7s2             4f   5p6  5d0  6s0  6p0  6d0  7s2
+   59    3Pr2+  f6p2             4f   5p6  5d0  6s0  6p2
+   59    3Pr2+  f6p7p            4f   5p6  5d0  6s0  6p   6d0  7s0  7p
+   59    3Pr2+  d6s6p            4f0  5p6  5d   6s   6p     
+   59    3Pr2+  d26p             4f0  5p6  5d2  6s0  6p     
+   59    3Pr2+  6s26p            4f0  5p6  5d0  6s2  6p     
+   59    3Pr2+  6p3              4f0  5p6  5d0  6s0  6p3    
+   59    3Pr2+  f4p5             4f4  5p5     
+   59    3Pr2+  f26s             4f2  5p6  5d0  6s   6p0
+   59    3Pr2+  f27s             4f2  5p6  5d0  6s0  6p0  6d0  7s
+   59    3Pr2+  f28s             4f2  5p6  5d0  6s0  6p0  6d0  7s0  8s
+   59    3Pr2+  f25d             4f2  5p6  5d
+   59    3Pr2+  f26d             4f2  5p6  5d0  6s0  6p0  6d
+   59    3Pr2+  f27d             4f2  5p6  5d0  6s0  6p0  6d0  7s0  7d
+   59    3Pr2+  f25g             4f2  5p6  5d0  6s0  6p0  6d0  7s0  5g
+   59    3Pr2+  f26g             4f2  5p6  5d0  6s0  6p0  6d0  7s0  6g
+   59    3Pr2+  fd6p             4f   5p6  5d   6s0  6p
+   59    3Pr2+  fd7p             4f   5p6  5d   6s0  6p0  6d0  7s0  7p
+   59    3Pr2+  5d3              4f0  5p6  5d3
+   59    3Pr2+  5d26s            4f0  5p6  5d2  6s
+   59    3Pr2+  5d26d            4f0  5p6  5d2  6s0  6p0  6d
+   59    3Pr2+  5d6s2            4f0  5p6  5d   6s2
+   59    3Pr2+  5d6p2            4f0  5p6  5d   6s0  6p2
+   59    3Pr2+  6s6p2            4f0  5p6  5d0  6s   6p2
+   59    3Pr2+  p5f3d            4f3  5p5  5d 
+   59    3Pr2+  p5f3s            4f3  5p5  5d0  6s
+   -1

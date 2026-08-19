@@ -1,0 +1,129 @@
+;-----------------------------------------------------------------------------
+; calc_TP_M1E2.par -- input for calc_TP_M1E2
+;
+; Uncertainties on M1 and E2 transition probabilities, by
+; repeating the RCG calculation with the fitted parameters and
+; the E2 radial integrals displaced within their errors.
+;
+; One parameter per line, as <value> ; <key> <description>. The value is
+; everything left of the first semicolon and the key is the first word after
+; it. A blank value means "use the default". A line starting with a semicolon
+; is a comment, and so is a blank line. Order does not matter.
+;-----------------------------------------------------------------------------
+
+0          ; num_trials
+;             Number of Monte-Carlo trials. Each one is a complete RCG run in
+;             its own subdirectory trial1, trial2, ... and takes as long as
+;             the original did, so this is what sets the cost of the
+;             calculation. 0 reads the unvaried run only and writes the line
+;             list with no statistics at all. A few hundred is enough for a 1%
+;             answer. Unlike the Perl this need not be an even number.
+
+0          ; read_only
+;             Number of trial subdirectories that already hold a finished RCG
+;             run and are only to be read. Use it to add trials to a run that
+;             was interrupted, or to re-do the statistics without re-running
+;             anything: read_only = num_trials reads every trial and runs RCG
+;             not at all. Larger than num_trials is taken as num_trials.
+
+100        ; store_trials
+;             How many individual trial values of A -- and of the cancellation
+;             factor -- are written out beside each transition. The mean and
+;             the standard deviation always use every trial; this is only what
+;             is printed, so that the distribution can be looked at. Larger
+;             than num_trials is taken as num_trials. 0 prints none.
+
+           ; random_seed
+;             Seed for the random number generator, so that a run can be
+;             repeated exactly. Any text will do. Blank draws a fresh seed
+;             from the system, which is what the Perl always did; the seed
+;             actually used is printed at the start of the run.
+
+0.15       ; r2_variance
+;             Fractional standard deviation of the E2 radial transition
+;             integrals -- the //R2// cards at the end of ING11. These are
+;             Hartree-Fock values with no fitted uncertainty of their own, so
+;             this is an estimate of how far a single-configuration HF
+;             integral can be from the truth. 0 leaves them alone.
+
+1          ; vary_fitted_params
+;             1 to vary the RCE parameters that were free in the fit, each
+;             within the standard deviation OUTE gives it. 0 varies only the
+;             E2 integrals, which answers a different question: how much of
+;             the uncertainty comes from the radial integrals alone.
+
+1          ; var_grouped_params
+;             1 to respect the fit's parameter grouping: parameters tied
+;             together in RCE by a shared group flag are displaced by one
+;             common ratio, because the fit determined their ratio and not
+;             their separate values. 0 displaces every parameter on its own,
+;             which overstates the freedom the fit actually had.
+
+0          ; fixed_param_variance
+;             Fractional standard deviation applied to the parameters that
+;             were HELD FIXED in the fit (flag 100), which have no standard
+;             deviation of their own. 0 leaves them alone. Note that this
+;             setting had no effect at all in the Perl -- see the header of
+;             this program.
+
+1          ; merged_list
+;             1 to write one line per transition, with the M1 and E2
+;             contributions added together and the column E2_frac saying what
+;             fraction of the total is E2. 0 writes the M1 list and then the
+;             E2 list separately, one after the other in the same file.
+;             (`$mearged_list` in the Perl.)
+
+0.02       ; min_mixed_fraction
+;             When merging, the smaller of the two multipoles is dropped from
+;             the line and the line keeps the name of the larger one if the
+;             smaller contributes less than this fraction of the total
+;             A-value, allowing two standard deviations. Has no effect when
+;             merged_list = 0.
+
+0.0001     ; min_bf
+;             Transitions with a radiative branching fraction smaller than
+;             this are left out of the list. The branching fraction is the
+;             line's A over the total radiative decay rate of its upper level,
+;             counting only the M1 and E2 channels this run holds.
+
+tp_M1E2.txt; out_file
+;             Name of the tab-separated line list this program writes, in the
+;             working directory. (`$out_tr_file` in the Perl, where it was a
+;             constant in the source and had to be edited for every ion.)
+
+1          ; print_dbf
+;             1 to print the standard deviation of the branching fraction
+;             beside each line. It needs the stored trials, so it is silent
+;             when store_trials = 0.
+
+0          ; print_cf_trials
+;             1 to print the individual trial values of the cancellation
+;             factor as well as those of A. This doubles the width of the file
+;             and is for looking at a suspect line, not for routine use.
+
+1          ; sort_trials
+;             1 to print the stored trial values in ascending order, which is
+;             what a histogram or a percentile wants. WARNING: sorting breaks
+;             the correspondence between the A values, the cancellation
+;             factors and the branching fractions of one and the same trial. 0
+;             keeps them in trial order.
+
+0          ; print_distribution
+;             1 to print, on the terminal, histograms of how far the trials
+;             strayed from the unvaried run -- in ln A, in A, in the
+;             cancellation factor and in the input parameters -- together with
+;             the kurtosis of the input deviations. This is a check that the
+;             sampling itself is sound: a normal distribution has kurtosis 0
+;             by Excel's definition, which is the one used.
+
+1          ; parity_sets
+;             Which RCE parity set to work on. M1 and E2 connect levels of the
+;             same parity, so the two sets are independent and a run may do
+;             either or both. The Perl could only do the first, and labelled
+;             everything it read as belonging to it.
+
+           ; rcg
+;             The RCG executable to run in each trial subdirectory. Blank uses
+;             the one that sits beside this program, which is the arrangement
+;             the .bat files assume. Not used when there are no trials to run
+;             (num_trials = read_only).
