@@ -27,6 +27,31 @@ C    Version of May 8 2018 by A. Kramida includes a fix of several bugs
 C    related to wrong identification of Rydberg series in determination
 C    of the class of configuration interaction.
 C
+C    Version of Aug 2026 by A. Kramida.  Every hard-coded physical
+C    constant in this program -- 13 literals in four routines -- is
+C    replaced by a named parameter from the include file fundconst.f,
+C    which RCN and RCG now share, and the values are brought up to
+C    CODATA 2022.  The affected routines are ZETA2, DIP, SLI2 and
+C    G5INP; each carries "INCLUDE 'fundconst.f'" after its IMPLICIT
+C    card and nothing else.  The substituted names are RINF and RINFKK
+C    (the Rydberg constant, in cm-1 and in 1000 cm-1), ALPH2H
+C    (alpha**2/2, the spin-orbit coefficient) and FOURO3 (4/3).
+C
+C    Unlike RCN36K.F, every literal here already carried a D0 suffix,
+C    so no precision change is involved and the substitution step was
+C    provably a no-op: with fundconst.f holding its legacy values, OUT2
+C    and ING11 are byte-identical for SnVIII, Pr III and Forbid, apart
+C    from the wall-clock timing lines of OUT2.  Only then were the
+C    values updated.
+C
+C    What the update is worth: RINF and RINFKK were 5.18e-08 low and
+C    FOURO3 (4/3 to ten digits) 2.5e-10 low, so the shift contributed
+C    by this program alone is 5.2e-08 relative, and the only larger
+C    figures are single last-digit flips of the print fields, which
+C    ING11 carries to four significant digits.  ALPH2H was 4.05e-05
+C    low -- the same stale fine-structure constant that RCN's zeta1
+C    used.
+C
       IMPLICIT REAL*8 (A-H,O-Z)
       PARAMETER (KBGKS=41,KCASE=100,KM=1801,KO=20)
       PARAMETER (kco=400,KP=KCO+1)
@@ -300,9 +325,14 @@ C
 C
 C          CALCULATE SPIN-ORBIT CONFIGURATION-INTERACTION INTEGRALS
 C
+C          NOTE (Aug 2026).  The ALPH2H and RINF substitutions below
+C          are untested: only a "ZET" card in IN2 reaches this
+C          routine, and it is never used in practice.
+C
 C
 C
       IMPLICIT REAL*8 (A-H,O-Z)
+      INCLUDE 'fundconst.f'
       PARAMETER (KBGKS=41,KCASE=100,KM=1801,KO=20)
       PARAMETER (kco=400,KP=KCO+1)
       DIMENSION PA(KM),PB(KM),PC(KM),PD(KM)
@@ -423,8 +453,8 @@ C
       IF (MM) 534,534,532
   534 S1Z=S1Z+XIF*S2Z
       IF (J-KKK) 530,535,535
-  535 ZETA=2.66246D-5*S1Z
-      ZETAK=ZETA*109737.31D0
+  535 ZETA=ALPH2H*S1Z
+      ZETAK=ZETA*RINF
 C
       WRITE (9,70) HA,HB,ZETA,ZETAK
    70 FORMAT (5X,A3,2X,A3,F11.5,F14.3////)
@@ -441,6 +471,7 @@ C
 C          CALCULATE ELECTRIC DIPOLE OR QUADRUPOLE RADIAL INTEGRALS
 C
       IMPLICIT REAL*8 (A-H,O-Z)
+      INCLUDE 'fundconst.f'
       PARAMETER (KBGKS=41,KCASE=100,KM=1801,KO=20)
       PARAMETER (kco=400,KP=KCO+1)
       DIMENSION PA(KM),PB(KM),PC(KM),PD(KM)
@@ -615,7 +646,7 @@ C            COMPLETE CALCULATION OF INTEGRAL
 C
   400   FRAC=DIPOLE/ABSDIP
         FRAC1=OVERLP/ABSOVR
-        FR1=1.333333333D0*(R(IMAX)-R(IMAX-1))
+        FR1=FOURO3*(R(IMAX)-R(IMAX-1))
         DIPOLE=DIPOLE*FR1
         OVERLP=OVERLP*FR1
         IF (IPWR.EQ.0) DIPOLE=DIPOLE-OVERLP/BIGK
@@ -709,6 +740,7 @@ C
 C          CALCULATE CONFIGURATION-INTERACTION COULOMB INTEGRALS RK
 C
       IMPLICIT REAL*8 (A-H,O-Z)
+      INCLUDE 'fundconst.f'
       PARAMETER (KBGKS=41,KCASE=100,KM=1801,KO=20)
       PARAMETER (kco=400,KP=KCO+1)
       DIMENSION PA(KM),PB(KM),PC(KM),PD(KM)
@@ -1075,7 +1107,7 @@ C                                                                       SLI11510
 C
   650 FRAC(N,N1)=A1/B1
       RRYD(N,N1)=A1
-  700 RKAY(N,N1)=A1*109737.31D0
+  700 RKAY(N,N1)=A1*RINF
 C
 C          OUTPUT
 C
@@ -1175,7 +1207,7 @@ C
    96 FORMAT (/8F10.5)
   979 CONTINUE
       RR1(1,1,1)=A/D
-      AA=109.73731D0*AA/D
+      AA=RINFKK*AA/D
 C
   980 M=0
       DO 981 N1=1,2
@@ -1184,7 +1216,7 @@ C
       IF (ICLASS.EQ.7) N2=3-N1
       DO 981 N=1,NOKE
       M=M+1
-  981 RKAY(M,1)=109.73731D0*RR1(N,N2,1)
+  981 RKAY(M,1)=RINFKK*RR1(N,N2,1)
       N3=(2-N2)*NOKE+1
       M=1
       N=2*NOKD
@@ -1204,7 +1236,7 @@ C
       J=NO+I
       RKAYSC(J)=FACT(5)*RKAY(I,1)*OVFACT
       IF (NCD.NE.NFIRST) GO TO 982
-      RRSC(NCPD,J)=RKAYSC(J)/109.73731D0
+      RRSC(NCPD,J)=RKAYSC(J)/RINFKK
   982 CONTINUE
       N=N+NO
       NP1=N+1
@@ -1223,8 +1255,10 @@ C
       T4=T2-T1
       T5=T3-T2
       T3=T3-T0
-      WRITE (9,9988) NCFG,IREAD,T4,T5,T3
- 9988 FORMAT (3I5,2F10.3,F10.3,4H SEC)
+      WRITE (9,9988) NCFG,IREAD
+ 9988 FORMAT (3I5)
+      WRITE (9,9987) T4,T5,T3
+ 9987 FORMAT (15X,5HTIME=,3F10.3,4H SEC)
       ICLASO=ICLASS
 c      ICLASO=ICLAS1                                                      ! A. Kramida bug fix 5/7/2018
       IF (ICLASS.EQ.0.OR.ICLASS.EQ.6.OR.ICLASS.EQ.11) RETURN            ! A. Kramida bug fix 5/7/2018
@@ -1244,6 +1278,7 @@ C
 C          PUNCH INPUT FOR PROGRAM RCG MOD 11 (DIFFERENT FROM MOD 5-9,12)
 C
       IMPLICIT REAL*8 (A-H,O-Z)
+      INCLUDE 'fundconst.f'
       PARAMETER (KBGKS=41,KCASE=100,KM=1801,KO=20)
       PARAMETER (kco=400,KP=KCO+1)
       DIMENSION NORB(KP),N(25,KP),L0(25,KP),IWW(8),
@@ -1400,7 +1435,7 @@ C
   115 CF1(NC)=CONF(1)
       CF2(NC)=CONF(2)
       CF3(NC)=CONF(3)
-      ETOT(NC)=109.73731D0*VPAR(1)
+      ETOT(NC)=RINFKK*VPAR(1)
       EE(NC)=E(NCSPVS)
       EE8NC(NC)=EE8
       NORB(NC)=NCSPVS
@@ -1671,7 +1706,7 @@ C
         NCONFN(KK)=999
         IF (NC.EQ.1) E1=VPAR(1)
         KPAR(1)=0
-        VPAR(1)=EAV11+109.73731D0*(VPAR(1)-E1)
+        VPAR(1)=EAV11+RINFKK*(VPAR(1)-E1)
         EAV(NC)=VPAR(1)
 C            DETERMINE ENERGY WIDTHS FOR PSEUDO-DISCRETE CONFIGURATIONS
         DEL(NC)=1.D0
@@ -1685,7 +1720,7 @@ C            DETERMINE ENERGY WIDTHS FOR PSEUDO-DISCRETE CONFIGURATIONS
         IF (ZC.LE.0.D0) ZC=1.D0
         FN=99.D0
         IF (E(NCSPVS).LT.0.D0) FN=ZC/DSQRT(-E(NCSPVS))
-        DEL0=109.73731D0
+        DEL0=RINFKK
         IF (FN.EQ.99.D0) GO TO 203
         DEL0=2.D0*DEL0*(ZC**2)/(FN**3)
         IF (NC.EQ.NFIRST) GO TO 1202
@@ -1697,7 +1732,7 @@ C            DETERMINE ENERGY WIDTHS FOR PSEUDO-DISCRETE CONFIGURATIONS
         VPAR1=VPAR(1)
         READ (IC) NT2,LT2,WT2,NCSPVS,VPAR(1)
         BACKSPACE IC
-        EAVP1=EAV11+109.73731D0*(VPAR(1)-E1)
+        EAVP1=EAV11+RINFKK*(VPAR(1)-E1)
         NCSPVS=NCS1
         VPAR(1)=VPAR1
         IF (EAVP1.LE.EAV(NC)) GO TO 206
@@ -1712,7 +1747,7 @@ C            DETERMINE ENERGY WIDTHS FOR PSEUDO-DISCRETE CONFIGURATIONS
         READ (IC) NT2,LT2,WT2,NCSPVS,VPAR(1)
         BACKSPACE IC
         IB=LT2(NCSPVS)
-        EAVP1=EAV11+109.73731D0*(VPAR(1)-E1)
+        EAVP1=EAV11+RINFKK*(VPAR(1)-E1)
         NCS2=NCSPVS
         NCSPVS=NCS1
         VPAR(1)=VPAR1
@@ -2167,7 +2202,7 @@ C
         IF (EA.GT.EHI) EHI=EA
  1402   CONTINUE
         IF (EHI.LE.ELO) EHI=ELO+VPAR(2)
-        ENMAX=(EHI-ELO)/109.73731D0
+        ENMAX=(EHI-ELO)/RINFKK
         ENMAX=ENMAX*1.1D0*XMAX
         IF (ENMAX.LT.0.001D0) STOP 140
         EKMAX=2.D0*DSQRT(ENMAX)
@@ -2292,7 +2327,7 @@ C
   500 CALL SECONDS(T)
       T=T-T0
       WRITE (9,50) T
-   50 FORMAT (//20X,10H-99999999.,10X,2HT=,F7.3,4H SEC)
+   50 FORMAT (//20X,10H-99999999.,10X,5HTIME=,F7.3,4H SEC)
       IF (NOCSET.LT.0) WRITE (11,51)
    51 FORMAT (20X,10H-55555555.,49X,1H )
       WRITE (11,52)

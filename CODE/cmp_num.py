@@ -14,9 +14,12 @@ Usage:
     cmp_num [options] OLDFOLDER NEWFOLDER
 
 With two folders, every file present in both is compared, by the name it
-has in OLD.  Fortran unformatted files (TAPE1, TAPE2N) cannot be
-tokenized and get an md5 answer instead -- identical, or differing by an
-amount this tool cannot quantify.  They are never silently skipped.
+has in OLD.  A Fortran unformatted file cannot be tokenized, so it is
+handled by record layout where one is known and by md5 where none is:
+TAPE2N is read with `toolbox/tape2n.py` and compared field by field like
+a text file, and anything else unformatted gets an md5 answer instead --
+identical, or differing by an amount this tool cannot quantify.  Neither
+kind is ever silently skipped.
 
 Options:
 
@@ -150,7 +153,7 @@ def main(argv):
                                        rtol=options['rtol'],
                                        atol=options['atol']))
             print('')
-        if report.binary:
+        if report.binary and not report.layout:
             if report.binary_same:
                 summary.append('%-16s unformatted, md5 identical' % name)
             else:

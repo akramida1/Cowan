@@ -58,6 +58,18 @@ def test_d_is_an_exponent_only_when_asked_for():
     assert texts('4d7', d_exponents=True) == ['4d7']
 
 
+def test_a_true_jj_basis_label_does_not_overflow_to_infinity():
+    """`232E1518` is a basis-state label, not 232e1518.  Read as a number
+    it is +Inf, and Inf-Inf in `deviation` is a NaN that took down a whole
+    Pr III OUTG11 comparison.  An exponent is at most three digits, so the
+    E spelling now tokenizes exactly as the D spelling beside it."""
+    assert texts('  230D1518  232E1518') == ['230', '232']
+    assert texts('  230D1518  232E1518', d_exponents=True) == ['230', '232']
+    assert cmpnum.tokenize('232E1518')[1] == [232.0]
+    assert texts('4.18E+03') == ['4.18E+03']
+    assert texts('1.0E-105') == ['1.0E-105']
+
+
 def test_the_1pe_fields_of_the_transition_list():
     line = ('    1    -29.947  4.5  1 (4F) 4F      418.430    238.989  '
             '-1.485 3.821E+09  0.09     1')

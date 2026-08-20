@@ -15,7 +15,7 @@ import pytest
 
 import calc_TP_M1E2
 from calc_TP_M1E2 import Lev, Row, Transition
-from conftest import CODE, WORK, case
+from conftest import CODE, EXECUTABLES, WORK, case
 from toolbox import ing11, parfile, radiate, rce, vacair
 
 
@@ -234,16 +234,14 @@ def test_the_r_integrals_move_by_the_fraction_asked_for():
 # one whole run
 # --------------------------------------------------------------------------
 
-#: The four programs, spelled the way each platform's build leaves
-#: them: gfortran is told `-o NAME.exe` on Windows and `-o NAME` on
-#: Unix.  A missing one skips the whole end-to-end test.
-PROGRAMS = ('RCN36K', 'RCN2K', 'rcg11kd', 'RCE20KD')
-SUFFIX = '.exe' if os.name == 'nt' else ''
-EXECUTABLES = tuple(name + SUFFIX for name in PROGRAMS)
-
-
-def build(folder, ispecc=None):
+def build(folder, code, ispecc=None):
     """RCN, RCN2, RCG, RCE over WORK/Forbid's two input cards.
+
+    `code` is the `cowan_code` fixture: the directory the permanent
+    files are in, cfp decks and all.  The programs are run from CODE/
+    but COWAN.CFG names that directory instead, because RCG creates
+    FOR072, FOR073 and FOR074 wherever COWAN.CFG points and nothing may
+    write into CODE/.
 
     `ispecc` overwrites column 72 of the IN2 main card, which chooses
     which of RCG's three line sorts are printed and so which layout the
@@ -253,9 +251,6 @@ def build(folder, ispecc=None):
     source = WORK / 'Forbid'
     if not source.is_dir():
         pytest.skip('WORK/Forbid is not present')
-    for name in EXECUTABLES:
-        if not (CODE / name).is_file():
-            pytest.skip('%s is not built' % name)
     folder.mkdir(parents=True, exist_ok=True)
     for name in ('IN2', 'IN36'):
         shutil.copyfile(source / name, folder / name)
@@ -264,7 +259,7 @@ def build(folder, ispecc=None):
         card = deck[0].rstrip('\r')
         deck[0] = card[:71] + str(ispecc) + card[72:] + '\r'
         (folder / 'IN2').write_text('\n'.join(deck), newline='')
-    (folder / 'COWAN.CFG').write_text(str(CODE) + os.sep + '\n')
+    (folder / 'COWAN.CFG').write_text(str(code) + os.sep + '\n')
     for name in EXECUTABLES:
         done = subprocess.run([str(CODE / name)], cwd=str(folder),
                               capture_output=True, text=True)
@@ -278,8 +273,8 @@ def columns(path):
             path.read_text().rstrip('\n').split('\n')]
 
 
-def test_a_whole_run_with_no_trials(tmp_path):
-    folder = build(tmp_path)
+def test_a_whole_run_with_no_trials(tmp_path, cowan_code):
+    folder = build(tmp_path, cowan_code)
     assert calc_TP_M1E2.main([str(folder)]) == 0
     table = columns(folder / 'tp_M1E2.txt')
     head, body = table[0], table[1:]
@@ -302,7 +297,7 @@ def test_a_whole_run_with_no_trials(tmp_path):
         assert float(row[11]) == pytest.approx(wanted, abs=5e-5)
 
 
-def test_a_wavelength_sorted_run_gives_the_same_table(tmp_path):
+def test_a_wavelength_sorted_run_gives_the_same_table(tmp_path, cowan_code):
     """ISPECC = 4 prints the wide layout and nothing else.
 
     Column 72 of the main card chooses the sorts: 4 asks for the
@@ -312,8 +307,8 @@ def test_a_wavelength_sorted_run_gives_the_same_table(tmp_path):
     prints F11.4 energies and an E11.4 gA where the Lund layout prints
     F11.3 and E10.3.
     """
-    lund = build(tmp_path / 'lund', ispecc=2)
-    wide = build(tmp_path / 'wide', ispecc=4)
+    lund = build(tmp_path / 'lund', cowan_code, ispecc=2)
+    wide = build(tmp_path / 'wide', cowan_code, ispecc=4)
     for folder in (lund, wide):
         assert calc_TP_M1E2.main([str(folder)]) == 0
 
@@ -330,10 +325,16 @@ def test_a_wavelength_sorted_run_gives_the_same_table(tmp_path):
         assert float(row[15]) == pytest.approx(float(two[key][15]), rel=2e-3)
 
 
-def test_a_whole_run_with_trials_is_repeatable(tmp_path):
-    folder = build(tmp_path)
+def test_a_whole_run_with_trials_is_repeatable(tmp_path, cowan_code,
+                                               cowan_rcg):
+    folder = build(tmp_path, cowan_code)
+    # The trials run RCG themselves, and it is the copy of it that has
+    # to be run: run_rcg writes COWAN.CFG naming the directory the
+    # executable sits in, so the one in CODE/ would put the cfp decks
+    # back there.
     parfile.write(folder / calc_TP_M1E2.PAR_FILE, calc_TP_M1E2.SPECS,
-                  {'num_trials': 2, 'store_trials': 2, 'random_seed': 'test'})
+                  {'num_trials': 2, 'store_trials': 2, 'random_seed': 'test',
+                   'rcg': str(cowan_rcg)})
     assert calc_TP_M1E2.main([str(folder)]) == 0
     first = (folder / 'tp_M1E2.txt').read_text()
     head = columns(folder / 'tp_M1E2.txt')[0]
@@ -346,16 +347,17 @@ def test_a_whole_run_with_trials_is_repeatable(tmp_path):
     (folder / calc_TP_M1E2.PAR_FILE).unlink()
     parfile.write(folder / calc_TP_M1E2.PAR_FILE, calc_TP_M1E2.SPECS,
                   {'num_trials': 2, 'store_trials': 2, 'random_seed': 'test',
-                   'read_only': 2})
+                   'read_only': 2, 'rcg': str(cowan_rcg)})
     assert calc_TP_M1E2.main([str(folder)]) == 0
     assert (folder / 'tp_M1E2.txt').read_text() == first
 
 
 def test_the_trial_decks_differ_from_the_original_only_in_the_r2_cards(
-        tmp_path):
-    folder = build(tmp_path)
+        tmp_path, cowan_code, cowan_rcg):
+    folder = build(tmp_path, cowan_code)
     parfile.write(folder / calc_TP_M1E2.PAR_FILE, calc_TP_M1E2.SPECS,
-                  {'num_trials': 1, 'store_trials': 1, 'random_seed': 'deck'})
+                  {'num_trials': 1, 'store_trials': 1, 'random_seed': 'deck',
+                   'rcg': str(cowan_rcg)})
     assert calc_TP_M1E2.main([str(folder)]) == 0
     original = (folder / 'ING11').read_text().split('\n')
     trial = (folder / 'trial1' / 'ING11').read_text().split('\n')

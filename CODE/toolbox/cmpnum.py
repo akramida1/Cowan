@@ -29,6 +29,11 @@ Four things about the tokenizer are decisions rather than details:
     only where it does not follow a letter, so a configuration label
     cannot be silently reinterpreted as a number and compared as one.
 
+  * **An exponent is at most three digits**, which is all the E and D
+    edit descriptors ever write.  Without that limit the true-jj
+    basis-state label `232E1518` reads as 232e1518 = Inf, and a pair of
+    them makes a NaN.
+
   * **Only `E` is an exponent letter, not `D`.**  No output file this
     package writes contains a `D` exponent -- checked across OUTG11,
     OUT36, OUT2, OUTGINE and TAPE2E -- while `4d7` and its kind are
@@ -58,6 +63,7 @@ them so they are visible rather than silent.
 
 import hashlib
 import math
+import os
 import re
 
 #: Lines whose numbers are wall-clock time and never compare equal.
@@ -83,9 +89,23 @@ DEFAULT_IGNORES = (
 _NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 _LABEL = r'[A-Za-z_][A-Za-z0-9_]*'
 
-_NUMBER_E = re.compile(r'(?P<num>' + _NUM + r'(?:[Ee][+-]?\d+(?![A-Za-z]))?)'
+# An exponent is at most three digits.  Fortran's E and D edit descriptors
+# write E+dd or E+ddd and nothing wider -- when a three-digit exponent
+# will not fit the field they drop the letter instead, which is the
+# bare-sign form dealt with above.  So a letter followed by four or more
+# digits is not an exponent, and the guard has to say so: the true-jj
+# basis-state labels in `OUTG11` are things like `232E1518`, and read as
+# a number that is 232e1518, i.e. +Inf.  Two Infs then give Inf-Inf = NaN
+# in `deviation`, and a Pr III `OUTG11` comparison died on it.  With the
+# width limited, `232E1518` tokenizes exactly as the `230D1518` beside it
+# always has: the leading digits are a number and the rest is a label,
+# which is the same convention as `4d7`.
+_EXP_E = r'[Ee][+-]?\d{1,3}(?![A-Za-z0-9_])'
+_EXP_ED = r'[EeDd][+-]?\d{1,3}(?![A-Za-z0-9_])'
+
+_NUMBER_E = re.compile(r'(?P<num>' + _NUM + r'(?:' + _EXP_E + r')?)'
                        r'|(?P<label>' + _LABEL + r')')
-_NUMBER_ED = re.compile(r'(?P<num>' + _NUM + r'(?:[EeDd][+-]?\d+(?![A-Za-z]))?)'
+_NUMBER_ED = re.compile(r'(?P<num>' + _NUM + r'(?:' + _EXP_ED + r')?)'
                         r'|(?P<label>' + _LABEL + r')')
 
 _BLANKS = re.compile(r' +')
@@ -99,11 +119,13 @@ LONG_TOKEN = 18
 def looks_binary(path):
     """True when `path` is Fortran unformatted rather than text.
 
-    A NUL byte in the first block is the test.  TAPE2N is written by
-    `RCN36K.F:2968` as one unformatted record per configuration, mixing
-    integers, characters and doubles inside a single record; comparing it
-    numerically needs a reader that knows that record's layout, which is
-    not something a generic tokenizer can infer.
+    A NUL byte in the first block is the test.  TAPE2N is written as one
+    unformatted record per configuration, mixing integers, characters and
+    doubles inside a single record; comparing it numerically needs a
+    reader that knows that record's layout, which is not something a
+    generic tokenizer can infer.  `toolbox/tape2n.py` is that reader, and
+    `compare_tape2n` below uses it; every other unformatted file still
+    gets the md5 answer.
     """
     with open(path, 'rb') as handle:
         block = handle.read(8192)
@@ -178,13 +200,15 @@ class Report(object):
         self.largest = 0.0
         self.sum_sq = 0.0
         self.histogram = {}
-        self.binary = False         # unformatted: md5 only, no tokenizing
-        self.binary_same = None
+        self.binary = False         # Fortran unformatted
+        self.binary_same = None     # md5 equality, always set for those
+        self.layout = None          # name of the record layout, if one applied
+        self.records = 0
 
     @property
     def ok(self):
         """True when nothing structural moved and nothing exceeded tolerance."""
-        if self.binary:
+        if self.binary and not self.layout:
             return bool(self.binary_same)
         return not self.structural and not self.offenders
 
@@ -275,10 +299,83 @@ def compare_files(path_a, path_b, rtol=0.0, atol=0.0, ignores=DEFAULT_IGNORES,
     if looks_binary(path_a) or looks_binary(path_b):
         report.binary = True
         report.binary_same = md5(path_a) == md5(path_b)
+        if _is_tape2n(path_a) and _is_tape2n(path_b):
+            compare_tape2n(path_a, path_b, report, rtol=rtol, atol=atol)
         return report
     return compare_lines(read_lines(path_a), read_lines(path_b), report,
                          rtol=rtol, atol=atol, ignores=ignores,
                          d_exponents=d_exponents)
+
+
+def _is_tape2n(path):
+    """True when `path` is named like RCN's TAPE2N.
+
+    The layout in `toolbox.tape2n` belongs to that one file and to no
+    other, so it is applied by name rather than guessed at.  A file that
+    is named TAPE2N and does not parse is reported as such -- see
+    `compare_tape2n` -- and never quietly treated as something else.
+    """
+    return os.path.basename(str(path)).upper().startswith('TAPE2N')
+
+
+def compare_tape2n(path_a, path_b, report, rtol=0.0, atol=0.0):
+    """Compare two TAPE2N files record by record, into `report`.
+
+    The division of labour is the one the text comparison already makes.
+    The integers and the character fields of a record are structure: a
+    difference in one of them means the run described a different atom,
+    a different number of orbitals or a different mesh, and no tolerance
+    applies to that.  Only the `real*8` fields are compared numerically.
+
+    A file that will not parse is not a failure of the comparison but a
+    failure of the reader to still match `RCN36K.F`, and it is reported
+    in those words rather than falling back to md5 and calling the file
+    "not quantifiable".
+    """
+    from toolbox import tape2n
+
+    try:
+        recs_a = tape2n.read_records(path_a)
+        recs_b = tape2n.read_records(path_b)
+    except tape2n.Tape2nError as problem:
+        report.layout = 'TAPE2N'
+        report.structural.append(
+            (0, 'TAPE2N does not parse: %s.  toolbox/tape2n.py has drifted '
+                'from the write statement in RCN36K.F' % problem))
+        return report
+
+    report.layout = 'TAPE2N'
+    if len(recs_a) != len(recs_b):
+        report.structural.append(
+            (0, '%d records in %s, %d in %s'
+                % (len(recs_a), report.name_a, len(recs_b), report.name_b)))
+        return report
+
+    for number, (rec_a, rec_b) in enumerate(zip(recs_a, recs_b), 1):
+        report.records += 1
+        struct_a = tape2n.structure(rec_a)
+        struct_b = tape2n.structure(rec_b)
+        if struct_a != struct_b:
+            report.structural.append(
+                (number, _first_field_difference(struct_a, struct_b)))
+            continue
+        for (label, a), (_, b) in zip(tape2n.flatten(rec_a),
+                                      tape2n.flatten(rec_b)):
+            report.compared += 1
+            absolute, relative = deviation(a, b)
+            report.record(relative)
+            if absolute > atol and relative > rtol:
+                report.offenders.append((relative, absolute, number, 0,
+                                         a, b, label, ''))
+    return report
+
+
+def _first_field_difference(struct_a, struct_b):
+    """Name the first integer or character field of a record that moved."""
+    for (name, value_a), (_, value_b) in zip(struct_a, struct_b):
+        if value_a != value_b:
+            return 'field %s: %r became %r' % (name, value_a, value_b)
+    return 'records differ in a field this reader does not name'
 
 
 def format_report(report, top=10, rtol=0.0, atol=0.0):
@@ -288,12 +385,17 @@ def format_report(report, top=10, rtol=0.0, atol=0.0):
     at least as often as onto a screen.
     """
     out = ['%s' % report.name_a, '  vs %s' % report.name_b]
-    if report.binary:
+    if report.binary and not report.layout:
         out.append('  Fortran unformatted -- md5 %s'
                    % ('identical' if report.binary_same else
                       'DIFFERS.  How far the numbers moved cannot be said '
                       'without a reader for this file\'s record layout'))
         return '\n'.join(out)
+    if report.layout:
+        out.append('  Fortran unformatted, read with the %s record layout '
+                   '-- md5 %s'
+                   % (report.layout,
+                      'identical' if report.binary_same else 'differs'))
     if report.structural:
         out.append('  STRUCTURAL MISMATCH -- text around the numbers changed, '
                    'which is never acceptable:')
@@ -302,8 +404,12 @@ def format_report(report, top=10, rtol=0.0, atol=0.0):
             out.append('    %-12s %s' % (where, reason))
         if len(report.structural) > top:
             out.append('    ... and %d more' % (len(report.structural) - top))
-    out.append('  lines            %d compared, %d ignored as timing'
-               % (report.lines - report.lines_ignored, report.lines_ignored))
+    if report.layout:
+        out.append('  records          %d compared' % report.records)
+    else:
+        out.append('  lines            %d compared, %d ignored as timing'
+                   % (report.lines - report.lines_ignored,
+                      report.lines_ignored))
     out.append('  numbers compared %d' % report.compared)
     if report.long_tokens:
         out.append('  long tokens      %d -- packed fields read as one number; '
@@ -320,9 +426,14 @@ def format_report(report, top=10, rtol=0.0, atol=0.0):
         if worst:
             out.append('  worst %d:' % len(worst))
             for rel, absolute, number, column, a, b, ta, tb in worst:
-                out.append('    line %-7d col %-4d %-16s %-16s '
-                           'rel %.3e  abs %.3e'
-                           % (number, column, ta, tb, rel, absolute))
+                if report.layout:
+                    out.append('    rec %-5d %-20s %-17.9g %-17.9g '
+                               'rel %.3e  abs %.3e'
+                               % (number, ta, a, b, rel, absolute))
+                else:
+                    out.append('    line %-7d col %-4d %-16s %-16s '
+                               'rel %.3e  abs %.3e'
+                               % (number, column, ta, tb, rel, absolute))
             if len(report.offenders) > len(worst):
                 out.append('    ... and %d more'
                            % (len(report.offenders) - len(worst)))

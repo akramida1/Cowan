@@ -18,6 +18,19 @@
 # executable, because that is where RCG opens them.  Which is the whole
 # reason for the permission dance below.
 #
+# USAGE
+#
+#     make_cfp [target directory]
+#
+# With no argument the decks are written into CODE/, as above.  An
+# argument writes them somewhere else instead, and SENIOR and LSJJ.DAT
+# are copied there with them, so that the directory is a complete set of
+# the permanent files RCG opens through COWAN.CFG.  That is for a run
+# that must not write into the package directory -- the test suite is
+# one, having no decks in a source tree and no licence to create any
+# there -- and it skips the permission dance, the target being the
+# caller's own directory.  RCG itself is always the one in CODE/.
+#
 # THE PERMISSION DANCE
 #
 # On Windows the decks are ordinary writable files and make_cfp.bat has
@@ -81,13 +94,44 @@ echo "************************************************************************"
 cfp=$cowan_dir/ING11.CFP
 [ -f "$cfp" ] || die "file $cfp is not found"
 
+# ---------------------------------------------------------- where they go
+
+out=${1:-$cowan_dir}
+mkdir -p "$out" || die "could not create $out"
+out=$(cd "$out" && pwd) || die "could not reach $out"
+
+# RCG reads this path from COWAN.CFG and cuts it at the first blank, so a
+# directory with a space in it cannot hold the decks.  The rcg wrapper
+# says the same of CODE/; this is the same check for a target of one's
+# own, made here because the run below writes COWAN.CFG itself.
+case "$out" in
+    *\ *) die "the CFP decks cannot go in a path containing a space:
+  $out
+  RCG reads that path from COWAN.CFG and cuts it at the first blank." ;;
+esac
+
+# The permanent files RCG opens beside the decks.  It opens SENIOR
+# STATUS='OLD' on every run, so a directory with decks and no SENIOR in
+# it is of no use to anyone; LSJJ.DAT is optional to RCG but goes with
+# them for the same reason.
+if [ "$out" != "$cowan_dir" ]; then
+    for name in SENIOR LSJJ.DAT; do
+        [ -f "$cowan_dir/$name" ] || continue
+        [ -f "$out/$name" ] || cp "$cowan_dir/$name" "$out/" ||
+            die "could not copy $name into $out"
+    done
+fi
+
 # ------------------------------------------------------- permission check
 
 # Checked in the order they will be needed, and both before any change is
 # made.  `[ -w ]` on the directory is the deletion test: on Unix, unlink
 # consults the directory's permissions and not the file's, so a run can
 # get past the chmod and still be unable to remove the old deck.
-if [ ! -w "$cowan_dir" ]; then
+if [ ! -w "$out" ] && [ "$out" != "$cowan_dir" ]; then
+    die "cannot write in $out, where the CFP decks are to go"
+fi
+if [ ! -w "$out" ]; then
     echo "$self: cannot write in the package directory" >&2
     echo "  $cowan_dir" >&2
     echo "  The old FOR072, FOR073 and FOR074 have to be deleted before the new" >&2
@@ -102,7 +146,7 @@ fi
 # The chmod test has to be the chmod itself: only the kernel knows whether
 # this user owns the file, and root may do it regardless of the mode bits.
 decks=""
-for deck in "$cowan_dir"/FOR072 "$cowan_dir"/FOR073 "$cowan_dir"/FOR074; do
+for deck in "$out"/FOR072 "$out"/FOR073 "$out"/FOR074; do
     [ -e "$deck" ] || continue
     decks="$decks $deck"
 done
@@ -110,16 +154,19 @@ done
 # The decks go back to read-only whatever happens from here on.  Set
 # before the first chmod a+w, so an interrupt between the two cannot slip
 # through.  Newly written decks are covered too: the glob is re-evaluated
-# at exit, not now.
+# at exit, not now.  Only in the package directory: decks in a target of
+# the caller's own are the caller's to look after, and making them
+# read-only there would be a surprise rather than a guard.
 protect_decks() {
-    for f in "$cowan_dir"/FOR072 "$cowan_dir"/FOR073 "$cowan_dir"/FOR074; do
+    [ "$out" = "$cowan_dir" ] || return 0
+    for f in "$out"/FOR072 "$out"/FOR073 "$out"/FOR074; do
         [ -e "$f" ] && chmod a-w "$f" 2>/dev/null
     done
     return 0
 }
 trap 'protect_decks' EXIT INT TERM
 
-if [ -n "$decks" ]; then
+if [ -n "$decks" ] && [ "$out" = "$cowan_dir" ]; then
     # shellcheck disable=SC2086
     if ! chmod a+w $decks 2>/dev/null; then
         echo "$self: cannot make the CFP decks writable" >&2
@@ -169,27 +216,29 @@ awk 'NR > 8 {
 # Ordering: the old decks are deleted only after the chmod above, and
 # before RCG runs.  RCG opens them STATUS='UNKNOWN' and would otherwise
 # append to, or read back, a deck from the previous build.
-rm -f "$cowan_dir"/FOR072 "$cowan_dir"/FOR073 "$cowan_dir"/FOR074
+rm -f "$out"/FOR072 "$out"/FOR073 "$out"/FOR074
 
 echo "                               RUNNING RCG . . ."
 
-# The rcg wrapper rather than the executable: it writes and removes
-# COWAN.CFG, which is how RCG is told where to put the decks, and it does
-# the timing.  make_cfp.bat writes cowan.cfg itself only because rcg.bat
-# would also have cleared the screen.
-"$cowan_dir/unix/rcg"
+# COWAN.CFG is written here rather than by the rcg wrapper, which is what
+# make_cfp.bat does too: the wrapper names CODE/, and the whole point of
+# a target of one's own is that the decks land somewhere else.  It is
+# removed however this leaves, the wrapper's own rule.
+trap 'rm -f COWAN.CFG; protect_decks' EXIT INT TERM
+printf '%s/\n' "$out" > COWAN.CFG
+cowan_run "$cowan_dir/rcg11kd"
 rc=$?
 
 rm -f FOR033 TAPE2E OUTGINE
 
 if [ "$rc" -ne 0 ]; then
-    die "RCG exited with status $rc; the CFP decks were not created in $cowan_dir"
+    die "RCG exited with status $rc; the CFP decks were not created in $out"
 fi
 
 for deck in FOR072 FOR073 FOR074; do
-    [ -f "$cowan_dir/$deck" ] ||
-        die "$deck was not created in $cowan_dir due to an execution error"
+    [ -f "$out/$deck" ] ||
+        die "$deck was not created in $out due to an execution error"
 done
 
 echo "Done. New CFP binary files FOR072, FOR073, and FOR074 are created in"
-echo "$cowan_dir"
+echo "$out"

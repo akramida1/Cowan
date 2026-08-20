@@ -1,7 +1,10 @@
 """Make CODE/ importable and locate the reference runs in WORK/."""
 
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -63,3 +66,129 @@ def perl_env():
     env = dict(os.environ)
     env['PERLIO'] = 'crlf'
     return env
+
+
+
+
+# --------------------------------------------------------------------------
+# the permanent files a run of the Fortran needs
+# --------------------------------------------------------------------------
+
+#: The cfp binary decks RCG reads.  They are built on the machine the
+#: package is installed on -- make_cfp.bat, or unix/make_cfp -- and are
+#: not part of the distribution, so a source tree has none of them.
+CFP_DECKS = ('FOR072', 'FOR073', 'FOR074')
+
+#: The four programs, spelled the way each platform's build leaves them:
+#: gfortran is told `-o NAME.exe` on Windows and `-o NAME` on Unix.
+PROGRAMS = ('RCN36K', 'RCN2K', 'rcg11kd', 'RCE20KD')
+SUFFIX = '.exe' if os.name == 'nt' else ''
+EXECUTABLES = tuple(name + SUFFIX for name in PROGRAMS)
+RCG = 'rcg11kd' + SUFFIX
+
+
+def scratch_root():
+    """Where the permanent files a test run needs are kept.
+
+    Outside the repository, and never CODE/: RCG opens FOR072, FOR073
+    and FOR074 in the directory COWAN.CFG names, with STATUS='UNKNOWN',
+    so pointing a run at a CODE/ that has no decks creates three empty
+    ones there and leaves them behind when RCG then dies on them.
+    Nothing may write into CODE/.
+
+    The directory is kept between runs -- building the decks is a whole
+    run of RCG -- and rebuilt whenever the executable or the cfp deck it
+    was built from is newer than it, so a recompile is picked up on its
+    own.  COWAN_TEST_CODE names it somewhere else.
+    """
+    named = os.environ.get('COWAN_TEST_CODE')
+    if named:
+        return Path(named)
+    return Path(tempfile.gettempdir()) / 'cowan-tests' / 'CODE'
+
+
+def _stale_deck(deck, executable, cfp):
+    """True when the deck is missing, empty, or older than what built it.
+
+    Empty counts as missing: three empty decks are exactly what an
+    interrupted run leaves behind, RCG having opened them before finding
+    it had nothing to read.
+    """
+    if not deck.is_file() or deck.stat().st_size == 0:
+        return True
+    when = deck.stat().st_mtime
+    return when < executable.stat().st_mtime or when < cfp.stat().st_mtime
+
+
+def _make_cfp(into):
+    """Build the cfp decks in `into` by running the shipped make_cfp.
+
+    make_cfp takes the directory the decks are to go in, and copies
+    SENIOR and LSJJ.DAT there with them; RCG is always the one in CODE/.
+    It runs *in* a working directory, leaving ING11 and OUTG11 behind,
+    so it is given one of its own beside the decks.
+
+    The batch file calls `mark_time.bat` by a bare name, which the
+    author's own setup finds on the PATH; CODE/ is put on the front of
+    PATH here so that the call resolves without that assumption.
+    """
+    work = into.parent / 'cfp'
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True, exist_ok=True)
+    if os.name == 'nt':
+        command = ['cmd', '/c', str(CODE / 'make_cfp.bat'), str(into)]
+    else:
+        command = [str(CODE / 'unix' / 'make_cfp'), str(into)]
+    env = dict(os.environ)
+    env['PATH'] = str(CODE) + os.pathsep + env.get('PATH', '')
+    env['COWAN_NO_CLEAR'] = '1'
+    done = subprocess.run(command, cwd=str(work), env=env,
+                          capture_output=True, text=True)
+    missing = [one for one in CFP_DECKS if not (into / one).is_file()]
+    if done.returncode or missing:
+        pytest.skip('make_cfp could not build the cfp decks in %s: %s'
+                    % (into, (done.stdout or done.stderr or '')[-2000:]))
+    shutil.rmtree(work, ignore_errors=True)
+
+
+@pytest.fixture(scope='session')
+def cowan_code():
+    """A directory of permanent files for RCG, built where a run may write.
+
+    The programs themselves are run from CODE/ -- reading it is no
+    trouble, it is writing into it that is not allowed -- and are told
+    through COWAN.CFG that their permanent files are here instead.
+    """
+    for name in EXECUTABLES:
+        if not (CODE / name).is_file():
+            pytest.skip('%s is not built' % name)
+    into = scratch_root()
+    into.mkdir(parents=True, exist_ok=True)
+    if any(_stale_deck(into / one, CODE / RCG, CODE / 'ING11.CFP')
+           for one in CFP_DECKS):
+        _make_cfp(into)
+    return into
+
+
+@pytest.fixture(scope='session')
+def cowan_rcg(cowan_code):
+    """A copy of RCG beside those files, for the tools that run it.
+
+    calc_TP_M1E2 writes COWAN.CFG naming the directory the executable it
+    was given sits in (`run_rcg`), so a tool pointed at CODE/rcg11kd
+    would put the decks back in CODE/.  Pointing it at a copy beside the
+    decks is the whole arrangement in one path.
+    """
+    copy = cowan_code / RCG
+    source = CODE / RCG
+    if (not copy.is_file() or copy.stat().st_size != source.stat().st_size
+            or copy.stat().st_mtime < source.stat().st_mtime):
+        try:
+            shutil.copy2(source, copy)
+        except OSError as trouble:
+            pytest.skip('could not copy %s into %s: %s'
+                        % (RCG, cowan_code, trouble))
+    if not copy.is_file():
+        pytest.skip('%s does not stay in %s -- an antivirus is removing it'
+                    % (RCG, cowan_code))
+    return copy

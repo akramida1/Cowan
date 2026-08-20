@@ -124,6 +124,46 @@ c           input set with no configuration of the opposite parity, and
 c           removal of language features deleted from the standard
 c           (compilation is now warning-free).  Each is explained where
 c           it occurs.
+c      Vers. 36.4.2 (Aug 2026).  A. Kramida.  Every hard-coded physical
+c           constant in this program -- 22 literals in ten routines --
+c           is replaced by a named parameter from the new include file
+c           fundconst.f, and the values are brought up to CODATA 2022.
+c           The affected routines are rcn, scheq, outpt, phshift, zeta1,
+c           sli1, zetabw, sm, sn and vk; each carries "include
+c           'fundconst.f'" after its implicit card and nothing else.
+c
+c           Two things about this are worth knowing before reading a
+c           diff of it.
+c
+c           First, none of the 22 literals carried a d0 suffix, so each
+c           was a default real: rounded to single precision and promoted
+c           only where it met a double.  The substitution was therefore
+c           done in three separate steps, each with one effect, so that
+c           a plumbing mistake could not hide inside a constants change.
+c           Parameters carrying the single-precision rounding were put
+c           in first (output byte-identical, which is what proved the
+c           substitution correct); they were then promoted to double
+c           precision (every output moved by about 5e-8 relative, which
+c           is single-precision epsilon and nothing else); and only then
+c           were the values updated.  fundconst.f keeps each legacy
+c           value beside its replacement in a "LEGACY:" comment.
+c
+c           Second, the program used two different fine-structure
+c           constants and had done for a long time.  zeta1 built the
+c           spin-orbit integral from 2.66246e-5, which is alpha**2/2
+c           from a pre-1969 alpha and is 4.0e-5 low, while zetabw, sm,
+c           sn and vk used 2.921830 = (alpha**2/2)*Rinf evaluated with
+c           the modern alpha and correct to every digit it carried.
+c           Both now come from the same alpha.  That correction, not
+c           the Rydberg or pi updates, is what dominates the change:
+c           printed quantities in out36 move by up to about 1e-4
+c           relative, the spin-orbit parameters by 4e-5, and tape2n by
+c           up to 2.4e-6 -- tape2n by less, because the alpha**2-scaled
+c           quantities are not carried in the record but recomputed in
+c           rcn2.  No integer, label or structure in tape2n changes.
+c
+c           Least-squares parameters fitted against earlier versions
+c           should be refitted, for the same reason as in 36.4.1.
 c
 c               -----------------------------------------------
 c
@@ -227,6 +267,7 @@ c
       subroutine rcn
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -1059,7 +1100,7 @@ c
       if (ihf.ne.0.or.nhftrm.eq.0) go to 840
       if (ii.eq.1) write (7,55)
       do 10820 i=2,npar
-  820 vprm(i)=vprm(i)/109.73731
+  820 vprm(i)=vprm(i)/rinfkk
 10820 continue
       write (7,82) conf,t1hf(ii),t2hf(ii),(vprm(i),kpar(i),i=1,npar)
    82 format (2a6,a2,a7,a3,f12.4,i1,8(f9.5,i1)/28x,9(f9.5,i1))
@@ -1920,6 +1961,7 @@ c       laboratories, palo alto, california,  summer 1962
 c      further modified by r. d. cowan, lasl, jan-feb, 1964
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -2084,7 +2126,7 @@ c
       idarw=0
       if ((niter.eq.1.and.n1sc.eq.1).or.irel.eq.0) go to 233
 c          calc mass-velocity relativistic term
-      eras=(0.5/137.036)**2
+      eras=(0.5/alphin)**2
       do 10232 i=2,kkk
       eras1=e-v(i)
       eras2=eras*eras1
@@ -2213,8 +2255,8 @@ c
 c          calc starting values for irel.ne.0 (relativistic terms includ
       q(3)=qq(2)
       q(4)=qq(3)
-      eras1=(z/137.036)**2
-      d2=1.0/(1.0+(274.072**2+e)*r(3)*0.5/z)
+      eras1=(z/alphin)**2
+      d2=1.0/(1.0+(twooal**2+e)*r(3)*0.5/z)
       if (lam.ne.0) d2=0.0
       eras=0.5*(1.0-d2)+sqrt(b0+0.25*((1.0+d2)**2)-eras1)
       p(3)=r(2)**eras
@@ -2585,7 +2627,7 @@ c     A. Kramida 2026: restore p = sqrt(m)*u before normalizing
       nconf6=nconf
       end if
       c1=c1/f
-      c1=c1*sqrt(3.141592654*sqrt(e))
+      c1=c1*sqrt(picon*sqrt(e))
       kkk=mesh
       imatch=i+1
 c
@@ -2626,6 +2668,7 @@ c
       subroutine outpt
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -2692,7 +2735,7 @@ c
 c
 c          calculate one-electron energy integrals
 c
-  808 twooalf=2.0*137.0360
+  808 twooalf=2.0*alphin
       froasq=twooalf**2
       do 850 m=1,ncspvs
       read (4) (v(i), i=1,mesh)
@@ -3081,6 +3124,7 @@ c
       subroutine phshift
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -3111,7 +3155,7 @@ c     equivalence (rsatom,s1),(rsatom(251),s2),(rsatom(501),zeta)
 c
       dimension fmz(5,2),rz(5,2),phase(5,2),shift(5)
 c
-      pi=3.141592653590
+      pi=picon
       twopi=2.0*pi
       twozz=twozzz-2.0
       mm=ncspvs
@@ -3679,6 +3723,7 @@ c               formula and blume-watson method)
 c                     and relativistic energy corrections
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -3809,7 +3854,7 @@ c
       dr=dr+dr
   515 continue
 c
-      eras=(0.5/137.036)**2
+      eras=(0.5/alphin)**2
       do 520 i=1,kkk
       psq=pnl(i,m)*pnl(i,m)
       fi(i,1)=psq*d(i,1)
@@ -3837,17 +3882,17 @@ c
   530 call quad5(fi(1,n),1,1,kkk,p(n))
 20530 continue
       ib=ibo
-  550 zeta(m,1)=2.66246e-5*p(1)
-      zeta(m,2)=2.66246e-5*p(2)
-      zeta(m,3)=2.66246e-5*p(3)
+  550 zeta(m,1)=alph2h*p(1)
+      zeta(m,2)=alph2h*p(2)
+      zeta(m,3)=alph2h*p(3)
       if (m.lt.n1sc) go to 700
-      evel(m)=-1.33123e-5*p(4)
-      edar(m)=-1.33123e-5*p(5)
+      evel(m)=-alph2q*p(4)
+      edar(m)=-alph2q*p(5)
 c
-  700 zetak1=zeta(m,1)*109737.31
+  700 zetak1=zeta(m,1)*rinf
       zetak1=zeta(m,2)
-      zetak2=zeta(m,2)*109737.31
-      zetak3=zeta(m,3)*109737.31
+      zetak2=zeta(m,2)*rinf
+      zetak3=zeta(m,3)*rinf
       ec=evel(m)
       if (l(m).eq.0) ec=ec+edar(m)
       etotrl=etotrl+wwnl(m)*ec
@@ -3855,7 +3900,7 @@ c
       erll=epss(m)+ec
 c          call zetabw to calc spin-orbit integral by the blume-watson m
   701 if (ee(m).lt.0.0) zetak2=zetabw(m,rm3(m))
-  702 zetak1=zetak2/109737.3
+  702 zetak1=zetak2/rinf
       if (ifrac.eq.0) then
         write (9,70) nlbcd(m),wwnl(m),zetak1,zetak2,zeta(m,3),zetak3,
      1  ei(m),epss(m),evel(m),edar(m),ec,erll
@@ -3889,6 +3934,7 @@ c          evaluate slater radial coulomb integrals fk and gk
 c               and radial overlap integrals
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -4073,7 +4119,7 @@ c
 c
   650 frac(n,n1)=a1/b1
       rryd(n,n1)=a1
-      rkay(n,n1)=a1*109737.31
+      rkay(n,n1)=a1*rinf
       if (nfg.eq.0) go to 700
 c          calc ls-term contribution to e(av)
       nla=nlbcd(ma)
@@ -4926,6 +4972,7 @@ c      calculate spin-orbit parameter via blume-watson method
 c       proc. roy. soc. (london) a270, 127 (1962); a271, 565 (1963)
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -4951,7 +4998,7 @@ c
       flm=l(m)
       e2=-12*l(m)-6
       e3=3.0*sqrt((2.0*flm+1.0)/(flm*(flm+1.0)))
-      sp=z*rm3*5.843660
+      sp=z*rm3*zetcn2
       if (ihf1.gt.5) write (9,8810) m,flm,e2,e3,sp
  8810 format (/i10,4f15.6)
 c
@@ -5049,6 +5096,7 @@ c
       function sm(m,mp)
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -5067,12 +5115,13 @@ c
       kkk=min0(nkkk(m),nkkk(mp))
       call zk(m,mp,m,mp)
       call quad5(xj,1,1,kkk,a1)
-      sm=a1*2.921830
+      sm=a1*zetcon
       return
       end
       function sn(m,mp)
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -5091,7 +5140,7 @@ c
       kkk=min0(nkkk(m),nkkk(mp))
       call zk(m,mp,mp,m)
       call quad5(xj,1,1,kkk,a1)
-      sn=a1*2.921830
+      sn=a1*zetcon
       return
       end
       subroutine zk(m1,m2,m3,m4)
@@ -5148,6 +5197,7 @@ c
       function vk(m,mp)
 c
       implicit real*8 (a-h,o-z)
+      include 'fundconst.f'
       parameter (kmsh=1801,ko=20,kmshq=1801,koq=20)
       common/c1/r(kmsh),ru(kmsh),ruee(kmsh),ruexch(kmsh),rsatom(kmsh),
      1     nnlz(ko),nnn(ko),
@@ -5169,7 +5219,7 @@ c
       vk=a1
       call dyk(mp,m)
       call quad5(xj,1,1,kkk,a1)
-      vk=(vk-a1)*2.921830
+      vk=(vk-a1)*zetcon
       return
       end
       subroutine dyk(m,mp)
