@@ -395,6 +395,26 @@ included. That option now works with every line sorting; originally it
 did not work at all for a wavelength-sorted list. **Set `DMIN` to 0.00
 for a forbidden-transition calculation** -- see `WORK/Forbid/README.txt`.
 
+	**In an `RCG` transition list, *gA* is the primary reference quantity,
+	not log(*gf*).** If you need *S*, *f* or *A*, take them from *gA* and the
+	transition energy. The reason is the printed precision, not the physics:
+	log(*gf*) is written with three decimals, and half a unit in the last
+	decimal of a *base-10 logarithm* is ln(10) x 0.0005 = 1.15x10^-3^, i.e.
+	**0.115 % in *gf*** -- already visible in the second significant decimal
+	when you convert back. Recovering a line strength from log(*gf*)
+	therefore injects about 0.1 % of random-sign scatter that is simply not
+	present in *gA*.
+
+	The natural expectation is the opposite, that *gf* should be the better
+	of the two, since it comes from *S* with a lower power of the transition
+	energy (sigma rather than sigma^3^), so that rounding of the energy
+	propagates into it less strongly. That is true as far as it goes, and it
+	is beside the point: the dominant error here is not in the energy, it is
+	contributed by the log(10) taken at print time, and that step is the one
+	routinely overlooked. *gA* is printed in floating form and carries its
+	own digits; log(*gf*) does not. This has been checked more than once and
+	the conclusion has always been the same.
+
 4. The designations of terms have changed slightly. In the original
 version of `RCG` two different terms could end up with the same name,
 even with the additional (e.g., seniority) quantum numbers in use. To
