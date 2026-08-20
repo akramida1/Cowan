@@ -7,7 +7,9 @@ calc_TP_M1E2 end to end: an RCG run with MAG DIP and ELEC QUD spectra,
 a //R2// radial-integral card in ING11 for the program to vary, and an
 RCE parameter table for it to read standard deviations from.
 
-Inputs only, as in WORK/ and WORK/AI.  Build it with
+Inputs only, as in WORK/ and WORK/AI.  The commands below are written
+as they are typed on Windows; on Linux and macOS type them in lower
+case.  Build it with
 
     RCN
     RCN2

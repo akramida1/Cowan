@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# Re-run RCG with a substituted set of parameters and print the new level
+# list.  The Unix counterpart of update11.bat.
+#
+#   update11 [file]     the argument, if any, is handed to s11
+#
+# The steps are s11's, RCG's and printout's; the only thing this adds is
+# the OUTGINE shuffle around them.  OUTGINE is RCG's deck for RCE, and RCG
+# rewrites it on every run.  The batch file keeps the one that was there
+# before the re-run and puts it back afterwards, so the RCE input that the
+# fit was made against survives an update11 -- otherwise the next RCE run
+# would be fitting against a deck it never produced its parameters from.
+# The step is preserved here exactly as update11.bat has it.
+#
+# Everything happens in the current directory.  Nothing is written into
+# the package directory.
+
+set -u
+
+self=$(basename "$0")
+here=$(cd "$(dirname "$0")" && pwd)
+
+die() {
+    echo "$self: $*" >&2
+    exit 1
+}
+
+[ -f OUTGINE ] || die "no OUTGINE in $(pwd); run RCG first"
+
+cp OUTGINE OUTGINE.BAK || die "could not back up OUTGINE"
+
+"$here/s11" "$@"      || die "s11 failed; OUTGINE.BAK holds the original OUTGINE"
+"$here/rcg"           || die "RCG failed; OUTGINE.BAK holds the original OUTGINE"
+
+cp OUTGINE.BAK OUTGINE || die "could not restore OUTGINE from OUTGINE.BAK"
+rm -f OUTGINE.BAK
+
+"$here/printout" levels.txt

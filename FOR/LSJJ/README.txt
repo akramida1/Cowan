@@ -3480,3 +3480,295 @@ DOCUMENTATION
 
   479 pass and 5 skip: six more than phase 11, five in test_spectrum.py and
   one in test_calc_tp.py.
+
+
+CFP DECK REPRODUCIBILITY (stage 8a of the Unix port)
+
+  The question was whether FOR072/FOR073/FOR074 come out of make_cfp with
+  non-reproducible bytes in them, because CODE/FOR074 as committed differed
+  from a fresh regeneration in eight bytes and nobody had explained why.
+  If the decks were genuinely unstable there would be no way to tell a real
+  regeneration difference from garbage, and the Unix make_cfp could not be
+  verified against them.
+
+  They are not unstable.  make_cfp was run twice from a copy of CODE with
+  the committed rcg11kd.exe: FOR072, FOR073 and FOR074 are byte-identical
+  between the two runs, and FOR072 and FOR073 were already byte-identical
+  to the committed copies.  Nothing in LNCUV needed zeroing -- the
+  Cray-pointer heap arrays were the suspects and they are not the cause.
+
+  The eight bytes are at offset 307776 of FOR074, in the last block of the
+  file, h2 (l = 5).  Read as a record they are the AA field -- the
+  CHARACTER*8 parameter label -- of the fourth and fifth records written by
+  the DO 492 loop of CUVFD:
+
+        DO 492 I=1,IMAX          IMAX = FLL(1)
+          AA=ABGNAM(J)
+          ...
+          WRITE (ID4) KPAR,K,AA,CAVEI(J),NOPC, (PC(N1), N1=1,NOPC)
+
+  IMAX is FLL(1), so the loop runs l times, but ABGNAM holds three names,
+  'ALPHA', 'BETA', 'GAMMA', and CAVEI three values.  For l <= 3 that is
+  exact.  For g (l = 4) the loop makes one pass past the end of both
+  arrays, and for h (l = 5) two.  The label written is then whatever static
+  storage follows ABGNAM.  That address is fixed for a given executable, so
+  the bytes are the same on every run of the same build -- which is why the
+  regenerations agree -- but it moves when the compiler relays out statics,
+  which is why the committed deck, made by an older build, carried
+  'ZETA 1  ' where the current build writes 07 00 00 00 00 00 00 00.
+
+  The label is not the only thing that overruns.  ABG is dimensioned
+  ABG(KLSI,3) in COMMON/C3C/, and the same J indexes it at
+
+          PC(NOPC)=ABG(M,J)
+
+  so the extra passes write ABG(M,4) and ABG(M,5) as well -- that is, the
+  bytes that follow ABG in the common block: CAVEI(1..3) and then NALSJI.
+  Dumping the deck shows exactly that.  The g2 block carries a fourth
+  parameter record whose PC values are -37.6471, -1.23077, -1.07563 --
+  which are CAVEI(1), CAVEI(2), CAVEI(3), the ALPHA, BETA and GAMMA
+  averages of the three records just above it -- followed by NALSJI's
+  integers read as REAL*8 denormals of order 1e-313.  The h2 block carries
+  the same fourth record and a fifth whose PC values are all zero.  None of
+  it is physics.
+
+  The two overruns behave differently across builds, and that is the whole
+  of the eight bytes.  ABG's overrun lands inside a COMMON block, whose
+  layout the standard fixes, so it produces the same bytes in every build.
+  ABGNAM is a local static, and what follows it is the compiler's choice,
+  so the label moved: 'ZETA 1  ' from the old build, 07 00 00 00 00 00 00
+  00 from this one.
+
+  The records are read back.  NPARI = NORCD-2 in PFGD, and NORCD was
+  written as 1+NPAR with NPAR = 1 + 2*FLL(1), so the count already budgets
+  l parameters of the alpha/beta/gamma family for an l(n) shell.  That is
+  the real shape of the defect: RCG reserves l slots but only three such
+  operators are defined.  For d the fit is exact once line
+
+          IF (LL(1).EQ.LSYMB(3).AND.I.EQ.2) J=3
+
+  sends the second slot to GAMMA's column; for f it is exact as written;
+  for g there is one slot too many and for h two.  A g2 or h2
+  configuration run with IABG > 0 therefore acquires one or two extra
+  parameters with garbage names -- reaching PARNAM at label 188 of PFGD --
+  and values of 1e-313 or zero.  They perturb nothing numerically, but they
+  are there.  Nothing in the distribution's examples fits alpha/beta/gamma
+  on a g or h shell, and Pr III has no such shell at all, which is why two
+  Pr III runs had already shown the difference to be harmless without
+  explaining it.  (FOR074 has blocks only through g2 and h2, so no
+  higher-occupancy case exists to worry about.)
+
+  Fixing this is not a matter of clamping IMAX to 3: NPAR would have to
+  change with it, and that changes the deck format for g and h.  The
+  question underneath it is which effective configuration-interaction
+  operators the fourth slot of a g shell and the fourth and fifth of an h
+  shell ought to be -- Cowan defined alpha, beta and gamma and stopped.
+  That is physics, not porting, and there is no settled answer in the
+  literature to look it up in; open g and h shells do not occur in
+  practice, which is why nobody has needed one.
+
+  WHAT WAS DONE INSTEAD (A. Kramida's decision, 19 August 2026)
+
+  Write the missing slots blank, and refuse any run that would actually
+  use them.  Two changes, neither of which moves a byte for any other
+  shell:
+
+    * CUVFD.  The DO 492 loop sets J=0 for I>3 and writes AA blank,
+      CAVE zero and every PC zero, instead of reading past the end of
+      ABGNAM, CAVEI and ABG.  The record COUNT is untouched, so the deck
+      format and everything that counts records (NPARI = NORCD-2 in
+      PFGD, NPARI = NORCD-1 on the zeta path) are unaffected.  For
+      l <= 3 the loop takes the same branch as before, expression for
+      expression, so d and f are bit-exact.
+
+    * SUBROUTINE ABGCHK, called from LNCUV beside NLTCHK, once per
+      configuration card while the card can still be named.  With
+      IABG >= 1 a subshell of l >= 4 and 2 <= n <= 4l stops the run:
+
+          *****CONFIGURATION ERROR, PARITY SET 1, CONFIGURATION 2 (...):
+                THE SUBSHELL G** 2 CANNOT BE HANDLED WITH IABG.GE.1.
+                ...
+                PUNCH IABG=0 IN COLUMN 21 OF THE MAIN CARD TO RUN
+                WITHOUT THEM.
+
+      IABG=0 is deliberately left working: PFGD sets NPARI=FLL(I) there
+      and reads the F**k records only, so g**2 and h**2 without
+      alpha/beta/gamma are an ordinary calculation and are not refused.
+      Verified both ways on a Pr III deck with one card's first subshell
+      changed to G 2 -- IABG=2 stops in ABGCHK naming the card, IABG=0
+      passes it and stops later for an unrelated reason of the doctored
+      deck.
+
+  FOR074 was regenerated with the new CUVFD and is committed:
+  d1f3a5a724663106ad6d9323461e566b, 308372 bytes as before.  It differs
+  from the previous deck in 106 bytes, all of them inside the four
+  parameter records at the ends of the g2 and h2 blocks; FOR072 and
+  FOR073 are unchanged.  CODE/rcg11kd.exe was rebuilt from the new
+  source with gfortran_O3_OMP.bat's flags -- one warning, the expected
+  -fno-automatic one.
+
+  Regression: WORK/Pr3/JK/ING11 run twice, once with the previous
+  executable and the previous decks and once with the new ones.  TAPE2E
+  7fc8dc27eb58bcc30467c3073982af7a, OUTGINE b4c556904b9a3a92408fd4a0998d8634
+  and genealogy.txt 14d00e55a4c025da09cfdf9e46fc68e5 are identical, and
+  OUTG11 is identical once the timing lines are stripped.  (Pr III has no
+  g or h shell, which is the point: nothing that any real deck reads has
+  moved.)
+
+  CODE/FOR074 has been refreshed from the clean regeneration, so the three
+  decks in the repository now match what the committed executable produces.
+  No Fortran was touched.  Pr III was run against the refreshed decks:
+  TAPE2E md5 062a5445d38519c6f5be44bfd55c0965 and OUTGINE md5
+  2d904d54ca00b80ddadc508210c6e0db, both unchanged, and OUTG11 identical
+  once the timing lines are stripped.
+
+
+END-TO-END VERIFICATION ON LINUX (stage 11 of the Unix port)
+
+  Nothing in stages 1-10 proved the package runs on Linux, because until
+  this point no Linux machine had been involved.  It was run under WSL 2,
+  Ubuntu 24.04.2 LTS, gfortran 13.3.0, python3 3.12.3, x86-64, 32 cores.
+  The tree was copied to ~/cowan-src first: /mnt/f is DrvFs and reports
+  every file 777, which would have made the permissions test meaningless.
+
+  Build.  build.sh produced all four programs in 14 seconds, with the
+  expected -fno-automatic/-frecursive warning and nothing else.  The
+  -fno-automatic .bss is 110 MB for rcg11kd and 323 MB for RCE20KD, far
+  under the 2 GB at which the small code model runs out and
+  -mcmodel=medium becomes necessary.  libgfortran and libgomp come from
+  the system; nothing is shipped beside the executables, as it is on
+  Windows.
+
+  Install.  install.sh laid down four executables, fourteen tools,
+  twenty-seven toolbox modules, seven data files and twenty-five
+  wrappers, and no .bat, .exe, .dll, tests/ or perl_legacy/.  On a real
+  Linux filesystem the modes are what the script intends, including the
+  644 on the .py tools that MSYS could not show.  make_cfp ran through
+  its permission dance and regenerated FOR072, FOR073 and FOR074
+  BYTE-IDENTICAL to the committed decks -- which is both
+  the confirmation of stage 8a's determinism finding and the proof of
+  install.sh's claim that the decks are portable as bytes.  RCG then read
+  them at mode 444 without complaint, confirming that libgfortran retries
+  a refused read-write open (STATUS='UNKNOWN') read-only; a reinstall put
+  them back to 644.
+
+  Pr III, Linux against Windows, the same deck run through the whole
+  README sequence on both:
+
+      TAPE2E    byte-identical, 062a5445d38519c6f5be44bfd55c0965
+      OUTGINE   byte-identical
+      OUTG11    84 MB, 170 differing lines, every one a timing line
+      OUT36     differences are timing lines only
+      OUT2      differences are timing lines only
+
+  All fifteen final products are identical once CR is stripped: ING11,
+  RCEOUT, RCEINP.HF, genealogy.txt, levels.txt, params.txt,
+  levels_prepub.txt, levels_pub.txt, levels_13kk.txt, tr_13kk.txt,
+  ENLEV.DAT, TRANS.DAT.  The one exception is coupling_choice.txt, which
+  differs in its "# folder:" provenance comment and nowhere else.  Every
+  number WORK/Pr3/README.txt documents came back: AVDEV = 0.133; 25 J
+  blocks and 5626 levels; 16878 levels written with the LSJK J=12.5 note;
+  39 configurations split LS 19, JJ 13, LSJK 7, with 15 within 2%; 2016
+  levels merged; 1036 published (o 481, e 555) and 45 levels (4%); 795
+  transitions, 11252 levels, ENLEV.DAT 555 levels and TRANS.DAT 792
+  lines.  Thread invariance holds on Linux at 1, 4 and 32 threads for
+  both RCG and RCE.
+
+  TAPE2N does differ between the platforms, and only TAPE2N.  With the
+  record layout read out of RCN2K.F -- 4-byte markers, a 1306-byte
+  header, then R(1801), RU(1801) and PNL(1801,NPNL) as doubles, then IW6
+  -- the relative difference is 1.2e-13 over values above 1 and 1.3e-9
+  over all of them.  That is ordinary last-bit rounding in RCN's radial
+  wavefunctions between two gfortran versions, and it does not propagate:
+  RCN2 writes the parameters to six figures, and TAPE2E downstream is
+  byte-identical.  Do not chase it.
+
+TWO DEFECTS STAGE 11 FOUND
+
+  RCE indexed past the end of COMMON/C1/.  RCE died with SIGSEGV on the
+  first J block of every Linux run.  Threading and stack size were ruled
+  out (OMP_NUM_THREADS=1 and ulimit -s 524288 both still failed); a debug
+  build put it at RCE20KD.F:511 in MAIN__.  gfortran's own backtrace
+  handler pre-empts ASan, so the loop was instrumented with a
+  write(0,...) instead, which showed N reaching 201 against NPAR(IC,IC)
+  with IC=200.
+
+  In the DO 3145 loop, N is a configuration index and was incremented
+  with nothing bounding it.  Once the real configurations are past,
+  NPAR(N,N) reads zero, the test fires on every pass, and N advances
+  until it indexes off the end of the block.  Windows walks out of bounds
+  too -- an instrumented MinGW build reaches N=201 as well -- but the
+  word beyond happens to be large there, so the runaway stops and the run
+  finishes.  Under Linux it is small, so N runs on until the read leaves
+  the mapped region.
+
+  The guard is IF (N.LT.IC) around the existing test, nested rather than
+  written with .AND. because Fortran does not guarantee short-circuit
+  evaluation.  It cannot change a number: NMAX is 21 here, the test at
+  the head of the loop takes the UNPK2 branch whatever N is once N
+  exceeds NMAX, the ELSE branch is reachable only while N is at most
+  NMAX, and N is used nowhere else in the loop body.  That reasoning was
+  checked rather than asserted -- the guarded source was built on Windows
+  with the production flags and run against the committed executable on
+  Pr III: RCEOUT, TAPE2E and OUTGINE byte-identical, OUTE (73 MB)
+  differing in 22 lines, all of them timing.  CLAUDE.md section 1's
+  standard, met.  CODE/RCE20KD.exe was rebuilt from the fixed source and
+  reproduces the same result.  The reasoning is at the point of change
+  and in the header change list of RCE20KD.F.
+
+  The Python shims wrote __pycache__ into the installed package.  All
+  fourteen tool wrappers in CODE/unix exec'd the interpreter without -B,
+  so the first run of any tool dropped a .pyc beside it -- the one breach
+  of the guarantee the whole install layout exists to make, that the code
+  directory is never written to during a run.  All fourteen now pass -B,
+  with the reason in a comment.  Recompiling these few modules on each
+  run costs a few milliseconds.
+
+  Not done: the pytest suite was not run on Linux.  pytest is not
+  installed there, and on Ubuntu 24.04 neither pip nor python3 -m venv
+  works without sudo.  The tools were exercised end to end on real Pr III
+  data with byte-matching output, which is a stronger check of the same
+  code, but it is not the unit suite and should not be reported as it.
+
+  Not done: macOS.  Nothing in the package is known to depend on
+  anything macOS lacks, and build.sh, install.sh and _common.sh handle it
+  deliberately -- BSD readlink, the zsh default shell, Homebrew gfortran
+  -- but no run on macOS, Intel or Apple Silicon, has been made.
+  README.md says so in as many words.
+
+DOCUMENTATION FOR THE PORT (stage 10)
+
+  README.md stops describing itself as a Windows package.  The title, the
+  system and hardware and software requirements, the "running the
+  programs" section and the addendum are now written for all three
+  systems; INSTALLATION became INSTALLATION ON WINDOWS and a new
+  INSTALLING ON LINUX AND macOS sits beside it, covering gfortran and
+  python3 from apt, dnf or brew, build.sh, install.sh, the PATH line for
+  ~/.bashrc or ~/.zshrc, and the two Unix-only settings (OMP_STACKSIZE
+  and .bss size) that install.sh prints.  RECOMPILING UNDER WINDOWS
+  became RECOMPILING THE FORTRAN with a subsection per system and a third
+  on the three flags that are load-bearing.  Package-relative paths are
+  written with forward slashes throughout; the backslashes that remain
+  are all inside genuinely Windows-only instructions.  The utility codes
+  are listed by command name rather than by .bat name, since the name is
+  now a .bat on one system and a shell script on another.
+
+  The COMPILING FOR OTHER OPERATING SYSTEMS section was the one the
+  author asked to have rewritten, and it says two things it did not say
+  before.  First, that the MSDOS flag is not a Windows detail to be
+  removed but the mechanism of the code/workspace split, that it is
+  implemented and verified for Windows, Linux and macOS with gfortran and
+  for no other combination, and what to do about it elsewhere (MSDOS=0
+  and the hard-coded FIL=).  Second, a warning that building with another
+  compiler drops the parallelization -- the threading is OpenMP as
+  gfortran implements it -- and that on a large case this is worth more
+  than a factor of ten in wall-clock time on a many-core machine.
+
+  The WORK walkthroughs gained a note that their command lines are
+  written as they are typed on Windows and are lower case on Linux and
+  macOS, and that "copy" reads "cp" there: WORK/Pr3, WORK/U90, WORK/W70
+  and WORK/Forbid.  WORK/AI/DIEL/README.txt had a command block naming
+  executables that no longer exist under those names (rcn36.exe,
+  rcg11.exe) and hand-writing COWAN.CFG; it now names the wrappers, says
+  why the wrapper and not the executable, and gives the gcard
+  concatenation for both shells.

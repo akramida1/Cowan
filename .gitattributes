@@ -1,0 +1,23 @@
+# Line endings.
+#
+# The package is developed on Windows and run on all three systems, so
+# most files are left to git's own normalization.  The shell scripts are
+# not: a script checked out with CRLF fails on Linux with
+#
+#     /bin/bash^M: bad interpreter: No such file or directory
+#
+# which says nothing about the real cause.  They are pinned to LF, on
+# every platform, whatever core.autocrlf is set to locally.
+
+*.sh text eol=lf
+CODE/unix/* text eol=lf
+
+# The wrappers in CODE/unix/ carry no extension -- they are typed as
+# `rcg`, `rcn2`, `add_eav` and so on -- so the directory rule above is
+# what covers them, and it has to stay ahead of any rule that would
+# treat an extensionless file as binary.
+
+# Windows batch files are the mirror image: cmd.exe is content with LF
+# for the most part, but a label or a goto at the end of a line without
+# CR has been known to misbehave, so these keep CRLF.
+*.bat text eol=crlf

@@ -96,3 +96,12 @@ WORK/Pr3_2026_v0
 # Task reference materials
 Handbook/
 ASD_syntax_examples.txt
+
+# Unix builds
+# gfortran -o leaves no suffix, so CODE/unix/build.sh puts the four
+# programs in CODE/ under their bare names.  The Windows .exe are
+# part of the package and are committed; these are not.
+CODE/RCN36K
+CODE/RCN2K
+CODE/rcg11kd
+CODE/RCE20KD

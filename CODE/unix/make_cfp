@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+#
+# Regenerate the CFP binary decks FOR072, FOR073 and FOR074.  The Unix
+# counterpart of make_cfp.bat.
+#
+# The decks are not part of the distribution: they are built on the
+# machine the package is installed on, and RCG will not run without them.
+# install.sh runs this script itself, from the unpacked source tree, so an
+# ordinary installation never has to invoke it by hand.  What is left for
+# a hand run is a rebuild after recompiling RCG with a compiler whose
+# unformatted record layout differs from gfortran's.  A deck is
+# little-endian with 4-byte record markers and is read unchanged by
+# gfortran on x86-64 Linux and on Apple Silicon alike, so moving between
+# the systems this package is built for is not a reason to rebuild.
+#
+# It runs in the current directory -- ING11, OUTG11, TAPE2E and the rest
+# are written here -- but the decks it produces land in CODE/, beside the
+# executable, because that is where RCG opens them.  Which is the whole
+# reason for the permission dance below.
+#
+# THE PERMISSION DANCE
+#
+# On Windows the decks are ordinary writable files and make_cfp.bat has
+# nothing to arrange.  On Unix the package directory is meant to be
+# read-only in normal use -- that is the point of the install layout, and
+# it is what makes "the code directory is never written to during a run" a
+# guarantee rather than a convention.  A CFP run is the one exception: it
+# deletes the three decks and RCG writes them afresh.
+#
+# Two different permissions are needed for that, and they fail in two
+# different ways:
+#
+#   * chmod a+w on the decks needs *ownership* of them (or root).
+#   * deleting them needs write permission on the *directory*, not on the
+#     files.  A package installed under /usr/local and owned by root will
+#     refuse an ordinary user here even after a successful chmod.
+#
+# Both are checked before anything is touched, so that a run cannot fail
+# halfway through and be reported as a mysterious RCG error.
+#
+# The decks are put back to read-only on the way out however the script
+# leaves -- normal exit, error, or Ctrl-C -- because leaving them writable
+# is the failure this is all guarding against.
+
+set -u
+
+self=$(basename "$0")
+
+die() {
+    echo "$self: $*" >&2
+    exit 1
+}
+
+# _common.sh is sourced by its own path.  make_cfp.bat gets away with a
+# bare `call mark_time.bat` only because the author has C:\cowan\code on
+# PATH; nothing here may inherit that assumption.
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+
+# The batch file's own banner, minus its START box, which make_cfp.bat
+# does not print either -- the box belongs to the four program wrappers.
+# cowan_banner is therefore not used here, only the cowan_dir and the
+# timing that _common.sh brings with it.
+# COWAN_NO_CLEAR is set by install.sh, which runs this script in the
+# middle of its own output and would rather not have it wiped.  The banner
+# below is still printed; only the clear is suppressed.
+if [ -t 1 ] && [ -z "${COWAN_NO_CLEAR:-}" ] &&
+   command -v clear >/dev/null 2>&1; then
+    clear
+fi
+echo "."
+echo "."
+echo "."
+echo "************************************************************************"
+echo "*      This script creates the new CFP binary files for RCG.           *"
+echo "*     You need to run it if you re-compiled RCG with any compiler      *"
+echo "*      different from Salford (Silverfrost) F77, to create new         *"
+echo "*        FOR072, FOR073 and FOR074 files. It uses the default          *"
+echo "*                  CFP input deck (file ING11.CFP).                    *"
+echo "************************************************************************"
+
+cfp=$cowan_dir/ING11.CFP
+[ -f "$cfp" ] || die "file $cfp is not found"
+
+# ------------------------------------------------------- permission check
+
+# Checked in the order they will be needed, and both before any change is
+# made.  `[ -w ]` on the directory is the deletion test: on Unix, unlink
+# consults the directory's permissions and not the file's, so a run can
+# get past the chmod and still be unable to remove the old deck.
+if [ ! -w "$cowan_dir" ]; then
+    echo "$self: cannot write in the package directory" >&2
+    echo "  $cowan_dir" >&2
+    echo "  The old FOR072, FOR073 and FOR074 have to be deleted before the new" >&2
+    echo "  ones can be written, and on Unix deleting a file needs write" >&2
+    echo "  permission on the directory that holds it, not on the file." >&2
+    echo "  Either run this as the owner of that directory -- with sudo, if the" >&2
+    echo "  package is installed under /usr/local -- or install the package" >&2
+    echo "  somewhere you own, such as ~/.local/lib/cowan." >&2
+    exit 1
+fi
+
+# The chmod test has to be the chmod itself: only the kernel knows whether
+# this user owns the file, and root may do it regardless of the mode bits.
+decks=""
+for deck in "$cowan_dir"/FOR072 "$cowan_dir"/FOR073 "$cowan_dir"/FOR074; do
+    [ -e "$deck" ] || continue
+    decks="$decks $deck"
+done
+
+# The decks go back to read-only whatever happens from here on.  Set
+# before the first chmod a+w, so an interrupt between the two cannot slip
+# through.  Newly written decks are covered too: the glob is re-evaluated
+# at exit, not now.
+protect_decks() {
+    for f in "$cowan_dir"/FOR072 "$cowan_dir"/FOR073 "$cowan_dir"/FOR074; do
+        [ -e "$f" ] && chmod a-w "$f" 2>/dev/null
+    done
+    return 0
+}
+trap 'protect_decks' EXIT INT TERM
+
+if [ -n "$decks" ]; then
+    # shellcheck disable=SC2086
+    if ! chmod a+w $decks 2>/dev/null; then
+        echo "$self: cannot make the CFP decks writable" >&2
+        echo "  in $cowan_dir" >&2
+        echo "  chmod needs you to own the files.  Run this as their owner, or" >&2
+        echo "  with sudo if the package is installed system-wide." >&2
+        exit 1
+    fi
+fi
+
+# ------------------------------------------------------------ input deck
+
+if [ -f ING11 ]; then
+    echo "Backing up existing ING11 to ING11.BAK"
+    cp ING11 ING11.BAK || die "could not back up ING11"
+    rm -f ING11
+fi
+
+echo "                              CREATING ING11 . . ."
+
+# The batch file writes this with
+#
+#     for /F "skip=8 tokens=1* delims=;" %%a in (ING11.CFP) do @echo %%a>>ING11
+#
+# which is three things at once, and all three are reproduced here:
+# drop the first 8 comment cards; cut each remaining card at its first
+# semicolon, the deck's comment character; and drop the card entirely if
+# nothing is left.  That last one is `for /F`'s own behaviour -- it skips
+# blank lines silently, and a line made only of delimiters yields no token
+# and no iteration -- and `cut -d';' -f1` does not do it.
+#
+# ING11.CFP is stored with CRLF, being a Windows-authored text file; the
+# CR is stripped so the deck this writes is an ordinary Unix text file.
+# The shipped deck has neither blank lines nor semicolons, so on it all of
+# this is exactly `tail -n +9`; the fidelity is for decks the user edits.
+awk 'NR > 8 {
+        sub(/\r$/, "")
+        sub(/^;+/, "")          # for /F strips leading delimiters
+        i = index($0, ";")
+        if (i > 0) $0 = substr($0, 1, i - 1)
+        if ($0 == "") next
+        print
+     }' "$cfp" > ING11 || die "could not write ING11"
+
+# ------------------------------------------------------------------- run
+
+# Ordering: the old decks are deleted only after the chmod above, and
+# before RCG runs.  RCG opens them STATUS='UNKNOWN' and would otherwise
+# append to, or read back, a deck from the previous build.
+rm -f "$cowan_dir"/FOR072 "$cowan_dir"/FOR073 "$cowan_dir"/FOR074
+
+echo "                               RUNNING RCG . . ."
+
+# The rcg wrapper rather than the executable: it writes and removes
+# COWAN.CFG, which is how RCG is told where to put the decks, and it does
+# the timing.  make_cfp.bat writes cowan.cfg itself only because rcg.bat
+# would also have cleared the screen.
+"$cowan_dir/unix/rcg"
+rc=$?
+
+rm -f FOR033 TAPE2E OUTGINE
+
+if [ "$rc" -ne 0 ]; then
+    die "RCG exited with status $rc; the CFP decks were not created in $cowan_dir"
+fi
+
+for deck in FOR072 FOR073 FOR074; do
+    [ -f "$cowan_dir/$deck" ] ||
+        die "$deck was not created in $cowan_dir due to an execution error"
+done
+
+echo "Done. New CFP binary files FOR072, FOR073, and FOR074 are created in"
+echo "$cowan_dir"

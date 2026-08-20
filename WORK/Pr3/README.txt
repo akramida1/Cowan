@@ -17,7 +17,7 @@ is in the folder:
     IN2, IN36     the deck, as for any other case in WORK/
     OUTGINE.fin   RCE's control file, converged
     RCEINP.fin    RCE's vector-input file, converged
-    JK/ing11      the same fit, asked for in LSJK instead of JJ
+    JK/ING11      the same fit, asked for in LSJK instead of JJ
     dlv.dat       the observed line list, for the IDEN2 output below
     numset.dat    the wavelength ranges dlv.dat is divided into
 
@@ -41,6 +41,11 @@ in the published list comes from.
 THE RUN
 
 Work in a copy of this directory, not in the distribution.
+
+The commands below are written as they are typed on Windows.  On
+Linux and macOS type them in lower case -- rcn, rcn2, rcg, rce, and
+likewise for the utility codes -- and read `cp` wherever this file
+says `copy`.  Nothing else differs.
 
     RCN
     RCN2
@@ -90,7 +95,7 @@ THE SECOND COUPLING
 
 RCG will write two coupling schemes into one OUTG11, and this deck asks
 for LS and JJ.  A third scheme needs a second run, which is what JK/ is
-for.  Its ing11 is the fitted ING11 that update11 just wrote, with two
+for.  Its ING11 is the fitted ING11 that update11 just wrote, with two
 fields of the main card changed:
 
     columns 31-39   KCPLD    0011111  ->  0111011
@@ -106,7 +111,7 @@ needed -- a blank field means "no limit" and permits couplings 3-7,
 where it used to forbid them (`FOR/rcg11kd.f:735-756`).  It is punched
 here because the file predates the change and because it is explicit.
 
-The parameter cards of JK/ing11 hold the same fitted values that
+The parameter cards of JK/ING11 hold the same fitted values that
 update11 produces, to the last digit; only the exponent notation of the
 zero and near-zero cards differs (`0.00e+01` where RCN2 wrote
 `0.00E+001`), because the shipped file has been through an earlier s11
@@ -119,7 +124,7 @@ those two fields edited.
     RCE
     cd ..
 
-RCG in JK/ reads its own ing11 and needs nothing from the parent; RCE
+RCG in JK/ reads its own ING11 and needs nothing from the parent; RCE
 after it runs another cycle 0, which is all that is wanted -- the
 parameters are already the fitted ones, so its levels are the fitted
 levels, and its job here is only to identify them.  IN36 is not copied:

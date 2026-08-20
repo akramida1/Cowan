@@ -12,30 +12,30 @@ echo *                  CFP input deck (file ING11.CFP).                    *
 echo ************************************************************************
 rem
 setlocal
-if not exist "%~dp0ing11.cfp" goto Err1
-if exist ing11 @echo Backing up existing ING11. to ING11.BAK
-if exist ing11 copy ing11 ing11.bak > nul
-if exist ing11 del ing11 > nul
-rem copy ing11.cfp ing11 > nul
+if not exist "%~dp0ING11.CFP" goto Err1
+if exist ING11 @echo Backing up existing ING11. to ING11.BAK
+if exist ING11 copy ING11 ING11.BAK > nul
+if exist ING11 del ING11 > nul
+rem copy ING11.CFP ING11 > nul
 echo                               CREATING ING11 . . .
-for /F "skip=8 tokens=1* delims=;" %%a in (%~dps0ing11.cfp) do @echo %%a>>ing11
-if exist "%~dp0for072" del "%~dp0for07?" >nul
-echo %~dps0 > cowan.cfg
+for /F "skip=8 tokens=1* delims=;" %%a in (%~dps0ING11.CFP) do @echo %%a>>ING11
+if exist "%~dp0FOR072" del "%~dp0FOR07?" >nul
+echo %~dps0 > COWAN.CFG
 rem goto End
 echo                                RUNNING RCG . . .
 call mark_time.bat "%~dp0rcg11kd.exe"
-rem del cowan.cfg > nul
-if exist for033 del for033 > nul
-if exist tape2e del tape2e > nul
-if exist outgine del outgine > nul
-rem del ing11 > nul
-if not exist "%~dp0for072" goto Err2
-if not exist "%~dp0for073" goto Err2
-if not exist "%~dp0for074" goto Err2
-echo Done. New CFP binary files for072, for073, and for074 are created in "%~dp0" directory.
+rem del COWAN.CFG > nul
+if exist FOR033 del FOR033 > nul
+if exist TAPE2E del TAPE2E > nul
+if exist OUTGINE del OUTGINE > nul
+rem del ING11 > nul
+if not exist "%~dp0FOR072" goto Err2
+if not exist "%~dp0FOR073" goto Err2
+if not exist "%~dp0FOR074" goto Err2
+echo Done. New CFP binary files FOR072, FOR073, and FOR074 are created in "%~dp0" directory.
 goto End
 :Err1
-echo Error: file "%~dp0ing11.cfp" is not found
+echo Error: file "%~dp0ING11.CFP" is not found
 goto End
 :Err2
 echo Files FOR072, FOR073 and FOR074 were not created in "%~dp0" due to execution error.

@@ -234,7 +234,12 @@ def test_the_r_integrals_move_by_the_fraction_asked_for():
 # one whole run
 # --------------------------------------------------------------------------
 
-EXECUTABLES = ('RCN36K.exe', 'RCN2K.exe', 'rcg11kd.exe', 'RCE20KD.exe')
+#: The four programs, spelled the way each platform's build leaves
+#: them: gfortran is told `-o NAME.exe` on Windows and `-o NAME` on
+#: Unix.  A missing one skips the whole end-to-end test.
+PROGRAMS = ('RCN36K', 'RCN2K', 'rcg11kd', 'RCE20KD')
+SUFFIX = '.exe' if os.name == 'nt' else ''
+EXECUTABLES = tuple(name + SUFFIX for name in PROGRAMS)
 
 
 def build(folder, ispecc=None):

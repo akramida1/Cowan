@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# Program RCN Mod 36k.  The Unix counterpart of rcn.bat.
+#
+# Runs in the current directory, on the input deck it finds there, as the
+# batch file does; this wrapper only prints the banner and times the run.
+#
+# There is deliberately no `set -e`.  The wrapper exists to say when the
+# run started and finished, and -e would leave on the program's first
+# nonzero exit with those lines unprinted.  The exit code is handed back
+# by cowan_run instead.
+
+set -u
+
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+
+cowan_banner 35 \
+'                              Program RCN Mod 36k' \
+'          calculates single-configuration radial wavefunctions for a' \
+'               spherically symmetrized atom via one of the four' \
+'            homogeneous-differential-equation approximations to the' \
+'                              HARTREE-FOCK method'
+
+cowan_run "$cowan_dir/RCN36K" "$@"

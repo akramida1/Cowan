@@ -41,6 +41,11 @@ THE RUN
 
 Work in a copy of this directory, not in the distribution.
 
+The commands below are written as they are typed on Windows.  On
+Linux and macOS type them in lower case -- rcn, rcn2, rcg, rce, and
+likewise for the utility codes -- and read `cp` wherever this file
+says `copy`.  Nothing else differs.
+
     RCN
     RCN2
     RCG
@@ -84,9 +89,9 @@ the file it is given and does not create the directory above it, and an
 empty folder does not survive a git checkout or a zip:
 
     mkdir reordered
-    reorder_ing11 reordered\ing11 231
+    reorder_ing11 reordered/ING11 231
 
-    reordered\ing11 written: 3 of the 8 slots moved.
+    reordered/ING11 written: 3 of the 8 slots moved.
 
 231 is the old slot numbers written in their new order: the new first
 slot is the old second (2s), the new second is the old third (2p), and
@@ -102,7 +107,7 @@ Then run RCG and RCE in the sub-folder:
     RCE
     cd ..
 
-RCG reads its own ing11 and needs nothing from the parent.  RCE runs
+RCG reads its own ING11 and needs nothing from the parent.  RCE runs
 another cycle 0: the parameters are already the fitted ones, so its
 levels are the fitted levels and its job here is only to identify them.
 

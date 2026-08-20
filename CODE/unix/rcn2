@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# Program RCN2k.  The Unix counterpart of rcn2.bat.
+#
+# Runs in the current directory, on the input deck it finds there, as the
+# batch file does; this wrapper only prints the banner and times the run.
+# See rcn for why there is no `set -e`.
+
+set -u
+
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+
+cowan_banner 35 \
+'                                 Program RCN2k' \
+'             accepts radial wavefunctions from RCN and calculates' \
+'                    multiple-configuration radial integrals'
+
+cowan_run "$cowan_dir/RCN2K" "$@"

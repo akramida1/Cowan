@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# Program RCG Mod 11kd.  The Unix counterpart of rcg.bat.
+#
+# Runs in the current directory, on the input deck it finds there.  Unlike
+# the other three, RCG has to be told where the package's own data files
+# are -- FOR072, FOR073, FOR074, SENIOR, LSJJ.DAT -- and the way it is
+# told is a one-line COWAN.CFG written into the working directory just
+# before the run and deleted just after.  It is machine-written, never
+# edited by hand, and never left behind: hence the trap below, so that a
+# failed run or a Ctrl-C does not leave one lying about for the next.
+#
+# The format of that line is worth spelling out, because it is not
+# obvious and it is what makes this work on Unix at all.  RCG reads it
+# with FORMAT(A) into a CHARACTER*250, then walks it backwards looking
+# for a backslash and truncates just after the last one; a Unix path has
+# no backslash, so that loop falls through untouched and the path is used
+# up to its first blank.  It is then concatenated directly with the file
+# names, so the line must end in a slash and carry nothing after it.
+#
+# The same INDEX(FIL,' ') is why a directory with a space in it cannot
+# work: RCG would cut the path at the space.  Checked for below rather
+# than left to fail as a missing FOR072.
+#
+# See rcn for why there is no `set -e`.
+
+set -u
+
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+
+case "$cowan_dir" in
+    *\ *) echo "rcg: RCG cannot be run from a path containing a space:" >&2
+          echo "  $cowan_dir" >&2
+          echo "  It reads that path from COWAN.CFG and cuts it at the first blank." >&2
+          exit 1 ;;
+esac
+
+trap 'rm -f COWAN.CFG' EXIT INT TERM
+printf '%s/\n' "$cowan_dir" > COWAN.CFG
+
+cowan_banner 33 \
+'                            Program RCG Mod 11kd' \
+'      computes angular matrix elements, energy levels, and atomic spectra'
+
+cowan_run "$cowan_dir/rcg11kd" "$@"

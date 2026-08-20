@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#
+# Program RCE Mod 20kd.  The Unix counterpart of rce.bat.
+#
+# Runs in the current directory, on the input deck it finds there.  See
+# rcn for why there is no `set -e`.
+
+set -u
+
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+
+cowan_banner 34 \
+'                             Program RCE Mod 20kd' \
+'                 Least-squares fitting of atomic energy levels'
+
+cowan_run "$cowan_dir/RCE20KD" "$@"
+rc=$?
+
+# The batch file's closing line: keep the first RCEINP of a fitting
+# session as RCEINP.HF, the Hartree-Fock starting point.  RCE rewrites
+# RCEINP with the fitted parameters on every pass, so without this the
+# values the fit started from would be gone after the first one.  Only
+# ever written if it is not already there.
+if [ ! -e RCEINP.HF ] && [ -e RCEINP ]; then
+    cp RCEINP RCEINP.HF
+fi
+
+exit $rc

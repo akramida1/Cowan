@@ -1,6 +1,6 @@
-copy outgine outgine.bak
+copy OUTGINE OUTGINE.BAK
 call s11.bat %1
 call rcg.bat
-copy outgine.bak OUTGINE
-del outgine.bak
+copy OUTGINE.BAK OUTGINE
+del OUTGINE.BAK
 call printout.bat levels.txt

@@ -105,6 +105,10 @@ PAR_FILE = 'calc_TP_M1E2.par'
 CONFIG = 'COWAN.CFG'
 RCG = 'rcg11kd.exe'
 
+#: The same program built on Unix, where gfortran's -o leaves no
+#: suffix.  Both names are looked for, .exe first.
+RCG_UNIX = 'rcg11kd'
+
 #: The two multipoles this program is about.  E1 is left to `conv_out`.
 MULTIPOLES = ('MAG DIP', 'ELEC QUD')
 
@@ -605,11 +609,12 @@ def run_rcg(folder, executable):
     removed again afterwards, so a trial directory is left holding only
     what RCG produced.
 
-    COWAN.CFG is read only where MSDOS=1, and the path is cut back to
-    its last backslash; on any other platform RCG has the directory
-    compiled into it.  Writing the file is therefore harmless
-    everywhere and is what makes this work on Windows, which is where
-    the executable is.
+    MSDOS is set to 1 in the source (`FOR/rcg11kd.f:313`), so the
+    branch that reads COWAN.CFG is taken on every platform and the
+    ELSE branch's compiled-in path is dead.  RCG cuts the line back
+    to its last backslash if it has one and otherwise keeps it whole,
+    repairing nothing: the separator this appends is what makes the
+    path usable, on Unix as much as on Windows.
     """
     folder = Path(folder)
     config = folder / CONFIG
@@ -632,10 +637,11 @@ def find_rcg(named):
             raise RunError('the rcg parameter names %s, which is not there'
                            % path)
         return path
-    beside = files.code_dir() / RCG
-    if beside.is_file():
-        return beside
-    found = shutil.which('rcg11kd') or shutil.which(RCG)
+    for name in (RCG, RCG_UNIX):
+        beside = files.code_dir() / name
+        if beside.is_file():
+            return beside
+    found = shutil.which(RCG_UNIX) or shutil.which(RCG)
     if found:
         return Path(found)
     raise RunError(

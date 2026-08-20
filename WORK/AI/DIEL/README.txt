@@ -10,9 +10,9 @@ energies, works out which orbital angular momenta the free electron may
 have, and writes the "99l" continuum configuration cards.  It lives
 entirely inside RCN; RCN2, RCG and RCE see nothing unusual.
 
-    indiel  --+
-    in36(-1)--+--> RCN36 --> in36 rebuilt, with the 99l continuum cards
-                        \--> tape2n, bound and continuum wavefunctions
+    INDIEL  --+
+    IN36(-1)--+--> RCN36 --> IN36 rebuilt, with the 99l continuum cards
+                        \--> TAPE2N, bound and continuum wavefunctions
                                 |
                         RCN2 ---+---> ING11
                                 |
@@ -21,9 +21,9 @@ entirely inside RCN; RCN2, RCG and RCE see nothing unusual.
 Internally it is two passes.  Pass 1 writes the control card, the ion
 cards and the autoionizing cards to tape10 and calls RCN just to get the
 average energies; its exit card carries iz=-999, which makes RCN return
-without writing the tape2n end-of-file so that DIEL can read the results
-back.  ("-999" in a partly written in36 is therefore not an error.)
-Pass 2 rewinds indiel, forms eps = Eav(atom) - Eav(ion), applies the
+without writing the TAPE2N end-of-file so that DIEL can read the results
+back.  ("-999" in a partly written IN36 is therefore not an error.)
+Pass 2 rewinds INDIEL, forms eps = Eav(atom) - Eav(ion), applies the
 triangle rules, writes the decay, autoionizing and continuum cards to
 tape11, copies tape11 over tape10, and lets RCN run it normally.
 
@@ -39,25 +39,38 @@ Free-electron kinetic energy found by DIEL:  18.58 Ry, l = 5 and 7
 
 Files
 -----
-indiel              input to DIEL (unit 12)
-in36                contains nothing but the "-1" exit card
-in2                 RCN2 input; its G5INP card also carries the RCG
+INDIEL              input to DIEL (unit 12)
+IN36                contains nothing but the "-1" exit card
+IN2                 RCN2 input; its G5INP card also carries the RCG
                     control card
 gcard               optional RCG "KCPL=3" card, prepended to ING11 to
                     obtain the DR rate as a function of temperature
-in36.generated      the in36 that DIEL builds - for comparison
-out36.reference     RCN output
+IN36.generated      the IN36 that DIEL builds - for comparison
+OUT36.reference     RCN output
 ING11.reference     RCN2 output
 OUT2.reference      RCN2 printed output
 OUTG11.reference    RCG output
 
-Commands - run in an empty scratch directory holding indiel, in36, in2
+Commands - run in an empty scratch directory holding INDIEL, IN36, IN2
 ----------------------------------------------------------------------
-    rcn36.exe                              # DIEL + preliminary + final RCN
-    rcn2.exe                               # -> ING11, OUT2
-    cat gcard ING11 > tmp && mv tmp ING11  # optional, for the DR rates
-    echo 'C:\cowan\CODE\ ' > COWAN.CFG
-    rcg11.exe                              # -> OUTG11, TAPE2E, OUTGINE
+    RCN                     # DIEL + preliminary + final RCN
+    RCN2                    # -> ING11, OUT2
+    RCG                     # -> OUTG11, TAPE2E, OUTGINE
+
+For the optional DR rates, put the gcard on the front of ING11 after
+RCN2 and before RCG.  On Windows:
+
+    copy /b gcard+ING11 tmp && move /y tmp ING11
+
+and on Linux or macOS:
+
+    cat gcard ING11 > tmp && mv tmp ING11
+
+These are the wrapper names -- rcn.bat, rcn2.bat, rcg.bat on Windows,
+and the lower-case rcn, rcn2, rcg of CODE/unix on Linux and macOS.
+Call the wrappers rather than the executables: RCG has to be told
+where the package's data files are, and writing the COWAN.CFG that
+tells it is the wrapper's job.
 
 What to look for in OUTG11
 --------------------------
@@ -84,7 +97,7 @@ Rules DIEL enforces, and what happens if they are broken
    the first one defines the decay group, and the first card of the
    other parity begins the autoionizing group.  A set with only one
    parity used to produce no continuum cards and then abort with a bare
-   end-of-file on tape2n; as of v36.4.1 it stops with an explanatory
+   end-of-file on TAPE2N; as of v36.4.1 it stops with an explanatory
    message (exit status 16).
 2. NSPECT on the ion card(s) must differ from NSPECT on the atom cards;
    the ion block ends at the first card whose NSPECT changes.
@@ -93,6 +106,6 @@ Rules DIEL enforces, and what happens if they are broken
 4. At most 5 ion configurations and 10 autoionizing configurations.
 5. EMX on the control card should bracket the kinetic energy, or the
    continuum normalization is poor.  If DIEL's eps comes out far from
-   the guessed EMX, edit the regenerated in36 and rerun from RCN2.
+   the guessed EMX, edit the regenerated IN36 and rerun from RCN2.
 6. The label prefix a, b, c ... on the generated continuum cards is the
    index of the ION configuration, not of the input set.

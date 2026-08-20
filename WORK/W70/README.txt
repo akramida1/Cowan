@@ -41,6 +41,11 @@ THE RUN
 
 Work in a copy of this directory, not in the distribution.
 
+The commands below are written as they are typed on Windows.  On
+Linux and macOS type them in lower case -- rcn, rcn2, rcg, rce, and
+likewise for the utility codes -- and read `cp` wherever this file
+says `copy`.  Nothing else differs.
+
     RCN
     RCN2
     RCG
@@ -158,7 +163,7 @@ Seconds, and about 3 MB:
 
     RCN 0.1 s, RCN2 0.1 s, RCG 1 s, RCE 1 s, the four utilities ~5 s
 
-tape2n is 1.6 MB of it and OUTG11 0.5 MB.  Neither is needed once
+TAPE2N is 1.6 MB of it and OUTG11 0.5 MB.  Neither is needed once
 levels.txt exists.
 
 WHAT THIS DECK IS NOT

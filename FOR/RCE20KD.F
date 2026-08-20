@@ -130,6 +130,12 @@ c              When the first coupling scheme is not LS,
 c              this version will work correctly only if the energy ordering
 c              in RCEINP is not disturbed (the order of experimental levels
 c              must be the same as the order of theoretical levels.
+c          Change on 19 Aug. 2026:
+c              Bounded N against NPAR's declared dimension IC in the
+c              DO 3145 loop over parameters.  The unbounded index was
+c              harmless under MinGW by luck and fatal under Linux; it
+c              never affected a computed number.  See the comment at the
+c              point of change.
 c          Change by A. Kramida on 22 Jan. 2026:
 c              Dynamic memory allocation routines borrowed from GRASP2K.
 c              Packing/unpacking routines UNPK2, WR1, LD1 now should work
@@ -508,9 +514,25 @@ C           CALL WR(IFS,IM,C,IA,Y,IMSQ1)
             CALL WR1(M,L1,IM,C,IA,BUFC_PTR,IBC,IMSQ1,
      *               ICOFFS,MAXB1U,MMAX,LMAXP1)
             ICOFS1=ICOFFS
-            IF (K.GE.NPAR(N,N)) THEN
-              N=N+1
-              K=0
+C           A.KRAMIDA 2026: N IS A CONFIGURATION INDEX AND NPAR IS
+C           DIMENSIONED NPAR(IC,IC).  NOTHING BOUNDED N HERE, SO ONCE THE
+C           REAL CONFIGURATIONS WERE PAST, NPAR(N,N) READ ZERO, THE TEST
+C           FIRED ON EVERY PASS AND N ADVANCED UNTIL IT INDEXED OFF THE
+C           END OF COMMON/C1/.  UNDER MINGW THE WORD BEYOND HAPPENED TO
+C           BE LARGE, THE RUNAWAY STOPPED AT N=201 AND THE RUN FINISHED;
+C           UNDER LINUX IT IS SMALL, SO N RAN ON UNTIL THE READ LEFT THE
+C           MAPPED REGION AND RCE DIED WITH SIGSEGV ON THE FIRST J BLOCK.
+C           THE GUARD CANNOT CHANGE A RESULT.  FOR N.GT.NMAX THE TEST AT
+C           THE HEAD OF THIS LOOP TAKES THE UNPK2 BRANCH WHATEVER N IS,
+C           THE ELSE BRANCH BELOW IS REACHED ONLY WHILE N.LE.NMAX, AND N
+C           IS USED NOWHERE ELSE IN THE LOOP BODY.  VERIFIED TO CLAUDE.MD
+C           SS1 ON PR III: RCEOUT, TAPE2E AND OUTGINE BYTE-IDENTICAL,
+C           OUTE DIFFERING IN 22 LINES, ALL OF THEM TIMING.
+            IF (N.LT.IC) THEN
+              IF (K.GE.NPAR(N,N)) THEN
+                N=N+1
+                K=0
+              ENDIF
             ENDIF
  3145     CONTINUE
 C         CALL WR(5,IM,A,IA,Y,IMSQ)

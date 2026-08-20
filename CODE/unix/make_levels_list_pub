@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Designations unique within each (parity, J) -> levels_pub.txt.
+#
+# The Unix counterpart of make_levels_list_pub.bat.  The tool is CODE/make_levels_list_pub.py and all
+# of the work is there; this only finds an interpreter and hands over, the
+# way the batch file hands over to the `py` launcher.
+#
+# $0 is not resolved through symlinks, so do not symlink this into ~/bin --
+# put CODE/unix on PATH instead, as the author has C:\cowan\code on PATH
+# under Windows.
+
+set -eu
+
+dir=$(cd "$(dirname "$0")/.." && pwd)
+
+# The Windows wrapper checks for exit code 9009, cmd.exe's "command not
+# found", and says so plainly.  This is the same courtesy: without it the
+# shell's own message names the interpreter and not the tool.
+if command -v python3 >/dev/null 2>&1; then
+    py=python3
+elif command -v python >/dev/null 2>&1 &&
+     python -c 'import sys; sys.exit(sys.version_info[0] < 3)' 2>/dev/null; then
+    # Some systems have only `python`, and on those it is Python 3.  A
+    # `python` that is Python 2 is no use here and is passed over.
+    py=python
+else
+    echo "make_levels_list_pub: no Python 3 on PATH." >&2
+    case "$(uname -s)" in
+        Darwin) echo "  Install one with:  brew install python" >&2 ;;
+        *)      echo "  Install one with:  sudo apt install python3     (Debian, Ubuntu)" >&2
+                echo "                     sudo dnf install python3     (Fedora, RHEL)" >&2 ;;
+    esac
+    exit 127
+fi
+
+# -B keeps Python from writing __pycache__ beside the tool.  The package
+# directory is not written to during a run -- that is what the install
+# modes are for -- and a .pyc dropped there would be the one breach of it.
+# Recompiling these few modules each run costs a few milliseconds.
+exec "$py" -B "$dir/make_levels_list_pub.py" "$@"
