@@ -50,8 +50,8 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from toolbox import case as case_mod                               # noqa: E402
-from toolbox import (ai, asd, designate, iden, in36, levels,       # noqa: E402
-                     parfile, radiate, spectrum, vacair)
+from toolbox import (ai, asd, designate, fundconst, iden, in36,   # noqa: E402
+                     levels, parfile, radiate, spectrum, vacair)
 
 #: The parameter file.  Unlike `calc_TP_M1E2.par` this one is NOT
 #: shipped in CODE/: it must be absent on a first run, or the sample
@@ -918,7 +918,11 @@ def _auger_rows(case, order, channels, coupling, options):
             rows, key=lambda r: (r[0].e_calc - r[1].energy)):
         if intensity < 0.5:
             continue
-        kinetic = (one.e_calc - channel.energy) * 1000 / radiate.EV_PER_CM
+        # e_calc and channel.energy are in the run's unit, 1000 cm-1,
+        # so *1000 makes cm-1 and EV2CM (cm-1 per eV) makes eV.  Until
+        # 2026-08-21 this divided by 8.0655 -- eV per 1000 cm-1 -- and
+        # the column was a thousand times too large; the Perl still is.
+        kinetic = (one.e_calc - channel.energy) * 1000 / fundconst.EV2CM
         configuration, term = _leading(case, coupling, one)
         row = [configuration, term, '%4.1f' % one.j, channel.text,
                '%.4f' % one.e_calc, '%.4f' % channel.energy,
@@ -927,7 +931,7 @@ def _auger_rows(case, order, channels, coupling, options):
             row.extend(['' if not one.observed else '%.6f' % one.e_obs,
                         '' if not one.observed else '%.3f'
                         % (abs(one.e_obs - channel.energy) * 1000
-                           / radiate.EV_PER_CM)])
+                           / fundconst.EV2CM)])
         row.extend(['%.0f' % intensity, '%9.2e' % rate,
                     '%10.2e' % one.lifetime])
         out.append(row)

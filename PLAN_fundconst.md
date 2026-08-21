@@ -1,14 +1,43 @@
 # Plan — factor all fundamental constants into `FOR/fundconst.f`
 
-Status: in progress. Written 2026-08-20.  Sections 0c, 1, 2, 3, 4, 5 and 6
-are done, and the three rebuilt executables are committed (see "Promotion"
-after Section 6); Section 7 (the RCG conversion-coefficient routines) is next.  The
-constants pass over the Fortran is finished except for RCE, which Section 8
-expects to have nothing in it.
+Status: in progress. Written 2026-08-20.  **Every numbered section except 9 is
+done** — 0c, 1 through 8, and 10 through 13.  The three executables committed
+after Section 6 are now four sections out of date: Sections 7, 10, 11 and 13
+have all moved `rcg11kd.f` since.  What remains is Section 9's documentation
+and the final promotion of the executables, in that order.
+
+**Sections 10, 11 and 12 were added 2026-08-20, after Section 7, on the
+author's instruction.**  Section 7 delivered `GAFROMSCOEF` and
+`GFFROMGACOEF` and then left them uncalled, with `SPECTR` still folding the
+same coefficients into `PSQ` and `GACON` by hand.  That is two independent
+derivations of the same physics in one file, which is exactly what this plan
+exists to remove.  A survey done at the same time found that Sections 4–6 also
+*missed* three sites, one of them worth 5.2e-4 — larger than any constant
+update this plan has made — and that the Python toolbox carries its own
+hard-coded copy of the conversion coefficients.  The three new sections close
+all of it.
+
+**Section 13 was added 2026-08-20, on the author's instruction, and that
+instruction is the standing rule of this plan:** *every fundamental constant
+used anywhere in the package must come from `fundconst.f`.* Not most of them,
+not the ones whose error is large enough to be worth a rebuild — every one.
+A constant left inline is a constant that a future change of the values
+cannot reach, and reaching all of them is the entire purpose of the file.
+Section 10 quantified four that are still written inline and deferred the
+decision to the author; the decision is made, and Section 13 folds them in.
+Nothing in this document may say that a physical constant is to stay inline.
+
+**Execution order from here:** Sections 8, 10, 11, 12 and 13 are behind us.
+What is left is Section 9's documentation and the final promotion of the
+executables, both of which run **last**, in that order.  Section 9 keeps its
+number and its place in this file so that file order stays numeric order;
+only its execution is deferred.
 
 Scope: replace every hard-coded physical constant in the Fortran with named
 parameters from a single include file, update those values to CODATA 2022,
-and add exact E1/M1/E2 conversion coefficients to RCG.
+add exact E1/M1/E2 conversion coefficients to RCG, and make every consumer in
+the package — Fortran and Python — obtain its coefficients from that one
+place, so that nothing can escape a future change of the constants.
 
 ---
 
@@ -767,7 +796,7 @@ and `promote2`:
 The one intended new difference anywhere is `OUT2`'s timing layout; see open
 question 5. Test suite at the commit: 280 passed, 252 skipped.
 
-### Section 7 — RCG conversion-coefficient routines (new code)
+### Section 7 — RCG conversion-coefficient routines (new code) — **DONE 2026-08-20**
 
 Only RCG needs these. Two new routines, per the author's specification:
 
@@ -813,12 +842,139 @@ Acceptance here is different: this is new code with an independent oracle. The
 routines must reproduce the Stage B constants to full double precision.
 Unit-test them in `CODE/tests/`.
 
-### Section 8 — RCE (`RCE20KD.F`)
+**Done.** Both functions are at the end of `FOR/rcg11kd.f`, built entirely
+from `fundconst.f`, with no `COMMON`, no unit, no `SAVE`, no `DATA` and no
+state of any kind — which is what lets them be compiled and tested on their
+own. The usage is
+
+```
+gA = GAFROMSCOEF(ITYPE) * S * SIGMA**(2*p+1)
+gf = GFFROMGACOEF()     * gA / SIGMA**2
+```
+
+sigma in cm-1, S in a.u., gA = g(upper)·A in s-1, gf = g(lower)·f. The power
+of sigma is 2p+1 — 3 for E1 and M1, **5 for E2**. That is not an
+inconsistency in the coefficient; it is what makes the coefficient a
+constant.
+
+| | | value returned | handbook |
+|---|---|---|---|
+| `GAFROMSCOEF(1)` | E1 | 2.02612688449478421D-06 | 2.0261e18 |
+| `GAFROMSCOEF(2)` | M1 | 2.69735002205593345D-11 | 2.6974e13 |
+| `GAFROMSCOEF(3)` | E2 | 1.11995002964536993D-22 | 1.11995e18 |
+| `GFFROMGACOEF()` | all | 1.49919378619413113D+00 | 1/GACON |
+| any other `ITYPE` | — | 0 | — |
+
+**The oracle held.** Martin & Wiese publish gA(E1) = 2.0261e18·S/λ³,
+gA(M1) = 2.6974e13·S/λ³ and gA(E2) = 1.11995e18·S/λ⁵ with λ in Å; since
+sigma = 1e8/λ those are the three coefficients times 1e24, 1e24 and 1e40, and
+they agree **to every digit the handbook prints**. This is the only
+independent check on `fundconst.f` anywhere in the package — alpha, a0, c and
+the hartree all enter, and getting any of them wrong moves one of the three.
+
+The compiled functions were checked against the same expressions evaluated in
+Python from the CODATA 2022 digits and agree **bit for bit**, so the tests
+assert float equality rather than a tolerance: nothing rounds anywhere between
+the CODATA digits and the answer.
+
+The four things the section asked to get right: `ITYPE` is declared
+`INTEGER*4` explicitly and a test asserts both the name and the declaration,
+since neither shows in the returned values; the non-re-entrancy under
+`-fno-automatic` is stated in the routine header, the file header and the test
+file, and nothing calls either function yet so nothing can be violating it;
+the author's names were used as given, noting only that they carry no family
+prefix; and a test enforces that the only literals in the arithmetic are the
+exact small integers 0, 1, 2 and 5.
+
+`CODE/tests/test_coefficients.py`, nine tests in two layers — a Python layer
+that carries the handbook comparison and always runs, and a layer that
+compiles the two routines out of `rcg11kd.f` and skips without gfortran.
+Suite: **289 passed, 252 skipped** (280 before).
+
+**Not done in this section.** Nothing calls them: `SPECTR` still folds the
+same coefficients into `PSQ` and `GACON` as it always has. Rewiring it changes
+a computed result and needs its own §1 argument; this section did not ask for
+it. Because the addition is dead code it cannot move any existing output, and
+no case was re-run. **That is now Section 11**, added on the author's
+instruction — leaving the two derivations side by side is precisely the
+duplication this plan exists to remove, and “dead code” is the wrong resting
+place for the only routines in the package that have an independent oracle. `CODE/rcg11kd.exe` was **not** rebuilt, for the same
+reason Sections 4–6 left the executables alone — **a final promotion is owed**
+once Sections 8 and 9 close out.
+
+Record: `F:\COWAN\fundconst_work\coef\README.txt`.
+
+### Section 8 — RCE (`RCE20KD.F`) — **DONE 2026-08-20**
 
 No constants. Verify by inspection that it stays byte-identical, then close it
 out. Included only for completeness of the top-to-bottom pass.
 
+**Done, and the verification was made mechanical rather than by eye.** The
+Section 10 scanner was written early and run first over the whole RCE family
+— `RCE20KD.F`, `RCE20KD_PAR.F`, `RCEJJ2E.F`, `LSJJCOM.F`, `LSJJID.F`,
+`LSJJPAR.F` — flagging every non-comment numeric literal outside `FORMAT`
+statements and outside character strings. Result: **not one real literal with
+three or more significant digits anywhere in the six files.** The most precise
+reals in the whole of RCE are `0.99D0` (a step-damping clamp in the
+least-squares iteration), `0.001E0` (a divide-by-zero guard in the same
+place), `0.5D0`, `2.D0` and `60.D0` (seconds to minutes). All of the many
+three-and-four-digit *integer* hits are statement labels, `FORMAT` labels,
+array dimensions, the `MAGJJ=20260802` deck stamp, and the eigenvector-distance
+thresholds `1000000` / `58000000`. None is a physical constant.
+
+Two small corrections to what §1 asserted, both in RCE's favour:
+
+- §1 said "the only decimals are in comments". Not literally true — there are
+  the six algorithmic reals above — but the *conclusion* is right: none of them
+  is a fundamental constant, and none belongs in `fundconst.f`. The decimals
+  that do appear in RCE's comments (`191.931`, `1.573E+51`, `0.95`, `0.76`,
+  `3.9 S`, `0.69 S`) are fit diagnostics and threading timings, not physics.
+- §1 credited RCE with 0 sites in 178 routines package-wide; the scan confirms
+  0 and extends the same result to `RCEJJ2E.F` and the three `LSJJ*.F`
+  includes, which §1 listed separately but by the same argument.
+
+`RCE20KD.F` and its includes are untouched in the working tree (`git status`
+clean for all six), so byte-identity of the source is exact rather than
+inferred, and `CODE/RCE20KD.exe` needs no rebuild for this plan. RCE therefore
+gets **no `INCLUDE 'fundconst.f'`** — adding one would be a compile-time
+dependency purchased for nothing.
+
+**One consequence to state plainly, because it is easy to mistake for a
+regression.** RCE's numbers still move, even though RCE did not change: it
+reads `TAPE2E` from RCG, and Section 6 Stage B changed the constants that
+produce `TAPE2E`. Any RCE output that shifts after this plan lands is
+inherited from upstream, not introduced here. That is the expected behaviour
+of a pure least-squares fitter, and it is the reason RCE needs no section of
+its own beyond this one.
+
+Record: `F:\COWAN\fundconst_work\rce\README.txt`.
+
 ### Section 9 — Documentation
+
+**Runs last**, after Sections 8, 10, 11 and 12; it keeps this number and this
+position so that the file reads in numeric order. Add to its list, from the
+sections added on 2026-08-20: the three missed sites and the autoionization
+rate change of Section 10 (which is a *visible* change to `WORK/AI` output and
+must be called out as such, not buried in a constants table); the removal of
+the duplicate coefficient derivation in Section 11; and the Fortran-to-Python
+tie of Section 12. The `rcg11kd.f` header change list gets an entry for each.
+
+Three things Section 10 turned up that the documentation must carry, and
+which are easy to lose because they are not value substitutions:
+
+- The autoionization rates rise by **+4.81e-04**, not the +5.2e-04 predicted
+  here, because `RINF` in the same expression pulls the other way. Quote the
+  number that the runs show, not the one AURATE alone implies.
+- **Four physical constants that Section 10 found still written inline** —
+  the electron g-factor as `0.50116D0`, `1.50116D0` and `1.00232D0`, and the
+  Maxwellian rate coefficient `2.1717D-8`. Section 13 folds them into
+  `fundconst.f`; document the resulting shifts (7e-07 to 1.5e-05, and the
+  printed Landé g-factors among them) with the rest of the Stage B tables.
+  Once Section 13 has landed, the package documentation may state without
+  qualification that every fundamental constant comes from `fundconst.f` —
+  and it must not state it before, so write this section after Section 13,
+  not alongside it.
+- `legacyize.py` can no longer restore the original text of every site.
 
 - ~~**The §0c `gA`-is-primary reminder, in all three required places**~~ —
   **done 2026-08-20**, ahead of the rest of the plan. See §0c.
@@ -828,6 +984,661 @@ out. Included only for completeness of the top-to-bottom pass.
   repeated a third time.
 - `rcg11kd.f` header change list — entry.
 - `README.md` — last, after everything else is complete (§3).
+
+### Section 10 — Sweep: the sites Sections 4–6 missed — **DONE 2026-08-20**
+
+Sections 4, 5 and 6 worked from the §1 inventory, and the inventory was built
+by searching for the *known* spellings of the constants. Anything spelled
+unexpectedly was invisible to it. A re-scan — every non-comment numeric
+literal with three or more significant digits in all four programs, read one
+by one — turns up **three sites carrying physics that no earlier section
+touched**, and one of them is worth more than any value change this plan has
+made so far.
+
+| Site | Literal | What it is | CODATA 2022 | Legacy error |
+|---|---|---|---|---|
+| `FOR/rcg11kd.f` `ENERGY`, autoionization rate | `2066.D0` | Ry/hbar in units of 1e13 s-1 | `2067.0686667586` | **−5.17e-04** |
+| same line | `109735.3D0` | Rinf in cm-1 | `109737.31568157` | −1.84e-05 |
+| same line | `6.28318D0` | 2·pi | `6.28318530717959` | −8.45e-07 |
+| `FOR/rcg11kd.f` `SPECTR`, `CSIGMA` | `8.06662D-18` | 4·pi²·alpha·a0² in cm², the photoionization cross-section coefficient | `8.0672837256768D-18` | −8.23e-05 |
+| `FOR/RCN2K.F` `G5INP` | `109.737D0` | Rinf in 1000 cm-1 | `109.73731568157` | −2.88e-06 |
+
+The line in `ENERGY` is
+
+```
+AA(LP,I)=((SUM*UENRGY/109735.3D0)**2)*6.28318D0*2066.D0
+```
+
+i.e. `2·pi·|V|²` in rydbergs converted to 1e13 s-1 — Fermi's golden rule.
+`2066` is a truncation, not a rounding, of `2067.07`; it is the single
+largest constant error left anywhere in the package, and unlike defect 0a.1
+it is **exercised**, by `WORK/AI` and `WORK/AI/DIEL`. Autoionization rates
+printed by RCG were 0.05 % low.
+
+`CSIGMA` is `4·pi²·alpha·a0²`, verified algebraically: it evaluates to
+8.0672837e-18 cm² against the 8.06662e-18 in the source. It gates the
+photoionization cross-section path (`SIGMA`).
+
+The five sites are now
+
+```
+AA(LP,I)=((SUM*UENRGY/RINF)**2)*TWOPIC*AURATE
+IF (G.EQ.GOLD.AND.H.EQ.HOLD) CSIGMA=PICSCN
+EMAX=EAV(NC)-RINFKK*E(NCSPVS)
+```
+
+**Two departures from the specification above, both forced and both recorded
+in `fundconst.f` at the point of change.**
+
+- The name is `TWOPIC`, not `TWOPI`. The collision check this section asked
+  for is the thing that found it: `RCN36K.F` subroutine `phshift` has a local
+  `twopi`, and that routine includes `fundconst.f`, so a `PARAMETER` spelled
+  `TWOPI` is an assignment to a parameter. `AURATE`, `PICSCN` and `HBARJ`
+  were clean. This is the second time the collision check has changed a name
+  (`ALPHFS`, `PICON` were the first), and it is the reason the rule at the
+  head of `fundconst.f` says to re-run it.
+- `HBARJ` is in **Section B**, not Section A. It is `PLANCK/(2.D0*PICON)`,
+  `PICON` lives in Section B, and a `PARAMETER` may only use names defined
+  above it. Section A would have needed a second spelling of pi in the one
+  file that exists to prevent exactly that.
+
+**The value change is +4.81e-04, not the +5.2e-04 this section predicted**,
+and the difference is arithmetic rather than noise: `RINF` appears squared in
+the denominator of the same expression, so its own −1.84e-05 pulls the other
+way.
+
+```
+(2067.0686667586/2066) * (109735.3/109737.31568157)**2
+                       * (6.28318530717959/6.28318)  =  1.000481354
+```
+
+which is what the runs show, off `SUMGAA`: `1.96195E+06 → 1.96290E+06`,
+`6.48954E+06 → 6.49266E+06`, `9.05517E+06 → 9.05952E+06` in `AIDIEL` and
+`1.58222E+15 → 1.58298E+15` in `AI`. `AIDIEL`'s `GM*FRBAR` and its whole
+`T(KEV)` dielectronic-recombination table move with them,
+`9.0552E+06 → 9.0595E+06`.
+
+**Five regression cases, not three.** The two `WORK/AI` decks had never been
+used as regression cases and were baselined first; without them this
+section's largest change would have been unexercised. Both do reach the
+`ENERGY` line — the plain `AI` deck prints `AA(UNITS OF 1/SEC)` tables
+although it prints no `GAATOT`, which belongs to the DR summary that only
+`AIDIEL` reaches.
+
+The staging was the three-step form Sections 4–6 used:
+
+| | | |
+|---|---|---|
+| `base` | committed source, CODATA values, legacy literals | — |
+| `stageA` | sites substituted, parameters at LEGACY values | **byte-identical to `base`** |
+| `stageB1` | values updated, temporary names still in place | the value change |
+| `stageB2` | temporary names folded away = committed source | **byte-identical to `stageB1`** |
+
+Stage A needed two names that are not in the committed file — `RINFL3 =
+109735.3D0` and `RINFK7 = 109.737D0` — because `RINF` and `RINFKK` each now
+stand for more than one legacy rounding and their single `LEGACY` line can
+restore only one. Giving those two names the CODATA values in B1 makes
+B1 → B2 a pure rename, and it is byte-identical, which is what proves the
+fold. `base` → `stageB2` differs in **two files only**: `AI/OUTG11` and
+`AIDIEL/OUTG11`. `TAPE2E`, `OUTGINE`, `ING11`, `TAPE2N` and `genealogy.txt`
+are byte-identical in every comparison including that one.
+
+`legacyize.py` alone can no longer restore the package's original text —
+`RINF` now has three legacy roundings behind it and the script knows one.
+The caveat recorded at the end of Section 6 is now one degree worse, and it
+is written into `fundconst.f` under `RINF` rather than left in this plan.
+
+**Coverage, stated rather than glossed.** `PICSCN` is unexercised: `CSIGMA`
+gates the photoionization path and no deck in `WORK/` turns it on, so the
+value was checked algebraically and by nothing else. `RINFKK` at `G5INP`
+1718 is substituted and proved bit-exact by Stage A, but its value change
+reaches no printed output in any of the five cases — `ING11` and `OUT2` are
+byte-identical throughout.
+
+**What the sweep found that this section did not list.** Four more literals
+that *are* physical constants and were still written inline. They were **not**
+changed *here*: each moves printed output, and widening a section that was
+already carrying the autoionization change was the author's call to make.
+It was made — see the standing rule at the head of this plan — and these four
+are the subject of **Section 13**.
+
+| Site | Literal | What it is | CODATA 2022 | Error |
+|---|---|---|---|---|
+| `rcg11kd.f` 1328 1329 8979 8980 9102 9103 15217 | `0.50116D0`, `1.50116D0` | the electron g-factor as (g−1)/2 and 1+(g−1)/2, in the Landé g-factor | `0.501159652180`, `1.501159652180` | +6.9e-07, +2.3e-07 |
+| `rcg11kd.f` 10454 | `1.00232D0` | g−1, in the magnetic-moment matrix element | `1.002319304361` | +6.9e-07 |
+| `rcg11kd.f` 14917 | `2.1717D-8` | 2·√pi·alpha·c·a0², the Maxwellian rate coefficient per unit collision strength, cm³/s, T in rydbergs | `2.1716669877D-08` | +1.5e-05 |
+
+All four are at least an order of magnitude below the 5.2e-04 that made the
+`2066` site worth finding, which is why deferring them by one section was
+defensible; leaving them permanently would not have been. They are listed in
+the new test in a group of their own, `PHYSICS_STILL_INLINE`, which is a
+holding pen with an expiry date, not a category: **Section 13 empties it and
+deletes it**, and the test's own docstring says so.
+
+**The hole is closed.** `CODE/tests/test_literals.py` reads every non-comment
+real literal of three or more significant digits out of `FOR/*.f` and
+`FOR/LSJJ/` and fails on any that is not in an inventory of 198 tokens, each
+with a reason: CODATA transcriptions, pure mathematics, Thomas–Fermi model
+constants, quadrature weights, iteration control, print-field sentinels, sort
+keys, one empirical fit, three `DATA` tables, and the four above. Three
+tests — nothing unaccounted for; nothing *stale* in the inventory, so a
+removed literal cannot be silently re-permitted; and the five Section 10
+literals specifically have not come back.
+
+Integers are out of scope on purpose, and the test says so at the top: in
+this package an integer literal is a statement label, an array bound, a loop
+limit or a `FORMAT` width — hundreds of them, not one of them physics — and
+every physical constant here is written with a decimal point or an exponent,
+`2066.D0` included. Pure mathematical constants are listed but are *not*
+candidates for `fundconst.f`; they cannot go stale.
+
+Full suite after the change: **292 passed, 252 skipped**.
+
+Record: `F:\COWAN\fundconst_work\sweep\README.txt`.
+
+### Section 11 — RCG calls the coefficient routines — **DONE 2026-08-20**
+
+The point of Section 7. `SPECTR` currently derives, by hand,
+
+```
+PSQ=GFE1*(PMAX**2)
+IF (II.EQ.0) PSQ=PSQ*(0.5D0/ALPHIN)**2
+IF (II.EQ.2) PSQ=PSQ*((PICON*ABOHR8)**2)/5.D0
+```
+
+and then eight separate `GA=GACON*...` sites. `GAFROMSCOEF` derives the same
+three type factors a second time, from the same constants, a few thousand
+lines away. Both are correct today. Two derivations that must agree and are
+not mechanically tied together will not stay agreeing.
+
+**One new routine is needed.** `SPECTR`'s `PSQ` is a *gf-from-S*
+coefficient, and Section 7 built only gf-from-gA and gA-from-S. Add
+
+```
+DOUBLE PRECISION FUNCTION GFFROMSCOEF(ITYPE)
+      GFFROMSCOEF = GAFROMSCOEF(ITYPE)*GFFROMGACOEF()
+```
+
+with the same conventions, the same `ITYPE`-not-`TYPE` rule, the same
+returns-0-on-a-bad-type rule, and the same thread-safety note. `gf =
+GFFROMSCOEF(ITYPE) * S * SIGMA**(2p-1)` — sigma^1 for E1 and M1, sigma^3 for
+E2. Extend `CODE/tests/test_coefficients.py` to cover it against the
+handbook's `gf(E1) = 303.75568885954 S/lambda`, which is `GFE1`·1e8 and is
+already the number `CODE/toolbox/radiate.py` carries.
+
+Then, in `SPECTR`, once at set-up and outside every parallel region (§2 of
+CLAUDE.md — these functions are not re-entrant under `-fno-automatic`):
+
+```
+      GFCF=GFFROMSCOEF(ITYPE)
+      GACF=1.D0/GFFROMGACOEF()
+      PSQ=GFCF*(PMAX**2)
+```
+
+`ITYPE` from `II` (`II=0` M1, `II=1` E1, `II=2` E2 — confirm that mapping at
+the source before writing it down), and `GACF` replacing `GACON` at all eight
+`GA=` sites. Caching in a local is what point 2 of the Section 7
+specification already required, and it is faster than the parameter reference
+was.
+
+**Two things this section must get right.**
+
+1. **The E2 scaling.** `SPECTR` writes the E2 factor as
+   `(PICON*ABOHR8)**2/5` with a0 in units of 1e-8 cm, and then divides by
+   `ERAS2**2` where `ERAS2 = 1.0D8/ERAS1` is the wavelength in ångström. The
+   1e16 introduced and the 1e16 removed cancel *algebraically* but not *in
+   floating point*: neither is a power of two. `GAFROMSCOEF(3)` uses a0 in
+   cm and has no such pair. The header of `GAFROMSCOEF` already records that
+   the two agree to one ulp of the intermediate. Rewiring therefore moves
+   the last bit or two of the E2 numbers, and the same is true to a lesser
+   degree of E1 and M1, where `GACON*GFE1*(1/GACON)` is not bit-for-bit
+   `GFE1`.
+2. **Acceptance, consequently, is not §1's bit-exactness of the arithmetic —
+   but it is still §1's byte-identity of the output.** Nothing here changes a
+   value; the deviation is a few units in the 16th significant figure, and
+   the widest print field in `OUTG11` is nine. The standard for this section
+   is: `TAPE2E`, `OUTGINE` and `genealogy.txt` md5-identical and `OUTG11`
+   identical apart from timing, on `SnVIII`, `Forbid` and `Pr3` — `Forbid`
+   being the only deck that exercises M1 and E2 at all, and therefore the
+   one that matters. If a single field does move, it will be a knife-edge
+   rounding in the last printed decimal; that is acceptable **only** if it is
+   shown to be exactly that, one field at a time, with `cmp_num.py` at
+   `--rtol 1e-12` clean everywhere else. Do not accept a diff you have not
+   individually explained.
+
+Consider reversing the E2 arrangement rather than preserving it, if that is
+what makes the section clean: computing sigma in cm-1 throughout and dropping
+the 1e8/1e16 pair entirely is closer to the physics and removes the
+discrepancy at its source. It is also a larger change to a routine nobody
+wants to disturb. Decide it explicitly, in the section, not while editing.
+
+**Then delete the duplication.** Once `SPECTR` is on the routines, `GFE1`,
+`ABOHR8` and the `(0.5D0/ALPHIN)**2` and `/5.D0` type factors have exactly
+one consumer each — `GAFROMSCOEF`. `GFE1` and `GACON` stay in `fundconst.f`,
+since the functions are built from them; `ABOHR8` should go, its one site
+gone and `ABOHR` doing the work. Leaving an unused rounding-specific name in
+`fundconst.f` invites its reuse.
+
+Estimate: 3–4 h, most of it verification on `Forbid`.
+
+**Decisions taken while executing the section.**
+
+1. **The E2 arrangement is preserved, not reversed.** `SPECTR` keeps its
+   ångström scaling and `GFFROMSCOEF(3)` is multiplied by `1.D16` at the one
+   point `PSQ` is formed. Reversing it is not the local change the section
+   above imagined: `PSQ` is consumed by seven `GF=` sites, which do divide by
+   `LAMBDA**2`, but also by the `TEXCIT` line-selection weight, by both
+   `BRNCH` sites, and by the unit-20 record that `WNDIST` reads back — none
+   of which divides by anything. Putting sigma in cm-1 throughout would move
+   the branching ratios and the total decay rates by 1e16 and then require
+   each of those four paths to be corrected by hand. That is the total
+   radiative decay rate calculation, which §3 of `CLAUDE.md` says stays as it
+   is. The `1.D16` is commented at the point of use as the unit conversion it
+   is.
+2. **The `GA=` sites keep `GACON`; `GACF` was not introduced.** The section
+   above asked for `GACF=1.D0/GFFROMGACOEF()` in place of `GACON` at the
+   `GA=` sites. That is not a de-duplication: `GACON` at those sites is
+   already a direct `PARAMETER` reference to the single definition in
+   `fundconst.f`, not a second derivation of anything, and the substitution
+   would replace it with a runtime reciprocal round-trip. Nor is it faster —
+   a `PARAMETER` costs nothing at run time, so the claim above that caching
+   "is faster than the parameter reference was" is simply wrong. It is
+   bit-exact today only because `1/(1/GACON)` happens to return `GACON` for
+   this particular value, which is luck, not a property. The duplication
+   Section 7 exists to remove was the *type factors*, and `PSQ` was the only
+   place they were written twice. (The section also says "eight `GA=` sites".
+   There are eight, but only seven are in `SPECTR`; the eighth is in `BORN`.)
+3. **`303.75568885954` is not `GFE1`·1e8.** `2e8/(3·219474.63136314)` is
+   `303.75568352754544`, lower by 1.8e-8 relative — the published figure was
+   computed from an older hartree. `CODE/perl_legacy/conv_out.pl` and
+   `CODE/toolbox/radiate.py` both carry the published one. The new test
+   therefore checks it to `rel=5e-8` and asserts explicitly that it is *not*
+   an equality, with the reason written down beside the number. **Section 12
+   inherits this**: rebuilding `radiate.py` on `fundconst.py` moves its
+   `303.75568885954` to `303.75568352754544`, which is a real (if tiny) value
+   change to that tool's output and must be called out as one.
+
+**What was done.**
+
+- `GFFROMSCOEF(ITYPE)` added at the end of `FOR/rcg11kd.f`, written as
+  `GAFROMSCOEF(ITYPE)*GFFROMGACOEF()` so that the type factors are derived
+  once in the file. It takes no constants of its own and includes nothing.
+  Returns `3.03755683527545D-06`, `4.04385039225686D-11`,
+  `1.67902212529227D-22`, and 0 on any other `ITYPE`.
+- `SPECTR`'s inline `PSQ` derivation replaced by `GFFROMSCOEF`. The `II` →
+  `ITYPE` map is `II=0`→2 (M1), `II=1`→1 (E1), `II=2`→3 (E2), confirmed at
+  the source. The `IGEN.GE.5` branch — autoionization, which takes no E2 type
+  factor and a factor 3 instead — the section above did not mention; it stays
+  on `ITYPE=1` even when `II` is 2.
+- `ABOHR8` removed from `fundconst.f`, its only site gone. `ALPHIN` also has
+  no consumer left, but it is a plain CODATA-derived name rather than a
+  unit-scaled variant, so it stays.
+- `CODE/tests/test_coefficients.py` extended: six new assertions over
+  `GFFROMSCOEF`, including that what it returns is bit-for-bit the product of
+  the other two.
+
+**Result.** The reassociation costs 0 ulp on E1, 2 on M1 and 4 on E2 —
+measured, not estimated. All five sweep cases (`SnVIII`, `Forbid`, `Pr3`,
+`AI`, `AIDIEL`) are **byte-identical** to the Section 10 baseline: `TAPE2E`,
+`OUTGINE`, `ING11`, `TAPE2N` and `genealogy.txt` raw, `OUT36`, `OUT2` and
+`OUTG11` less timing lines. No field moved, so no field needed explaining.
+`Forbid` is the deck that carries M1 and E2.
+
+### Section 12 — The Python side: one source for the toolbox constants — **DONE 2026-08-21**
+
+`CODE/toolbox/radiate.py` carries its own table:
+
+```
+_GF = {E1: (1, 303.75568885954), M1: (1, 0.0040438504), E2: (3, 167.84224),
+       M2: (3, 0.002235255),     E3: (5, 47.140897),    M3: (5, 0.000627579)}
+_S  = {E1: (3, 2.0261269e18),    M1: (3, 269735e8),     E2: (5, 1.11995e18),
+       M2: (5, 14909714e6),      E3: (7, 3.14441e17),   M3: (7, 4.1861e12)}
+EV_PER_CM = 8.06554393734921
+```
+
+transcribed from `conv_out.pl:1650-1710`. These are hard-coded values of
+exactly the kind this plan exists to remove: they are the *same physics* as
+`GAFROMSCOEF`, they are consumed by `conv_out.py` and `calc_TP_M1E2.py`, and
+a change to `fundconst.f` does not reach them. `radiate.py` is already the one
+copy on the Python side — Section 12 makes it a *derived* copy instead of an
+independent one.
+
+Two candidate mechanisms; the second is the recommendation.
+
+- **Parse `FOR/fundconst.f` at import.** Truest to "one source", and the
+  worst engineering: `CODE/` is what the author copies to `C:\cowan\code`
+  and puts on the path, `FOR/` is not distributed with it, and a Python
+  module that fails to import when the source tree is absent is a bad trade
+  for a value that changes once a decade.
+- **A generated `CODE/toolbox/fundconst.py`,** carrying the CODATA 2022
+  digits and the same derivations, with a test that holds it to the Fortran.
+  This is the pattern Section 7 already established and validated:
+  `test_coefficients.py` compiles the two routines out of `rcg11kd.f`,
+  evaluates the same expressions in Python, and asserts **float equality**.
+  Extend exactly that mechanism — the test compiles `fundconst.f` into a
+  tiny driver that prints every Section A and Section B parameter in
+  `E24.17` and asserts each equals its Python counterpart bit for bit. The
+  test skips without gfortran, as the existing one does, so the toolbox
+  stays importable anywhere while the tree stays provably consistent
+  wherever it can be checked.
+
+Then rewrite `radiate.py` on top of it:
+
+- E1, M1 and E2 come from the same three expressions the Fortran uses. They
+  must reproduce `GAFROMSCOEF(1..3)` to full double precision, scaled by the
+  1e24, 1e24 and 1e40 that Section 7 already worked out — a test asserts it,
+  and that test is the tie between the two languages.
+- M2, E3 and M3 have no Fortran counterpart. Compute them from the general
+  Grant factor reconstructed in Section 7,
+  `Np = 2^(2p+2)·(p+1)·(2p+1)·pi^(2p+1) / (p·[(2p+1)!!]²)`, which was
+  verified there against the explicit E1, E2 **and** E3 forms. This is where
+  that reconstruction stops being unused and becomes load-bearing, so
+  re-verify it against all six legacy values above before relying on it, and
+  record the comparison.
+- `EV_PER_CM` becomes `EV2CM` from the shared module. Note that the existing
+  8.06554393734921 is already the CODATA value — it is right, and it is right
+  by coincidence of maintenance, which is the problem.
+
+Expect the six legacy constants to move by ~1e-5 to ~1e-6, in the same
+direction and for the same reason as everything in Section 6; each shift must
+be tabulated in the section against its legacy value, like every other Stage B
+in this plan. `conv_out.py` and `calc_TP_M1E2.py` outputs move with them, and
+`CODE/tests/test_conv_out.py` and `test_calc_tp.py` carry expected values that
+will need updating — **check each changed expectation by hand before changing
+it.** A test expectation edited to match new output is not evidence of
+anything.
+
+`CODE/perl_legacy/` is untouched. It is the reference for intent (CLAUDE.md
+§8) and is not maintained; note in `radiate.py` that its constants are now
+knowingly stale, so the next reader does not "restore" them.
+
+Estimate: 3–4 h.
+
+**What was done.**
+
+- **`CODE/toolbox/fundconst.py`** — new, the recommended mechanism: a
+  generated copy, not a parse. All 37 names of `FOR/fundconst.f`, values
+  re-typed from the NIST listing, derivations written in the same
+  association because float arithmetic is not associative and the tie is
+  equality rather than a tolerance.
+- **`CODE/tests/test_fundconst.py`** — new, six tests. It compiles
+  `FOR/fundconst.f` into a driver that prints every parameter it declares in
+  `1PD26.17` and asserts each equals its Python counterpart with `==`. **All
+  37 agree bit for bit.** Two structural tests go with the values: a Fortran
+  name with no Python counterpart fails, and a Python name that is not in the
+  Fortran fails — so the copy cannot drift as the file grows and cannot
+  become a second source of truth. The second is what will catch Section 13's
+  four new entries. Skips without gfortran.
+- **`CODE/toolbox/radiate.py`** — rewritten on top of it. E1, M1 and E2 are
+  spelled exactly as `GAFROMSCOEF` spells them and equal the compiled
+  functions **to the last bit**, asserted in both directions; that is the tie
+  between the two languages the section asked for. The spelling matters: the
+  Grant factor gives the E2 type factor as `5.52754142998615672D-17` against
+  the Fortran's `…795D-17`, the same number algebraically and one bit apart.
+- **M2, E3 and M3** take the general Grant factor. Only the *ratio*
+  `Np(p)/Np(1)` is used, so the reconstruction's prefactor divides out and the
+  absolute scale still comes from `GAFROMSCOEF`; for p=2 that ratio is
+  `pi**2/5` exactly in floating point, and a test asserts it. Re-verified
+  against all six legacy values before being relied on, as the section asked.
+- **`CODE/tests/test_coefficients.py`** — seven tests appended, the toolbox
+  layer.
+
+| | | derived (CODATA 2022) | legacy | rel |
+|---|---|---|---|---|
+| gA E1 | λ³ | 2.026126884494784e+18 | 2.0261269e18 | −7.65e−09 |
+| gA M1 | λ³ | 2.697350022055934e+13 | 269735e8 | +8.18e−09 |
+| gA E2 | λ⁵ | 1.119950029645370e+18 | 1.11995e18 | +2.65e−08 |
+| gA M2 | λ⁵ | 1.490971399808825e+13 | 14909714e6 | −1.28e−10 |
+| gA E3 | λ⁷ | 3.144416603621083e+17 | 3.14441e17 | +2.10e−06 |
+| gA M3 | λ⁷ | 4.186111077266150e+12 | 4.1861e12 | +2.65e−06 |
+| gf E1 | λ¹ | 3.037556835275454e+02 | 303.75568885954 | −1.76e−08 |
+| gf M1 | λ¹ | 4.043850392256858e−03 | 0.0040438504 | −1.91e−09 |
+| gf E2 | λ³ | **1.679022125292271e+02** | **167.84224** | **+3.57e−04** |
+| gf M2 | λ³ | 2.235255057986555e−03 | 0.002235255 | +2.59e−08 |
+| gf E3 | λ⁵ | 4.714089833354381e+01 | 47.140897 | +2.83e−08 |
+| gf M3 | λ⁵ | 6.275791715355832e−04 | 0.000627579 | +2.73e−07 |
+
+The E1 gf shift is the one Section 11 said this section inherits.
+
+**Defect found: the legacy `gf(E2)` is wrong, by +3.6e−04.** Not a stale
+constant — an internal inconsistency in the legacy table. `gf = gA·λ²/(GACON·1e16)`
+is exact and type-independent (`GFFROMGACOEF`, "all types"), so `1.11995e18`
+and `167.84224` cannot both be right, and the Grant factor confirms the gA
+one to 2.65e−08. `167.90221` is the value consistent with the rest of the
+table. Found the same way as defect 0a.1 — by deriving what had been copied.
+It reaches the E2 rows of `conv_out.py`'s absorption model, which move by
+3.6e−04 against its E1 and M1 rows. Pinned by a test so the legacy number
+cannot later be mistaken for a target.
+
+**Defect found: `EV_PER_CM` was out by a factor of a thousand.** It held
+8.06554393734921 — eV per *1000* cm⁻¹ — and both call sites in `conv_out.py`
+divided by it a quantity the `*1000` had already converted to cm⁻¹. The Auger
+`dE(eV)` column has been printing meV under an eV heading since it was
+written. The Perl does the same (`conv_out.pl:733, 965, 968`) and its comment
+names the constant "eV to cm-1", which *is* 8065.54: the value was the
+mistake, the usage was right, in both languages. `WORK/AI/DIEL`'s own README
+confirms it independently — its free electron is 18.58 Ry = 2038.92 kK =
+**252.8 eV**, and the old expression gave 252 800. **Put to the author
+2026-08-21, who chose to fix it**: both sites now take `fundconst.EV2CM`
+directly and the column reads in eV. `radiate.EV_PER_CM` is *deleted* rather
+than corrected in place, so a caller written against the old behaviour fails
+loudly instead of quietly changing by 1000. A deliberate, documented
+divergence from `CODE/perl_legacy/`.
+
+**No test expectation needed changing, and that was checked rather than
+assumed.** Every expectation in `test_conv_out.py` and `test_calc_tp.py` that
+goes through `radiate` is a round trip, a ratio of two quantities converted
+the same way, or a comparison of two rows of the same table — all insensitive
+to the constant's value. Not one absolute S, gf or gA figure is written down
+in either file. Nothing was edited, so nothing had to be justified.
+
+Nothing in `FOR/` was touched and no executable was rebuilt.
+
+Suite: **309 passed, 252 skipped** (289/252 before Section 11).
+
+Record: `F:\COWAN\fundconst_work\py\README.txt`.
+
+
+### Section 13 — The four remaining inline constants — **DONE 2026-08-21**
+
+The author's standing rule, stated at the head of this plan: **every
+fundamental constant comes from `fundconst.f`.** Section 10 found four that
+do not, quantified them, and deferred them. This section closes that gap, and
+with it the plan's scope statement becomes literally true rather than nearly
+true.
+
+| Site | Literal | What it is | CODATA 2022 | Legacy error |
+|---|---|---|---|---|
+| `rcg11kd.f` 1328 1329 (`SPRIN`), 8979 8980 9102 9103 (`CALCFC`), 15217 (`RCEINP`) | `0.50116D0`, `1.50116D0` | the electron g-factor as (g−1)/2 and 1+(g−1)/2, in the Landé g-factor | `0.501159652180`, `1.501159652180` | +6.9e-07, +2.3e-07 |
+| `rcg11kd.f` 10454 (`MUPOLE`) | `1.00232D0` | g−1, in the magnetic-moment matrix element | `1.002319304361` | +6.9e-07 |
+| `rcg11kd.f` 14917 (`RCOEFF`) | `2.1717D-8` | 2·√pi·alpha·c·a0², the Maxwellian rate coefficient per unit collision strength, cm³/s, T in rydbergs | `2.1716669877D-08` | +1.5e-05 |
+
+Eight sites, four routines that need the include (`RCOEFF` already has it),
+one program. Nothing outside `rcg11kd.f` is touched.
+
+**New entries in `fundconst.f`.** One in Section A, four in Section B, in the
+established form — CODATA value and uncertainty in the trailing comment, a
+`C     LEGACY:` line above each Section B entry carrying the literal bit for
+bit, derived quantities computed rather than transcribed.
+
+- Section A: the electron g-factor, `-2.00231930436092` as published,
+  entered as its magnitude with the sign convention stated in the comment —
+  the code uses `|g|` throughout and a sign flipped here would be silent.
+  u(r) = 1.3e-13, the most precisely known number in the file.
+- Section B: `(|g|−1)/2`, `1 + (|g|−1)/2`, `|g|−1`, each derived from the
+  Section A entry, and the Maxwellian coefficient
+  `2·√pi·alpha·c·a0²` derived from `ALPHFS`, `CLIGHT` and `ABOHR`.
+  Verified: 7.2973525643e-3 · 2.99792458e10 · (5.29177210544e-9)² ·
+  2√pi = 2.1716669877e-08, against the 2.1717e-8 in the source.
+
+The three g-factor names are three spellings of one constant, exactly as
+`RINF` / `RINFKK` and `ALPH2H` / `ALPH2Q` already are; that is the file's
+existing idiom and there is no reason to invent another. Candidate spellings
+`GEFACT`, `GEM1H`, `GEP1H`, `GEM1` and `CMAXWL` — **not settled**, because
+the collision check settles them. Re-run it over `FOR/*.F`, `FOR/*.f` and
+`FOR/LSJJ/` before writing any of them down: this is the rule at the head of
+`fundconst.f`, it has already forced two renames in this plan (`ALPHFS`,
+`PICON` in Section 3; `TWOPIC` in Section 10), and a `PARAMETER` that shadows
+a read-only local is a silent wrong answer, not a compile error.
+
+**Includes.** `SPRIN`, `CALCFC`, `MUPOLE` and `RCEINP` need
+`INCLUDE 'fundconst.f'` added after their `IMPLICIT` card. Check each for a
+local of the chosen names — `CALCFC` and `RCEINP` are long routines with
+large local name spaces — and check that none already includes the file
+under a path that would double-declare it.
+
+**Protocol: the standard two stages (§3), on five regression cases.**
+
+| | | |
+|---|---|---|
+| `stageA` | includes added, eight sites substituted, parameters at LEGACY values | must be **byte-identical to the committed build** |
+| `stageB` | values updated in `fundconst.f` only | the value change, attributable by construction |
+
+Stage A here is worth more than usual, because adding an include to three
+routines that never had one is the exact circumstance in which a shadowed
+local goes unnoticed. Run all five — `SnVIII`, `Forbid`, `AI`, `AI/DIEL`,
+`Pr3` — and require md5 identity on `TAPE2E`, `OUTGINE`, `TAPE19`,
+`genealogy.txt` and on `OUTG11` less its timing lines.
+
+**Stage B moves printed output, and this is the section's one visible
+change.** Unlike Sections 4–6 the shift lands in a quantity the author reads
+directly:
+
+- The **Landé g-factors** printed by `SPRIN` (`WRITE (IW,20)`), written to
+  `TAPE19` by `CALCFC` (`WRITE (19,91)`), and rebuilt in `RCEINP`, all rise
+  by about 2.3e-07 relative — well below the printed field width, so the
+  expectation is that **no printed g-factor moves at all**, and any that does
+  is a knife-edge rounding in the last decimal. Verify, do not assume:
+  `cmp_num.py --rtol 1e-12` over `OUTG11` and a direct diff of `TAPE19`.
+- The **M1 matrix elements** through `MUPOLE` move by 6.9e-07 relative,
+  carrying the M1 `gA` and `gf` with them. `Forbid` is the only deck that
+  exercises M1 and is the case that decides this section.
+- The **Maxwellian rate coefficients** through `RCOEFF` move by −1.5e-05,
+  the largest of the four and the same order as the Section 6 shifts. This
+  reaches whatever deck turns the collision-strength path on; if none of the
+  five does, say so plainly in the section the way Section 10 said it of
+  `PICSCN`, and check the value algebraically instead. Do not let an
+  unexercised site be reported as a verified one.
+
+Tabulate every shift against its legacy value, as every Stage B in this plan
+has.
+
+**Then delete the holding pen.** `PHYSICS_STILL_INLINE` in
+`CODE/tests/test_literals.py` goes away entirely — the group, its docstring,
+and its entry in the `INVENTORY` loop — and the four tokens move into
+`CODATA`, which is the group for literals that live in `fundconst.f`. The
+module docstring paragraph that explains the holding pen goes with it. After
+this section the test asserts something stronger than it does today: that
+`FOR/` contains **no** physical constant outside `fundconst.f`, with no
+exception list. Add a sentence to the test's header saying exactly that, so
+that a future reader who wants to add an exception has to argue with it.
+
+**And say it in the source.** The `rcg11kd.f` header change list gets its
+entry, and the header of `fundconst.f` gets one line stating the rule the
+author set: a fundamental constant belongs in this file, and there is no
+threshold of smallness below which it does not. Section 9 then documents the
+completed state without qualification.
+
+Estimate: 2–3 h, the bulk of it the five-case Stage A verification.
+
+**What was done.** Work area `F:\COWAN\fundconst_work\gfac\`, full record
+in its `README.txt`.
+
+- `GEFACT = 2.00231930436092` in Section A of `fundconst.f`, and `GEM1H`,
+  `GEP1H`, `GEM1`, `CMAXWL` in Section B, each derived from it (or, for
+  `CMAXWL`, from `PICON`, `ALPHFS`, `CLIGHT` and `ABOHR`) rather than
+  transcribed. The collision check came back clean on all five candidate
+  names, so unlike Sections 3 and 10 no rename was forced and the spellings
+  proposed above stand. `DSQRT` inside a `PARAMETER` is a gfortran
+  extension; it was verified to compile and to fold before `CMAXWL` was
+  written that way.
+- Eight literals substituted in `rcg11kd.f`; `SPRIN`, `CALCFC`, `MUPOLE` and
+  `RCEINP` given `INCLUDE 'fundconst.f'`. Each was checked against the whole
+  name list of the file, not only the four new names. Zero shadowed locals.
+- **RCN and RCN2 were not re-run, and did not need to be.** Both include
+  `fundconst.f`, so the change could in principle reach them. It does not:
+  `RCN36K.F` and `RCN2K.F` were compiled against the old and the new
+  `fundconst.f` with the production flags and the **object files are
+  bit-identical**. That is a stronger statement than a matching run, and it
+  also removes the Norton problem of Section 10 — no RCN2K binary is built
+  under the work area at all. The case directories are seeded with the
+  Section 11 baseline's RCN and RCN2 output and only RCG is run.
+- Stage A (`sweep/stageS11` vs `gfac/stageA`): **0 files differ** on all
+  five cases. Stage B rebuilt from the final source after the header and
+  comment edits (`stageB` vs `stageB2`): **0 files differ**, so the prose
+  changed nothing.
+
+**Result — the value change, field by field.** Seven files move in five
+cases, and every one of them is accounted for.
+
+| | legacy | CODATA 2022 | rel |
+|---|---|---|---|
+| `GEM1H` | `0.50116` | 0.50115965218046 | −6.94e-07 |
+| `GEP1H` | `1.50116` | 1.50115965218046 | −2.32e-07 |
+| `GEM1` | `1.00232` | 1.00231930436092 | −6.94e-07 |
+| `CMAXWL` | `2.1717e-8` | 2.1716669877207e-08 | −1.52e-05 |
+
+- **`OUTG11`, Sn VIII — one field in 470 kB.** The J=1.5 fourth level's
+  Landé g-factor printed `2.100` and now prints `2.099`. That is the
+  knife-edge rounding the section predicted, and it was verified rather than
+  assumed: a throwaway build with `F20.14` in place of `F9.3` reads the
+  number as 2.09950010910943 → 2.09949934602454, −3.6e-07, crossing 2.0995.
+  It is the only printed g-factor that moves anywhere.
+- **`OUTG11`, Forbid — two fields**, both `MUPOLE` sum-rule totals over
+  squared matrix elements: `SUMS21` −2.30e-07 and `SUMS20` −1.35e-06, the
+  latter bounded by 2 × 6.94e-07 because the M1 element enters squared. No
+  `gf`, no `gA`, no M1 or E2 matrix element and no line count moved; the
+  printed fields are too narrow to show 1.4e-06. Forbid is the deck that
+  decides this section, and it decides it quietly.
+- **`OUTG11`, Pr III / AI / AI DIEL** — unchanged.
+- **`TAPE2E` — differs in all five.** The only Section 13 quantity in it is
+  the g-matrix `RCEINP` packs onto unit 15. An instrumented build dumping
+  that matrix at `E26.18` measures the whole of it: max |Δ| 1.62e-06
+  (Sn VIII, Pr III), 1.16e-06 (Forbid), 6.96e-07 (AI), 1.39e-07 (AI DIEL),
+  on elements of magnitude ≤ 3.34. `OUTGINE` is the same information
+  printed and is **byte-identical everywhere**, so nothing RCE reads at
+  printed precision moves.
+- `ING11`, `TAPE2N`, `OUT36`, `OUT2`, `genealogy.txt` — byte-identical.
+
+**Coverage — three sites the runs do not exercise, established positively
+rather than inferred.** Each was found with an instrumented build that
+produced no output at all, not by reading the absence of a diff.
+
+- `CMAXWL`: `RCOEFF` is not reached by any deck in `WORK/`. Checked
+  algebraically instead — 2√π·α·c·a0² = 2.1716669877207e-08 against the
+  `2.1717e-8` the source carried. Unexercised, and said so, as Section 10
+  said it of `PICSCN`.
+- **`TAPE19` is never produced.** The section above asked for md5 identity
+  on it; `CALCFC`'s `WRITE (19,91)` sits on a path none of the five decks
+  reaches. Stage A proves the substitution there; the value change is
+  unexercised.
+- `CALCFC`'s `P5` g-factors, likewise: that block is under `IF (KCPL.LT.2)`
+  and every deck here runs `KCPL=2`.
+
+**Two things were repaired in passing.**
+
+1. **`fundconst.f`'s site line numbers had gone stale.** Section 11 moved
+   `rcg11kd.f` by about sixty lines without updating them, and this
+   section's header entry moved it again. All 23 lists were recomputed from
+   the current source and rewritten — `RCN36K.F` and `RCN2K.F` included,
+   where they were out by 30 to 45 lines. Two facts surfaced while doing it
+   and are now recorded at their entries: **`ALPHIN` has no consumer left in
+   RCG at all** — its one site went with the inline `PSQ` derivation in
+   Section 11, and the file still claimed 13188 — and `PICON` and `GFE1` are
+   now used only inside `GAFROMSCOEF`.
+2. `fundconst.f`'s header now carries the author's rule in as many words,
+   and `CODE/tests/test_literals.py` enforces it with **no exception list**:
+   `PHYSICS_STILL_INLINE` is gone — the group, its comment block, the
+   docstring paragraph and its entry in the `INVENTORY` loop — `GEFACT`'s
+   literal joins `CODATA`, and the four tokens join the un-substitution
+   guard, now `test_the_substituted_literals_have_not_come_back` over
+   `SECTION_10` plus `SECTION_13`.
+
+**And the Python side stayed in step.** `CODE/toolbox/fundconst.py` gained
+the same five names in the same order and the same association;
+`test_fundconst.py` compiles the include file and compares bit for bit, and
+`CMAXWL` agrees exactly, so `math.sqrt` and `DSQRT` round the same way here.
+Full suite: **309 passed, 252 skipped.**
 
 ---
 
@@ -840,14 +1651,22 @@ out. Included only for completeness of the top-to-bottom pass.
 | 3 `fundconst.f` | 1 h — **done** |
 | 4 RCN | 3–4 h (the single-precision hazards) — **done** |
 | 5 RCN2 | 1 h — **done** |
-| 6 RCG constants | 1.5 h |
-| 7 RCG coefficient routines | 2–3 h |
-| 8 RCE | 15 min |
-| 9 docs | 1.5 h (incl. §0c reminder x3) |
+| 6 RCG constants | 1.5 h — **done** |
+| 7 RCG coefficient routines | 2–3 h — **done** |
+| 8 RCE | 15 min — **done** |
+| 10 sweep for missed sites | 2–3 h — **done** |
+| 11 RCG onto the routines | 3–4 h — **done** |
+| 12 Python side | 3–4 h — **done** |
+| 13 the four remaining inline constants | 2–3 h — **done** |
+| 9 docs (runs last) | 2 h (incl. §0c reminder x3, done) |
+| final promotion of the four executables | 1 h |
 
-**~2 working days**, roughly 25% editing and 75% verification. Sections 1–3
+**~3 working days**, roughly 25% editing and 75% verification. Sections 1–3
 are prerequisites; 4 through 8 are strictly sequential, because each consumes
-the previous stage's output.
+the previous stage's output. Sections 10, 11, 12 and 13 are independent of
+one another and may be done in any order, but all four come before Section 9
+and before the final promotion — 10, 11 and 13 all move `rcg11kd.f`, so
+rebuilding the executables between them would only have to be undone.
 
 ## 6. Open questions
 
@@ -890,3 +1709,31 @@ the previous stage's output.
    `--ignore 'SEC *$'` — the counters are back in the comparison and no
    by-hand check is needed. The change is deliberately unremarked in the
    source and in the documentation.
+6. **New, from Section 10: the autoionization rate is 0.05 % low today.**
+   `2066` should be `2067.0687`. This is not a rounding refinement like the
+   rest of this plan — it is sixty times the size of the typical Stage B
+   shift, and it changes numbers the author publishes. The change itself is
+   not in doubt; what needs the author's decision is the same question as
+   open question 3, one level up: does the corrected autoionization rate
+   become the benchmark from here on, and is anything already published
+   against the old one? Nothing downstream is blocked on the answer, so
+   Section 10 proceeds either way; only the closing note changes.
+7. **New, from Section 11: preserve `SPECTR`'s 1e8 wavelength scaling in the
+   E2 path, or remove it?** Keeping it means the rewired code still carries
+   an introduced-and-cancelled factor of 1e16 and still differs from
+   `GAFROMSCOEF(3)` in the last ulp; removing it makes the two identical and
+   the arithmetic honest, at the cost of a wider edit to a routine nobody
+   wants to disturb. Recommendation: **keep it** for Section 11 and note the
+   ulp, because the section's value is in removing the *duplicate
+   derivation*, and a wider edit puts the byte-identity acceptance test at
+   risk for no numerical gain. Revisit only if a diff appears that the ulp
+   explains.
+
+8. ~~**New, from Section 10: four physical constants are still written inline
+   — fold them in, or leave them?** Each is an order of magnitude or more
+   below the `2066` error, and each moves printed output, including the
+   printed Landé g-factors.~~ **Resolved (author, 2026-08-20): fold them in.**
+   The rule is not a threshold — every fundamental constant comes from
+   `fundconst.f`, whatever its error. Section 13 carries it out, and no part
+   of this document may say otherwise. This also settles the same question
+   for anything a future sweep turns up: the answer is already given.
