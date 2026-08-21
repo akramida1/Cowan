@@ -11,7 +11,7 @@
                  Earlier versions distributed from
                 https://doi.org/10.18434/T4/1502500
 
-        Current version release date: August 19, 2026
+        Version 26.2.1, release date: August 21, 2026
 
 ### CONTENTS
 
@@ -117,6 +117,12 @@ sources with smaller dimensions. On a system other than Windows, Linux
 or macOS, see COMPILING FOR OTHER OPERATING SYSTEMS below for the
 handful of system-specific changes.
 
+Python 3 for the utility codes, and one Python package: `numpy`. It is
+needed by exactly one thing, `make_cfp`'s rebuild of the `LSJJ.DAT` deck,
+and it is optional. Without it `make_cfp` says so, builds the CFP decks
+and finishes normally; everything works except true *jj* coupling. See
+step 0 of the installation section for your system.
+
 ### INSTALLATION ON WINDOWS (Linux and macOS users should skip to the next section)
 
 The installation procedure is designed for installation from a
@@ -127,8 +133,15 @@ To install the package on your PC:
 0. Install Python 3 from https://www.python.org/downloads/ , selecting
 "Add python.exe to PATH" in the installer. That is all the utility codes
 need; the four main programs need nothing at all beyond the DLLs shipped
-in `CODE/`. Install a Fortran compiler only if you intend to recompile
-the sources -- see RECOMPILING THE FORTRAN below.
+in `CODE/`. If you intend to use true *jj* coupling, add `numpy` as well:
+
+        pip install numpy
+
+	It is the only Python package the package needs, it is needed by one
+	step only -- step 6 below, where `make_cfp` builds the `LSJJ.DAT`
+	deck -- and it is optional. Skip it and everything else still works.
+	Install a Fortran compiler only if you intend to recompile the
+	sources -- see RECOMPILING THE FORTRAN below.
 1. Extract all files from the COWAN.ZIP archive PRESERVING THE
 SUB-DIRECTORY STRUCTURE into the directory you choose to host the
 package (typically `c:\COWAN`, but any location will do).
@@ -152,20 +165,27 @@ and anything else you want), click OK, choose 'Save properties for
 future windows with same title' and click OK.
 5. Type `PATH` and press Enter. If the COWAN\CODE directory does not
 appear in the result, close the window and go back to step 2.
-6. Create the binary CFP decks. They are not part of the distribution --
+6. Create the binary data decks. They are not part of the distribution --
 they are built here, on your machine, and RCG will not run without them.
 Change to the COWAN\WORK directory, e.g. `cd c:\COWAN\WORK`, and execute
 the make_cfp.bat batch file:
 
   `make_cfp <Enter>`
 
-	This builds the binary CFP 'decks' (files `FOR072`, `FOR073`, `FOR074` in
-	`COWAN\CODE`). It should take < half a minute, and you should receive
-	a message 
+	This builds the binary CFP 'decks' (files `FOR072`, `FOR073`, `FOR074`
+	in `COWAN\CODE`) and the LS-to-*jj* deck `LSJJ.DAT` beside them. It
+	should take < half a minute, and you should receive a message
 
-	`Done. New CFP binary files for072, ... are created in ...COWAN\CODE\ directory`. 
+	`Done. New CFP binary files FOR072, FOR073, and FOR074 are created in "...COWAN\CODE\" directory.`
+	`      The LS-to-jj deck LSJJ.DAT was rebuilt there as well.`
 
-**If you do not see this message, or any of the files `FOR072`, `FOR073`, `FOR074` has a zero size, RCG will not work! Contact A. Kramida to resolve the problem.**
+**If you do not see the first of those two lines, or any of the files `FOR072`, `FOR073`, `FOR074` has a zero size, RCG will not work! Contact A. Kramida to resolve the problem.**
+
+	The second line is different. If it says instead that `LSJJ.DAT` was
+	NOT rebuilt, read the warning above it: almost always it means
+	`numpy` is not installed (step 0). RCG will run, and everything will
+	work except true *jj* coupling. Install `numpy` and run `make_cfp`
+	again whenever you want it.
 
 7. Execute the test task defined by the sample input files `IN36` and
 `IN2` in the `COWAN\WORK` directory:
@@ -218,6 +238,16 @@ the same package. Five steps, none of them needing administrator rights.
    Homebrew installs the command as `gfortran`, and `build.sh` will find
    it on the PATH like any other.
 
+   If you intend to use true *jj* coupling, add `numpy` as well:
+
+        sudo apt install python3-numpy           # Debian, Ubuntu
+        sudo dnf install python3-numpy           # Fedora, RHEL
+        pip3 install numpy                       # or, in a virtualenv
+
+   It is the only Python package the package needs, it is needed by one
+   step only -- the `LSJJ.DAT` deck that `make_cfp` builds in step 4 --
+   and it is optional. Skip it and everything else still works.
+
 2. **Unpack the package** wherever you like -- `~/cowan` is a good
    choice. Do not put it in a directory whose name contains a space:
    RCG is told where its data files are through a one-line `COWAN.CFG`
@@ -258,23 +288,34 @@ the same package. Five steps, none of them needing administrator rights.
    operating system, so that a stray `OPEN` in the code directory fails
    loudly instead of quietly corrupting the package.
 
-   `install.sh` also builds the binary CFP decks, which is the one thing
+   `install.sh` also builds the binary data decks, which is the one thing
    it does before copying anything. `FOR072`, `FOR073` and `FOR074` are
    not part of the distribution; `RCG` writes them itself, from
-   `CODE/ING11.CFP`, and it will not run without them. This is the
-   counterpart of step 6 of the Windows procedure, done for you: the
-   script runs `CODE/unix/make_cfp` from the unpacked tree, which is the
-   last moment `CODE/` is certain to be writable, in a scratch directory
-   of its own. It takes well under a minute and asks nothing.
-   `--rebuild-cfp` forces it even when the decks are already there.
+   `CODE/ING11.CFP`, and it will not run without them. `LSJJ.DAT`, the
+   LS-to-*jj* deck, is built in the same run, by `CODE/lsjj/mkdeck.py`
+   from the same input. This is the counterpart of step 6 of the Windows
+   procedure, done for you: the script runs `CODE/unix/make_cfp` from the
+   unpacked tree, which is the last moment `CODE/` is certain to be
+   writable, in a scratch directory of its own. It takes well under a
+   minute and asks nothing. `--rebuild-cfp` forces it even when the decks
+   are already there.
 
-   Once built they are portable as bytes between gfortran targets, so a
-   deck built on any of the three supported systems is read unchanged on
-   the other two; they have to be built again only for an `RCG` compiled
-   with a compiler whose unformatted record layout differs from
-   gfortran's. That is the case that calls for running `make_cfp` by
-   hand -- from a working directory of your own, and as the owner of the
-   installed tree.
+   `LSJJ.DAT` is the one file that may still be missing afterwards: its
+   generator needs `numpy`. If `numpy` is not installed, `make_cfp` says
+   so, builds the three CFP decks, and the install finishes normally --
+   `install.sh` repeats the warning in its closing summary. Everything
+   works except true *jj* coupling.
+
+   The three CFP decks are portable as bytes between gfortran targets, so
+   a deck built on any of the three supported systems is read unchanged
+   on the other two; they have to be built again only for an `RCG`
+   compiled with a compiler whose unformatted record layout differs from
+   gfortran's. `LSJJ.DAT` is not portable in that way: its coefficients
+   come out of LAPACK, and a different LAPACK moves a few dozen of them
+   in the last bit. Nothing `RCG` prints moves with them, but it is
+   another reason the deck is built where it is read. Either way the
+   remedy is the same -- run `make_cfp` by hand, from a working directory
+   of your own, and as the owner of the installed tree.
 
 5. **Put the wrappers on the PATH.** `install.sh` prints the exact line;
    it is
@@ -687,8 +728,18 @@ Windows 10 or later, a current Linux distribution, or macOS.
 
 **Python 3 must be installed** and on the PATH; that is all the utility
 codes need. They use the Python standard library only -- there is nothing
-to `pip install`. They were developed and tested on Python 3.14 and use
-no syntax newer than 3.8. On Windows the `py` launcher is what the `.bat`
+to `pip install` for any of them. They were developed and tested on Python
+3.14 and use no syntax newer than 3.8.
+
+There is exactly one exception, and it is not a utility code: `make_cfp`
+builds the `LSJJ.DAT` deck with `CODE/lsjj/mkdeck.py`, which needs
+**`numpy`**. That is the only `pip install` anywhere in the package, and
+it is optional -- without it `make_cfp` says so, builds the CFP decks and
+exits normally, and everything works except true *jj* coupling. The
+algebra cannot be done without it honestly: the coefficients are null
+spaces and degenerate eigenspaces of the coupling operator, and another
+implementation would return a different, equally valid basis -- no longer
+the deck that was validated against Cowan's own coefficients. On Windows the `py` launcher is what the `.bat`
 files call; on Linux and macOS the wrappers look for `python3`, falling
 back to a `python` that is Python 3.
 
@@ -954,10 +1005,20 @@ information only and nothing depends on them.
 	copy, and run `RCG`. Those comment lines state the minimum array
 	dimensions `RCG` needs to handle the deck. `make_cfp` (`make_cfp.bat`
 	on Windows, `CODE/unix/make_cfp` on Linux and macOS) does exactly
-	this and puts the results where `RCG` will look for them. The same
-	applies to `LSJJ.DAT`, which `FOR/LSJJ/mkdeck.py` rebuilds. No other
-	program of the package needs anything beyond the change to the timing
-	routine described above.
+	this and puts the results where `RCG` will look for them.
+
+	The same applies to `LSJJ.DAT`, in the same way and for the same
+	reason: it too is an unformatted file whose record layout is the
+	compiler's, it too is not distributed, and `make_cfp` builds it in
+	the same run -- so a deck written under one compiler is refused, not
+	misread, by an `RCG` built with another, and the remedy is to run
+	`make_cfp` again with the new executable. It is less portable than
+	the CFP decks rather than more: its coefficients come out of LAPACK
+	through `numpy`, and a different LAPACK build moves a few dozen of
+	them in the last bit, so two machines do not produce identical bytes
+	even when their record layout agrees. Nothing `RCG` prints moves with
+	that. No other program of the package needs anything beyond the
+	change to the timing routine described above.
 
 - The dynamic memory allocation functions `ALLOC`, `DALLOC`, and `RALLOC`
 in `RCG` and `RCE` (introduced in 2026) are machine-specific. As they
@@ -1022,7 +1083,9 @@ flag set; a compiler without that extension will not build `RCG` or
         rcn2.bat      - batch file for running the RCN2 program;
         rcg.bat       - batch file for running the RCG program;
         rce.bat       - batch file for running the RCE program;
-        make_cfp.bat  - batch file for creating the binary CFP decks.
+        make_cfp.bat  - batch file for creating the binary data decks.
+        mkverres.bat  - called by the two build scripts; compiles the
+                        Windows version resource from version.txt.
         mark_time.bat - called by the four above; times the run.
         update11.bat  - the post-fit cycle, described under f) below.
         ```
@@ -1037,27 +1100,34 @@ flag set; a compiler without that extension will not build `RCG` or
 
         ```
         SENIOR        - Text file used by RCG.
-        LSJJ.DAT      - Binary deck of Cowan's LS coefficients of
-                        fractional parentage together with the jj ones,
-                        from which RCG builds the true LS -> jj
-                        transformation. It is read only by a run that
-                        asks for true jj coupling (KCPLD(8) = 8 in
-                        column 38 of the ING11 main card), so a missing
-                        file is not an error until then. It is
-                        unformatted, and machine-specific with it;
-                        FOR/LSJJ/mkdeck.py rebuilds it.
+        version.txt   - The package version and the identity strings the
+                        Windows build compiles into the executables as a
+                        VERSIONINFO resource. Read by mkverres.bat and
+                        by nothing that runs.
         ```
 
-        RCG reads three more files from this directory, the binary CFP
-        decks `FOR072`, `FOR073` and `FOR074`. They are not in the list
-        above because they are not distributed.
-        They are built on your own machine by `make_cfp`: step 6 of
-        the Windows installation procedure, and on Linux and macOS a
-        thing `install.sh` does for you. Once built they are portable as bytes
-        between gfortran targets, so a deck built on one of the three
-        supported systems is read unchanged on the others; it has to be
-        built again only for an `RCG` compiled with a compiler whose
-        unformatted record layout differs from gfortran's.
+        RCG reads four more files from this directory, and none of them
+        is distributed: the binary CFP decks `FOR072`, `FOR073` and
+        `FOR074`, and `LSJJ.DAT`. They are built on your own machine by
+        `make_cfp` -- step 6 of the Windows installation procedure, and
+        on Linux and macOS a thing `install.sh` does for you.
+
+        `LSJJ.DAT` is the binary deck of Cowan's LS coefficients of
+        fractional parentage together with the jj ones, from which RCG
+        builds the true LS -> jj transformation. It is read only by a run
+        that asks for true jj coupling (KCPLD(8) = 8 in column 38 of the
+        ING11 main card), so a missing file is not an error until then --
+        which is what makes it safe for its generator, `CODE/lsjj/`, to
+        need `numpy`, the one optional dependency in the package.
+
+        Once built, the three CFP decks are portable as bytes between
+        gfortran targets, so a deck built on one of the three supported
+        systems is read unchanged on the others; they have to be built
+        again only for an `RCG` compiled with a compiler whose
+        unformatted record layout differs from gfortran's. `LSJJ.DAT` is
+        not portable in that way -- a different LAPACK moves a few dozen
+        of its coefficients in the last bit, invisibly to everything RCG
+        prints -- which is a further reason it is built where it is read.
 
 	d) Compilation scripts and the gfortran runtime libraries:
 
@@ -1073,6 +1143,15 @@ flag set; a compiler without that extension will not build `RCG` or
                               parallel region reassociates a sum.
         gfortran_dbg.bat    - Same as gfortran_O3, but with options for
                               debugging with gdb (-O0 -ggdb3, no OpenMP).
+        mkverres.bat        - Called by the first two, not by the third.
+                              It writes a VERSIONINFO resource from
+                              `version.txt` and compiles it with `windres`
+                              (which ships with the same MinGW as
+                              gfortran); the build links the result. Any
+                              failure there is harmless -- it prints one
+                              line, produces nothing, and the build goes
+                              on without the resource. There is no Unix
+                              counterpart: ELF has no VERSIONINFO.
         libgfortran-5.dll   | The gfortran runtime, as distributed by
         libgcc_s_seh-1.dll  | WinLibs 13.2.0 r8. All six are needed:
         libquadmath-0.dll   | RCG and RCE are OpenMP builds and import
@@ -1097,8 +1176,15 @@ flag set; a compiler without that extension will not build `RCG` or
         `ING11.CFP`     - the complete CFP input deck for `RCG`. This is
                           what `make_cfp` feeds to `RCG` to build the
                           binary CFP decks `FOR072`, `FOR073` and
-                          `FOR074` at installation; it is needed then and
-                          rarely afterwards.
+                          `FOR074` at installation, and to `mkdeck.py` to
+                          build `LSJJ.DAT`; it is needed then and rarely
+                          afterwards.
+
+        `version.txt`   - the package version and the identity strings
+                          the Windows build compiles into the four
+                          executables. Nothing at run time reads it, and
+                          nothing bumps it automatically: the resource is
+                          there to exist, not to be accurate to the day.
 
 	f) Utility files:
 
@@ -1150,6 +1236,15 @@ flag set; a compiler without that extension will not build `RCG` or
                        has CODE/ on PYTHONPATH, or run the launcher of
                        the program you want instead. They are library
                        modules, not commands.
+
+        lsjj/         - The generator `make_cfp` runs to build
+                       `LSJJ.DAT`: mkdeck.py, which writes the deck, over
+                       lsjj.py, cowan_cfp.py and recur.py, which are the
+                       algebra. It is here rather than in FOR/ because
+                       `make_cfp` has to find it beside itself in an
+                       installed tree. It is the one part of the package
+                       that needs `numpy`. The record of the derivation
+                       and its validation stayed in `FOR/LSJJ/`.
 
         tests/        - The test suite (`py -m pytest`, or
                        `python3 -m pytest`, from CODE/). It is a
@@ -1777,13 +1872,16 @@ flag set; a compiler without that extension will not build `RCG` or
         LSJJID.F      | added to RCG and RCE in 2026
         LSJJPAR.F     |
         RCEJJ2E.F     - Include file for RCE20KD.F, true jj coupling
-        LSJJ/         - The Python that builds CODE/LSJJ.DAT
-                        (mkdeck.py) and the scripts that validated the
-                        coefficients against Cowan's own. Its README.txt
-                        is the long-form account of that work, and of
-                        everything else done to these sources since:
-                        the utility-code port and the constants work
-                        described under THE FUNDAMENTAL CONSTANTS above.
+        LSJJ/         - The record of the LS -> jj derivation: the
+                        scripts that validated the coefficients against
+                        Cowan's own, their logs, and the JJCFP deck. The
+                        generator itself lives in CODE/lsjj/, where
+                        make_cfp can reach it in an installed tree. Its
+                        README.txt is the long-form account of that work,
+                        and of everything else done to these sources
+                        since: the utility-code port, the constants work
+                        described under THE FUNDAMENTAL CONSTANTS above,
+                        and the Windows version resource.
 
 
 5) WORK directory   - Sample directory for Cowan calculation projects,

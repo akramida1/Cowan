@@ -3,15 +3,22 @@
 reads.  This script IS the recovery procedure: LSJJ.DAT is a derived file
 and is never edited or repaired, only rebuilt from here.
 
-    cd LSJJ
-    python mkdeck.py ../LSJJ.DAT     # the binary deck RCG reads
+The supported way to run it is not to: make_cfp rebuilds the deck along with
+the CFP decks, on the machine the package is installed on, and that is the
+only route an installed user has.  By hand, from CODE/lsjj:
+
+    python mkdeck.py                 # writes ../LSJJ.DAT, where RCG looks
+    python mkdeck.py somewhere/LSJJ.DAT
     python mkdeck.py -t deck.txt     # the old text form, for inspection
 
-Everything it needs is in this directory and is deterministic: the LS cfp
-come from Cowan's own tables via cowan_cfp.py, the jj cfp from the recursion
-in recur.py.  Neither depends on any earlier LSJJ.DAT, so a lost or corrupted
-deck costs nothing but the minute this takes to run.  LSJJ/README.txt has the
-derivations; LSJJ/validate.py and LSJJ/cmpfort.py check the result.
+It reads the CFP card deck and SENIOR through cowan_cfp.py, which takes them
+from $LSJJ_CFP and $LSJJ_SENIOR when those are set -- which is how make_cfp
+points it at the ING11 it has just written and at CODE/SENIOR.  Everything
+else it needs is in this directory and is deterministic: the LS cfp come from
+Cowan's own tables via cowan_cfp.py, the jj cfp from the recursion in
+recur.py.  Neither depends on any earlier LSJJ.DAT, so a lost or corrupted
+deck costs nothing but the minute this takes to run.  FOR/LSJJ/README.txt has
+the derivations; FOR/LSJJ/validate.py and cmpfort.py check the result.
 
 The default form is UNFORMATTED SEQUENTIAL, which is what RCG's LSJJIN reads:
 native INTEGER*4 and REAL*8 in native byte order, each record wrapped in the
@@ -175,5 +182,10 @@ if __name__ == '__main__':
         text = True
         argv = argv[1:]
     cowan_cfp.install()
+    # The default target is CODE/, the parent of this package -- that is
+    # where RCG opens LSJJ.DAT, and writing it into CODE/lsjj/ beside this
+    # script would put it somewhere nothing looks.  make_cfp names the
+    # target explicitly and does not rely on this.
     here = os.path.dirname(os.path.abspath(__file__))
-    write(argv[0] if argv else os.path.join(here, 'LSJJ.DAT'), text)
+    default = os.path.join(os.path.dirname(here), 'LSJJ.DAT')
+    write(argv[0] if argv else default, text)

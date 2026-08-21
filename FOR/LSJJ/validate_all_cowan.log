@@ -101,7 +101,7 @@ LS term lists with seniority, checked against published tables
  per-J dimensions agree: J=1/2:4 J=3/2:7 J=5/2:10 J=7/2:7 J=9/2:5 J=11/2:3 J=13/2:1
  transformation orthogonal to 3.1e-11 in every J block
  PASS
- 0.06 s
+ 0.05 s
 
 ==========================================================================
  d^6      m-scheme dimension at 2M=0 : 34   (full shell: 210)
@@ -185,7 +185,7 @@ LS term lists with seniority, checked against published tables
  per-J dimensions agree: J=1/2:10 J=3/2:21 J=5/2:28 J=7/2:30 J=9/2:29 J=11/2:26 J=13/2:20 J=15/2:16 J=17/2:9 J=19/2:5 J=21/2:3 J=23/2:1
  transformation orthogonal to 8.7e-11 in every J block
  PASS
- 1.86 s
+ 1.87 s
 
 ==========================================================================
  f^6      m-scheme dimension at 2M=0 : 295   (full shell: 3003)
@@ -194,7 +194,7 @@ LS term lists with seniority, checked against published tables
  transformation orthogonal to 9.3e-11 in every J block
  independent of M to 1.3e-11
  PASS
- 5.16 s
+ 5.20 s
 
 ==========================================================================
  f^7      m-scheme dimension at 2M=1 : 327   (full shell: 3432)
@@ -202,7 +202,7 @@ LS term lists with seniority, checked against published tables
  per-J dimensions agree: J=1/2:17 J=3/2:31 J=5/2:42 J=7/2:50 J=9/2:46 J=11/2:42 J=13/2:35 J=15/2:26 J=17/2:18 J=19/2:11 J=21/2:5 J=23/2:3 J=25/2:1
  transformation orthogonal to 1.1e-10 in every J block
  PASS
- 7.26 s
+ 7.30 s
 
 ==========================================================================
  f^8      m-scheme dimension at 2M=0 : 295   (full shell: 3003)
@@ -219,7 +219,7 @@ LS term lists with seniority, checked against published tables
  per-J dimensions agree: J=1/2:10 J=3/2:21 J=5/2:28 J=7/2:30 J=9/2:29 J=11/2:26 J=13/2:20 J=15/2:16 J=17/2:9 J=19/2:5 J=21/2:3 J=23/2:1
  transformation orthogonal to 9.7e-11 in every J block
  PASS
- 3.64 s
+ 3.61 s
 
 ==========================================================================
  f^10      m-scheme dimension at 2M=0 : 107   (full shell: 1001)
@@ -228,7 +228,7 @@ LS term lists with seniority, checked against published tables
  transformation orthogonal to 8.3e-11 in every J block
  independent of M to 1.5e-11
  PASS
- 1.53 s
+ 1.49 s
 
 ==========================================================================
  f^11      m-scheme dimension at 2M=1 : 41   (full shell: 364)
@@ -236,7 +236,7 @@ LS term lists with seniority, checked against published tables
  per-J dimensions agree: J=1/2:2 J=3/2:6 J=5/2:7 J=7/2:7 J=9/2:7 J=11/2:5 J=13/2:3 J=15/2:3 J=17/2:1
  transformation orthogonal to 6.8e-11 in every J block
  PASS
- 0.36 s
+ 0.35 s
 
 ==========================================================================
  f^12      m-scheme dimension at 2M=0 : 13   (full shell: 91)

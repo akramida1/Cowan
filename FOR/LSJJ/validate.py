@@ -7,7 +7,15 @@ With the `cowan` argument the LS side is built from Cowan's CFP decks
 term-list check then compares the seniority recovered from <A+A> for each of
 Cowan's alpha labels against the published tables.
 """
+import os
 import sys
+
+# The modules this checks -- lsjj, cowan_cfp, recur -- moved to CODE/lsjj/,
+# where make_cfp can find them in an installed tree.  This directory keeps
+# the record of the derivation and its validation, so the scripts here reach
+# across to the one copy rather than carry a second.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                '..', '..', 'CODE', 'lsjj'))
 import time
 from collections import Counter
 import lsjj

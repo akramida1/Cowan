@@ -66,10 +66,23 @@ use the second.  See the "Cowan CFP mode" section below.
 
 Files
 -----
-lsjj.py           the module and a small command line
-cowan_cfp.py      the LS side built from Cowan's CFP decks
-recur.py          the transformation by recursion on N, from cfp alone
-                  -- the algorithm meant for RCG (see "Machinery" below)
+The four production modules live in CODE/lsjj/, not here.  They moved there
+in 2026 so that make_cfp can find them from beside itself in an installed
+tree: CODE/unix/install.sh installs CODE/ and nothing else, and on Windows
+the author's habit is to copy CODE\ to C:\cowan\code without the rest of
+the repository.  This directory keeps the record of the derivation and its
+validation.  Every script here reaches across with a two-line sys.path
+insert rather than carrying a second copy.
+
+  CODE/lsjj/lsjj.py       the module and a small command line
+  CODE/lsjj/cowan_cfp.py  the LS side built from Cowan's CFP decks
+  CODE/lsjj/recur.py      the transformation by recursion on N, from cfp
+                          alone -- the algorithm meant for RCG (see
+                          "Machinery" below)
+  CODE/lsjj/mkdeck.py     writes LSJJ.DAT, the Fortran-side deck
+
+Here:
+
 JJCFP             jj cfp deck for j = 1/2, 3/2, 5/2, 7/2, written by recur.py
 validate.py       the validation sweep over p^N, d^N, f^N
 compare_racah.py  checks the two LS builders against each other
@@ -94,13 +107,19 @@ Command line
     python lsjj.py terms l N       LS terms with seniority
     python validate.py all         the whole sweep (p, d and f)
     python compare_racah.py all    the two LS builders against each other
-    python recur.py check all      the recursion against the m-scheme
-    python recur.py check 3 7      one shell
-    python recur.py jjcfp          the jj cfp tables, printed
-    python recur.py deck JJCFP     rewrite the jj cfp deck
-    python mkdeck.py ../LSJJ.DAT   rebuild LSJJ.DAT, the Fortran-side deck
-    python mkdeck.py -t deck.txt   the same data in the old text form
     python cmpfort.py OUTG11       the Fortran recursion against recur.py
+
+and, for the modules that moved, from this directory:
+
+    python ../../CODE/lsjj/recur.py check all      against the m-scheme
+    python ../../CODE/lsjj/recur.py check 3 7      one shell
+    python ../../CODE/lsjj/recur.py jjcfp          the jj cfp tables
+    python ../../CODE/lsjj/recur.py deck JJCFP     rewrite the jj cfp deck
+    python ../../CODE/lsjj/mkdeck.py -t deck.txt   the deck as text
+
+LSJJ.DAT itself is not rebuilt by hand any more: make_cfp builds it with
+the CFP decks, on the machine the package is installed on, which is the
+supported route and the only one an installed user has.
 
 Add `fromdeck` to a recur.py command line to read JJCFP instead of
 rebuilding the jj cfp from the m-scheme.
@@ -381,7 +400,8 @@ The phases in front are exactly what makes this worth checking rather than
 trusting, which is what cmpfort.py is for.  Angular momenta are carried
 doubled, as integers, everywhere except inside S6J and S9J.
 
-Data.  LSJJ.DAT, written by mkdeck.py, holds Cowan's LS cfp (p, d, f for
+Data.  LSJJ.DAT, written by CODE/lsjj/mkdeck.py when make_cfp runs it,
+holds Cowan's LS cfp (p, d, f for
 every n; g, h for n <= 2) and the jj cfp (j = 1/2 .. 7/2 for every n; 9/2
 and 11/2 for n <= 2).  It belongs in the system-file directory that
 COWAN.CFG points at, next to SENIOR; rcg11kd.f opens it on unit 23 and says
@@ -401,18 +421,23 @@ older layout, or one still in text form is refused (LSJJIN IERR=3) rather
 than read as garbage, and the message on OUTG11 says how to rebuild it.
 
 RECOVERY.  LSJJ.DAT is derived, never edited and never repaired -- if it is
-lost, corrupted, or moved to a machine of the other endianness, rebuild it:
+lost, corrupted, or moved to a machine of the other endianness, run
 
-    cd LSJJ
-    python mkdeck.py ../LSJJ.DAT
+    make_cfp
 
-and copy it to the system-file directory.  mkdeck.py depends on nothing but
-cowan_cfp.py (Cowan's own LS cfp tables) and recur.py (the jj cfp recursion),
-both in this directory and both deterministic; no earlier LSJJ.DAT is
-involved, so the deck costs a minute to replace.  `python mkdeck.py -t
-deck.txt` writes the same records as text when they need to be looked at,
-and `python cmpfort.py OUTG11` after a KCPL=9 run checks the rebuilt deck
-end to end against recur.py.
+which rebuilds it along with the CFP decks, in the system-file directory,
+in a fifth of a second.  That is the supported route and the only one an
+installed user has.  mkdeck.py depends on nothing but cowan_cfp.py (Cowan's
+own LS cfp tables) and recur.py (the jj cfp recursion), both beside it in
+CODE/lsjj/ and both deterministic; no earlier LSJJ.DAT is involved.
+`python ../../CODE/lsjj/mkdeck.py -t deck.txt` writes the same records as
+text when they need to be looked at, and `python cmpfort.py OUTG11` after a
+KCPL=9 run checks the rebuilt deck end to end against recur.py.
+
+It needs numpy, which is the one thing in this package that has to be
+pip-installed.  Where numpy is absent make_cfp says so and carries on: the
+CFP decks are built, the install succeeds, and everything except true jj
+coupling works, RCG's own diagnostic covering the rest.
 
 One trap worth recording, since it cost a debugging round: list-directed
 input does not care how a list is split over lines, but an unformatted
@@ -4214,3 +4239,235 @@ WHAT AN OLD RESULT WILL LOOK LIKE AFTER THIS
   Structurally nothing moved anywhere: no line count, no label, no field
   width, in any of the five cases, at any stage.  Full suite at the end of
   the work: 309 passed, 252 skipped.
+
+
+LSJJ.DAT IS BUILT BY make_cfp, AND THE SIGN CONVENTION IS FIXED
+===============================================================
+
+Two changes, done together because the second one moves the bytes of the
+deck and the first one is what makes that harmless.
+
+WHY THE DECK STOPPED BEING DISTRIBUTED
+
+  LSJJ.DAT was committed in two places -- CODE/LSJJ.DAT and
+  FOR/LSJJ/LSJJ.DAT -- and it never should have been.  It is a derived
+  file of exactly the same kind as FOR072, FOR073 and FOR074: unformatted
+  sequential, native INTEGER*4 and REAL*8 in native byte order, wrapped in
+  the record markers of the compiler that wrote it.  The CFP decks have
+  been built on the installed machine since the beginning, by make_cfp,
+  and shipping the fourth deck while building the other three was an
+  inconsistency, not a decision.
+
+  So make_cfp builds all four now, on both platforms.  It costs 0.2 s
+  against the RCG run make_cfp already does, and it needs nothing that is
+  not already in the working directory at that moment: the ING11 that
+  make_cfp itself has just written from CODE/ING11.CFP, and SENIOR.
+  cowan_cfp.py takes both from $LSJJ_CFP and $LSJJ_SENIOR when those are
+  set, which is why no file has to be moved to make it work.
+
+  The generator moved to CODE/lsjj/ for this.  make_cfp has to find it
+  from beside itself in an *installed* tree, and FOR/LSJJ/ is not
+  installed: CODE/unix/install.sh copies CODE/ and nothing else, and on
+  Windows the author copies CODE\ to C:\cowan\code by hand.  Four modules
+  moved -- lsjj.py, cowan_cfp.py, recur.py, mkdeck.py -- and the scripts
+  left here (validate.py, cmpfort.py, compare_racah.py, probe_f3.py) each
+  gained a two-line sys.path insert pointing across at the one copy.  One
+  source of truth, no duplicated module.
+
+numpy
+
+  This is the one place where the package's "nothing to pip install"
+  promise now has an exception, and it is worth saying why it could not be
+  avoided.  lsjj.py uses np.linalg.svd for the null space of the coupling
+  operator and np.linalg.eigh to block a degenerate space by a commuting
+  operator.  Both return a *basis*, not a number.  Any other
+  implementation returns a different, equally valid basis -- and the deck
+  would then no longer be the deck that was validated against Cowan's own
+  coefficients by validate.py and cmpfort.py.  There is no way to check
+  that, which makes rewriting the algebra a section 1 violation with
+  nothing to accept it against.
+
+  So numpy stays, and instead the absence of it degrades gracefully.
+  make_cfp attempts the rebuild, and where numpy (or Python) is missing it
+  prints a specific warning naming `pip install numpy`, builds the three
+  CFP decks, and exits 0.  install.sh repeats the warning in its closing
+  summary, since that is the text a user actually reads.  RCG already
+  tolerated a missing LSJJ.DAT -- unit 23 is opened with ERR= and read
+  only by a run that asks for true jj coupling -- so the cost of not
+  having numpy is exactly one feature.
+
+THE SIGN CONVENTION
+
+  The deck was reproducible on this machine and not across machines.
+  Built under WSL2 (numpy 2.5.2, its own LAPACK) it came out the same
+  463628 bytes with 55 of the ~58000 doubles different: 24 a pure overall
+  sign flip of a basis vector, 31 last-bit rounding, none a genuinely
+  different value.
+
+  The 24 were a defect, and a small one to state.  fix_sign() fixed the
+  overall phase of each highest-weight state by making its largest
+  component positive:
+
+      key = max(state, key=lambda k: (abs(state[k]), -k))
+
+  These components are square roots of small rationals, so two of them are
+  often equal in exact arithmetic.  A strict max() then settles the tie on
+  whichever one LAPACK returned a last bit larger -- and a different LAPACK
+  crowns the other, flipping the whole vector, and with it every state
+  derived from it down the lowering chain, which deliberately fixes no
+  signs of its own.  A convention hinging on 1e-16.
+
+  The fix is a tolerant tie-break: compare magnitudes only to
+  SIGN_TOL = 1e-12 and settle the tie on the basis key, which is ours and
+  is fixed.  1e-12 sits four orders above the last-bit noise on normalised
+  components and many orders below the smallest genuine gap between two
+  distinct component magnitudes anywhere in the deck.  With an exact tie it
+  picks the component the old code did, so nothing changes except at a
+  near-tie.
+
+  Result: no sign flips left between the two machines.  Fourteen vectors
+  changed sign against the deck that used to be committed -- those were the
+  ties this machine had been losing.  JJCFP is written from the same
+  convention and was rewritten with `recur.py deck JJCFP`; eight of its 90
+  cards changed sign, and jjcfp.log with them.
+
+  WHAT IT DOES NOT FIX, AND WHY THERE IS NO md5.  The other 31 doubles are
+  raw LAPACK arithmetic -- svd and eigh returning values that differ in the
+  last bit -- and no tie-break reaches them.  Measured after the fix,
+  Windows against WSL2: 28 doubles differ across 21 records, |delta| <=
+  2.3e-16, no sign flips and no genuinely different values.  So the deck is
+  still not byte-portable, and a hard-coded md5 would be a tripwire that
+  fires on every machine but the one that recorded it.
+  CODE/tests/test_lsjjdeck.py says so at length and checks what is
+  checkable instead: that two builds from the same inputs are byte
+  identical, and that the deck make_cfp leaves behind is the one mkdeck.py
+  builds today.
+
+ACCEPTANCE
+
+  The deck changed, so this is a section 1 change and was run as one.
+
+    validate.py all, validate.py all cowan, compare_racah.py all
+        identical to the committed logs, line for line.
+
+    recur.py fromdeck check all, after rewriting JJCFP
+        identical to recur_all.log except in the two timing columns --
+        every residual, to the printed digit.  Before JJCFP was rewritten
+        it failed f^4 through f^10 with a deviation of order 1, which is
+        the phase mismatch showing itself and is how the stale deck was
+        caught.
+
+    KCPL=9 self test on WORK/W70's ING11, then cmpfort.py
+        34 shells, 34 pass.  Agreement with recur.py *improved* by an
+        order of magnitude, from 4e-14 to 3e-15; the orthogonality and
+        1-vs-2 residuals did not move.  cmpfort_all.log rewritten.
+
+    WORK/W70, the true jj case, old deck against new
+        TAPE2E byte identical -- and that is where the true jj trailer
+        lives, so the transformation RCE reads is unchanged.  OUTG11
+        differs in one line, the printed timing.  true-jj_keys.txt,
+        genealogy.txt, OUTGINE identical.
+
+    WORK/Pr3, the regression case
+        TAPE2E, OUTGINE and genealogy.txt byte identical; OUTG11 differing
+        only in timing lines.  This also covers the rcg11kd.f change
+        below, the executables having been rebuilt for it.
+
+  rcg11kd.f changed in five places, all of them text: the runtime
+  diagnostic at label 65 and the comment blocks that used to say
+  `cd LSJJ ; python mkdeck.py ../LSJJ.DAT` now name make_cfp, which is the
+  route an installed user has, and the paths that said LSJJ/ now say
+  CODE/lsjj/ or FOR/LSJJ/ as the case may be.
+
+  Full suite from CODE/: 312 passed, 252 skipped.
+
+
+A VERSION RESOURCE ON THE WINDOWS EXECUTABLES
+=============================================
+
+Not part of the LS->jj work at all; recorded here because this file is
+where the account of everything else is kept.
+
+THE PROBLEM
+
+  Norton blocks the download of the package: the source zip from
+  codeload.github.com, a Release asset from objects.githubusercontent.com,
+  and RCN2K.exe on its own, all with Win64:Evo-gen [Trj].  Since the
+  Release asset is blocked as well, the verdict is not attached to the
+  host -- Norton unpacks the archive, scans the PE files inside, and reacts
+  to their content.  Win64:Evo-gen is a heuristic family, not a signature
+  match.
+
+  The author ruled out false-positive submissions and code signing, both
+  free and paid, for the same reason: each is a chore at every release.
+  What is left has to be automatic.
+
+WHICH FEATURE, MEASURED
+
+  All four executables were built within a minute of each other, so hash
+  novelty and prevalence are excluded: three download and one does not.
+  Variants of RCN2K.exe were built with the shipped flags and copied to
+  Downloads to be scanned:
+
+    plain                            6 trials, 0 survived
+    + VERSIONINFO (0x398 bytes)      4 trials, 4 survived
+    + a string-table resource only   2 trials, 2 survived
+    + 1 KB of data, no resource      2 trials, 0 survived
+    + -s (strip)                     1 trial,  1 survived
+
+  The two controls separate the cause cleanly.  A resource carrying no
+  version information at all survives, so the *content* of the resource is
+  not being read; an equal-sized padding of ordinary data with no .rsrc is
+  deleted, so it is not mere perturbation.  The discriminating feature is
+  the presence of a resource directory.  A PE without one is unusual for
+  legitimate Windows software and common in malware.
+
+  Why RCN2K alone, when RCN36K has no resource either, is not explained by
+  this and does not need to be: a heuristic score combines features, and
+  RCN2K is the smallest of the four at 176 KB.
+
+WHAT WAS BUILT
+
+  CODE/version.txt     the identity strings, key=value.  Nothing bumps it
+                       automatically and nothing needs it bumped -- the
+                       resource's purpose is to exist, not to be accurate
+                       to the day.  It is also the first and only place
+                       the package version, 26.2.1, is written down.
+
+  CODE/mkverres.bat    reads version.txt, maps the source stem to a
+                       FileDescription and an OriginalFilename, writes a
+                       .rc into %TEMP% and compiles it with windres, which
+                       ships with the same MinGW as gfortran.  Any failure
+                       -- no windres, no version.txt, an unknown stem --
+                       prints one line and exits 0 with no .o.
+
+  gfortran_O3_OMP.bat and gfortran_O3.bat call it and link %1_ver.o if it
+  is there.  gfortran_dbg.bat does not: a debug build is never
+  distributed.  All four programs get the resource, not just RCN2K -- it
+  is the same one line in the build, the information is true of each
+  program, and it removes the feature before a future edit pushes another
+  binary over the same threshold.
+
+  ELF has no VERSIONINFO, so CODE/unix/build.sh is untouched.  This is one
+  of the few places where CLAUDE.md section 8's "Windows and Unix move
+  together" does not apply, because there is no other half to move.
+
+ACCEPTANCE
+
+  Each executable grew by exactly 1042 bytes and now shows its strings in
+  Properties -> Details.  WORK/Pr3 with the rebuilt executables: TAPE2E,
+  OUTGINE and genealogy.txt byte identical, OUTG11 differing only in
+  timing lines.  Full suite from CODE/: 312 passed, 252 skipped.
+
+  WHAT IS NOT YET KNOWN.  Surviving an on-access scan is a strong proxy
+  but it is not the download verdict, which is a different code path with
+  a cloud lookup and can disagree.  The conclusive test is cutting a
+  release and downloading the zip, and only the author can run it.  If it
+  still fails, -s (strip) is the one cheap thing left to try -- it cleared
+  the local detection once, and plausibly acts through a different feature
+  -- and it was deliberately held back so that a failed download test
+  stays attributable to one change.
+
+  A note that does not change with any of this: the file is still unsigned
+  and still has near-zero prevalence.  What the measurement says is that
+  those are not the operative terms.

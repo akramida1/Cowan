@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Regenerate the CFP binary decks FOR072, FOR073 and FOR074.  The Unix
+# Regenerate the derived data decks RCG reads: the CFP binary decks
+# FOR072, FOR073 and FOR074, and the LS-to-jj deck LSJJ.DAT.  The Unix
 # counterpart of make_cfp.bat.
 #
 # The decks are not part of the distribution: they are built on the
@@ -13,6 +14,27 @@
 # gfortran on x86-64 Linux and on Apple Silicon alike, so moving between
 # the systems this package is built for is not a reason to rebuild.
 #
+# LSJJ.DAT is the same kind of file and is here for the same reasons: it
+# is unformatted, it is derived, and it is not distributed.  It is less
+# portable than the CFP decks, not more: its coefficients come out of
+# LAPACK, and a different LAPACK build moves a few dozen of them in the
+# last bit, so two machines do not produce the same bytes even when their
+# record layout agrees.  Nothing RCG prints moves with them -- checked on
+# WORK/W70, the true jj case, where TAPE2E is byte-identical -- but it is
+# why there is no md5 to check this file against.  It is built
+# by lsjj/mkdeck.py from the ING11 this script has just written and from
+# SENIOR, in a fifth of a second, and it needs numpy -- its coefficients
+# are null spaces and degenerate eigenspaces of the coupling operator,
+# and another linear algebra would return a different, equally valid
+# basis, which would no longer be the deck that was validated against
+# Cowan's own coefficients.  numpy is therefore the one thing in this
+# package that has to be pip-installed, and it is optional: if it is
+# missing this script says so and carries on, because the CFP decks are
+# the primary job and everything except true jj coupling works without
+# LSJJ.DAT.  RCG opens it only for a run that asks for true jj coupling
+# (column 38 of the ING11 main card set to 8) and prints its own
+# diagnostic if it is not there.
+#
 # It runs in the current directory -- ING11, OUTG11, TAPE2E and the rest
 # are written here -- but the decks it produces land in CODE/, beside the
 # executable, because that is where RCG opens them.  Which is the whole
@@ -23,11 +45,11 @@
 #     make_cfp [target directory]
 #
 # With no argument the decks are written into CODE/, as above.  An
-# argument writes them somewhere else instead, and SENIOR and LSJJ.DAT
-# are copied there with them, so that the directory is a complete set of
-# the permanent files RCG opens through COWAN.CFG.  That is for a run
-# that must not write into the package directory -- the test suite is
-# one, having no decks in a source tree and no licence to create any
+# argument writes them somewhere else instead -- all four of them, and
+# SENIOR is copied there with them, so that the directory is a complete
+# set of the permanent files RCG opens through COWAN.CFG.  That is for
+# a run that must not write into the package directory -- the test suite
+# is one, having no decks in a source tree and no licence to create any
 # there -- and it skips the permission dance, the target being the
 # caller's own directory.  RCG itself is always the one in CODE/.
 #
@@ -38,7 +60,8 @@
 # read-only in normal use -- that is the point of the install layout, and
 # it is what makes "the code directory is never written to during a run" a
 # guarantee rather than a convention.  A CFP run is the one exception: it
-# deletes the three decks and RCG writes them afresh.
+# deletes the three CFP decks and RCG writes them afresh, and mkdeck.py
+# truncates and rewrites LSJJ.DAT.  All four are in the dance below.
 #
 # Two different permissions are needed for that, and they fail in two
 # different ways:
@@ -84,10 +107,11 @@ echo "."
 echo "."
 echo "."
 echo "************************************************************************"
-echo "*      This script creates the new CFP binary files for RCG.           *"
-echo "*     You need to run it if you re-compiled RCG with any compiler      *"
-echo "*      different from Salford (Silverfrost) F77, to create new         *"
-echo "*        FOR072, FOR073 and FOR074 files. It uses the default          *"
+echo "*     This script creates the derived data files RCG reads: the CFP    *"
+echo "*      binary decks FOR072, FOR073 and FOR074, and the LS-to-jj        *"
+echo "*     deck LSJJ.DAT.  You need to run it once after installing the     *"
+echo "*     package, and again if you re-compiled RCG with any compiler      *"
+echo "*     different from Salford (Silverfrost) F77.  It uses the default   *"
 echo "*                  CFP input deck (file ING11.CFP).                    *"
 echo "************************************************************************"
 
@@ -110,16 +134,15 @@ case "$out" in
   RCG reads that path from COWAN.CFG and cuts it at the first blank." ;;
 esac
 
-# The permanent files RCG opens beside the decks.  It opens SENIOR
-# STATUS='OLD' on every run, so a directory with decks and no SENIOR in
-# it is of no use to anyone; LSJJ.DAT is optional to RCG but goes with
-# them for the same reason.
+# SENIOR is the one permanent file RCG opens beside the decks that this
+# script does not build.  It is opened STATUS='OLD' on every run, so a
+# directory with decks and no SENIOR in it is of no use to anyone.
+# LSJJ.DAT used to be copied here too; it is built in $out now, below.
 if [ "$out" != "$cowan_dir" ]; then
-    for name in SENIOR LSJJ.DAT; do
-        [ -f "$cowan_dir/$name" ] || continue
-        [ -f "$out/$name" ] || cp "$cowan_dir/$name" "$out/" ||
-            die "could not copy $name into $out"
-    done
+    if [ -f "$cowan_dir/SENIOR" ] && [ ! -f "$out/SENIOR" ]; then
+        cp "$cowan_dir/SENIOR" "$out/" ||
+            die "could not copy SENIOR into $out"
+    fi
 fi
 
 # ------------------------------------------------------- permission check
@@ -146,7 +169,7 @@ fi
 # The chmod test has to be the chmod itself: only the kernel knows whether
 # this user owns the file, and root may do it regardless of the mode bits.
 decks=""
-for deck in "$out"/FOR072 "$out"/FOR073 "$out"/FOR074; do
+for deck in "$out"/FOR072 "$out"/FOR073 "$out"/FOR074 "$out"/LSJJ.DAT; do
     [ -e "$deck" ] || continue
     decks="$decks $deck"
 done
@@ -159,7 +182,7 @@ done
 # read-only there would be a surprise rather than a guard.
 protect_decks() {
     [ "$out" = "$cowan_dir" ] || return 0
-    for f in "$out"/FOR072 "$out"/FOR073 "$out"/FOR074; do
+    for f in "$out"/FOR072 "$out"/FOR073 "$out"/FOR074 "$out"/LSJJ.DAT; do
         [ -e "$f" ] && chmod a-w "$f" 2>/dev/null
     done
     return 0
@@ -211,6 +234,85 @@ awk 'NR > 8 {
         print
      }' "$cfp" > ING11 || die "could not write ING11"
 
+# ------------------------------------------------------------- LSJJ.DAT
+
+# Built from the ING11 just written and from SENIOR, and from nothing
+# else -- RCG is not involved -- so it is done here, ahead of the RCG run,
+# where a failure costs nothing but true jj coupling.  cowan_cfp.py takes
+# both inputs from LSJJ_CFP and LSJJ_SENIOR when those are set, which is
+# why nothing has to be moved into place first.  make_cfp.bat does the
+# same three-way thing at the same point.
+
+echo "                            CREATING LSJJ.DAT . . ."
+
+lsjj_ok=
+
+# The same interpreter search the .py wrappers make (conf_list and the
+# rest), and passing over a `python` that is Python 2 for the same
+# reason.  Here it is not fatal, so it warns rather than exiting 127.
+lsjj_py=
+if command -v python3 >/dev/null 2>&1; then
+    lsjj_py=python3
+elif command -v python >/dev/null 2>&1 &&
+     python -c 'import sys; sys.exit(sys.version_info[0] < 3)' 2>/dev/null; then
+    lsjj_py=python
+fi
+
+# Three outcomes, and none of them stops the script: built, no numpy (or
+# no Python at all), and anything else.
+if [ -z "$lsjj_py" ]; then
+    echo "."
+    echo "WARNING: no Python 3 on PATH, so LSJJ.DAT was not rebuilt.  True jj"
+    echo "         coupling (column 38 of the ING11 main card set to 8) will"
+    echo "         not be available; everything else in the package works."
+    case "$(uname -s)" in
+        Darwin) echo "         Install one with:  brew install python" ;;
+        *)      echo "         Install one with:  sudo apt install python3     (Debian, Ubuntu)"
+                echo "                            sudo dnf install python3     (Fedora, RHEL)" ;;
+    esac
+    echo "         Then run make_cfp again."
+    echo "."
+elif ! "$lsjj_py" -c 'import numpy' >/dev/null 2>&1; then
+    echo "."
+    echo "WARNING: numpy is not installed, so LSJJ.DAT was not rebuilt.  True"
+    echo "         jj coupling (column 38 of the ING11 main card set to 8)"
+    echo "         will not be available; everything else in the package"
+    echo "         works.  Install it with"
+    echo "."
+    echo "             $lsjj_py -m pip install numpy"
+    echo "."
+    echo "         and run make_cfp again."
+    echo "."
+else
+    # -B for the reason the .py wrappers give: no __pycache__ is to be
+    # dropped in the package directory, which is read-only in normal use.
+    LSJJ_CFP=$PWD/ING11 LSJJ_SENIOR=$cowan_dir/SENIOR \
+        "$lsjj_py" -B "$cowan_dir/lsjj/mkdeck.py" "$out/LSJJ.DAT"
+    lsjj_rc=$?
+    if [ "$lsjj_rc" -eq 0 ]; then
+        lsjj_ok=1
+    else
+        echo "."
+        echo "WARNING: lsjj/mkdeck.py failed (exit status $lsjj_rc; its own"
+        echo "         message is above), so LSJJ.DAT was not rebuilt.  True jj"
+        echo "         coupling will not be available; everything else in the"
+        echo "         package works.  The CFP decks are built below regardless."
+        echo "."
+    fi
+fi
+
+# The deck could not be built.  If we are writing somewhere other than the
+# package directory and a deck is sitting in the package directory, that
+# one was built on this machine and is the right file, so fall back to
+# copying it -- which is what the target-directory branch above used to do
+# unconditionally.
+if [ -z "$lsjj_ok" ] && [ "$out" != "$cowan_dir" ] &&
+   [ ! -f "$out/LSJJ.DAT" ] && [ -f "$cowan_dir/LSJJ.DAT" ]; then
+    echo "         Copying the existing $cowan_dir/LSJJ.DAT instead."
+    cp "$cowan_dir/LSJJ.DAT" "$out/" ||
+        echo "         ...which did not work either."
+fi
+
 # ------------------------------------------------------------------- run
 
 # Ordering: the old decks are deleted only after the chmod above, and
@@ -242,3 +344,8 @@ done
 
 echo "Done. New CFP binary files FOR072, FOR073, and FOR074 are created in"
 echo "$out"
+if [ -n "$lsjj_ok" ]; then
+    echo "      The LS-to-jj deck LSJJ.DAT was rebuilt there as well."
+else
+    echo "      LSJJ.DAT was NOT rebuilt -- see the warning above."
+fi

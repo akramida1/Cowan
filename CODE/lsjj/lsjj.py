@@ -36,6 +36,7 @@ from itertools import combinations
 import numpy as np
 
 TOL = 1.0e-9
+SIGN_TOL = 1.0e-12          # tie-break window for fix_sign; see there
 
 
 # --------------------------------------------------------------------------
@@ -146,10 +147,22 @@ def normalize(state):
 
 
 def fix_sign(state):
-    """Deterministic overall sign: largest component positive."""
+    """Deterministic overall sign: largest component positive.
+
+    The tie-break is deliberately tolerant.  Two components equal in exact
+    arithmetic can differ in the last bit from one LAPACK build to the next;
+    a strict max() then crowns a different component on a different machine
+    and flips the sign of the whole vector -- and of every state derived
+    from it down the lowering chain, which fixes no signs of its own.
+    Comparing magnitudes only to SIGN_TOL, and settling the tie on the
+    basis key, makes the convention depend on our own ordering rather than
+    on the library's last bit.  With an exact tie this picks the same
+    component the old code did, so nothing changes except at a near-tie.
+    """
     if not state:
         return state
-    key = max(state, key=lambda k: (abs(state[k]), -k))
+    top = max(abs(v) for v in state.values())
+    key = min(k for k, v in state.items() if abs(v) >= top - SIGN_TOL)
     if state[key] < 0:
         return {k: -v for k, v in state.items()}
     return state

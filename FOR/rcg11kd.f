@@ -36,8 +36,8 @@ C     log(gf) DOES NOT.  THIS HAS BEEN CHECKED MORE THAN ONCE AND THE
 C     CONCLUSION HAS ALWAYS BEEN THE SAME.  SEE SUBROUTINE SPECTR.
 C
 C     A. Kramida 2026.  WHAT IS NEW IN THIS VERSION.  EACH ITEM IS
-C     EXPLAINED IN FULL AT ITS POINT OF CHANGE, AND LSJJ/README.txt IS
-C     THE LONG ACCOUNT; ONLY THE ANNOUNCEMENT IS HERE.
+C     EXPLAINED IN FULL AT ITS POINT OF CHANGE, AND FOR/LSJJ/README.txt
+C     IS THE LONG ACCOUNT; ONLY THE ANNOUNCEMENT IS HERE.
 C
 C       - TRUE jj COUPLING, ASKED FOR BY KCPLD(8)=8 (COLUMN 38 OF THE
 C         MAIN CONTROL CARD).  THE LEVELS ARE ALSO PRINTED IN A GENUINE
@@ -230,6 +230,29 @@ C         23-25) NOW MEANS KMX, WITHOUT WHICH COUPLINGS 3-7 CANNOT BE
 C         REACHED AT ALL IN A MODERN CASE.  SUBROUTINE SECONDS REPORTS
 C         WALL-CLOCK TIME (SYSTEM_CLOCK) INSTEAD OF CPU TIME SUMMED
 C         OVER THREADS.
+C
+C       - LSJJ.DAT IS NO LONGER DISTRIBUTED.  IT IS A DERIVED FILE,
+C         LIKE FOR072, FOR073 AND FOR074, AND make_cfp NOW BUILDS ALL
+C         FOUR ON THE MACHINE THE PACKAGE IS INSTALLED ON.  THE
+C         GENERATOR MOVED TO CODE/lsjj/ SO THAT make_cfp CAN FIND IT
+C         FROM BESIDE ITSELF IN AN INSTALLED TREE; FOR/LSJJ/ KEEPS THE
+C         RECORD OF THE DERIVATION AND ITS VALIDATION.  IT NEEDS
+C         PYTHON AND numpy, AND WHERE THOSE ARE ABSENT make_cfp SAYS
+C         SO AND CARRIES ON: ONLY TRUE jj COUPLING IS LOST.
+C
+C         THE OVERALL SIGN OF EACH HIGHEST-WEIGHT STATE IS NOW FIXED
+C         WITH A TOLERANT TIE-BREAK (SIGN_TOL IN CODE/lsjj/lsjj.py).
+C         THE OLD STRICT max() DECIDED A TIE BETWEEN TWO COMPONENTS
+C         EQUAL IN EXACT ARITHMETIC ON WHICHEVER LAPACK RETURNED A
+C         LAST BIT LARGER, SO A DECK BUILT ON ONE MACHINE COULD CARRY
+C         THE OPPOSITE PHASE TO ONE BUILT ON ANOTHER - AND SO COULD
+C         EVERY STATE BELOW IT ON THE LOWERING CHAIN.  FOURTEEN
+C         VECTORS CHANGE SIGN AGAINST THE DECK SHIPPED BEFORE THIS.
+C         NOTHING RCG PRINTS MOVES: ON WORK/W70, THE TRUE jj CASE,
+C         TAPE2E IS BYTE-IDENTICAL AND OUTG11 DIFFERS ONLY IN A
+C         TIMING LINE.  THE DECK IS STILL NOT BYTE-PORTABLE - ABOUT
+C         28 DOUBLES OF LAST-BIT LAPACK NOISE REMAIN BETWEEN TWO
+C         MACHINES - WHICH IS WHY IT IS BUILT WHERE IT IS READ.
 C
 C     APART FROM THE OUTPUT THE NEW OPTIONS THEMSELVES ADD, EVERY
 C     CHANGE IS BIT-EXACT: WITH THE NEW FIELDS BLANK THE Pr III TEST
@@ -553,7 +576,8 @@ C     from which the true LS -> jj transformation is built (LSJJIN,
 C     LSJJU, at the end of this file).  It sits with the other system
 C     files and is read only when it is wanted, so a missing file is not
 C     an error until then.  Unformatted, and machine specific with it;
-C     LSJJ/mkdeck.py rebuilds it -- see the header of LSJJIN.
+C     make_cfp rebuilds it, with the cfp decks -- see the header of
+C     LSJJIN.
       OPEN(23,FILE=FIL(1:I)//'LSJJ.DAT',STATUS='OLD',
      1  FORM='UNFORMATTED',ERR=5502)
  5502 CONTINUE
@@ -628,7 +652,8 @@ C
 C     A. Kramida 2026: developer card.  KCPL=9 builds the true LS -> jj
 C     transformation for every shell the cfp deck covers and writes the
 C     matrices, with the orthogonality and 1-vs-2 route residuals, on the
-C     output unit; LSJJ/cmpfort.py checks that dump against recur.py.
+C     output unit; FOR/LSJJ/cmpfort.py checks that dump against
+C     recur.py.
 C     The card is then consumed and the run goes on as if it were absent.
 C     9 rather than 4 because 1 to 7 are the representation numbers of
 C     RCG_DOC, where 4 is LSLK, so a card called KCPL=4 reads as a
@@ -973,7 +998,8 @@ C     coupling carries internally (KCPL1=8 in SPRIN, COUPL(8)).
      3    '      2 = TOO BIG FOR LSJJPAR.F'/
      4    '      3 = WRONG MAGIC OR VERSION: A DECK FROM ANOTHER'/
      5    '          BYTE ORDER, OR ONE STILL IN TEXT FORM'/
-     6    '      REBUILD:  cd LSJJ ; python mkdeck.py ../LSJJ.DAT'//)
+     6    '      REBUILD:  RUN make_cfp -- IT BUILDS THIS DECK'/
+     7    '                WITH THE CFP DECKS.  NEEDS numpy.'//)
         ELSE
           WRITE (IW,66)
    66     FORMAT (//' *****KCPLD(8)=8: TRUE jj COUPLING WILL BE ADDED',
@@ -3783,7 +3809,8 @@ C     The same reasoning is why only f shells are accepted at all: for
 C     anything smaller the truncation buys nothing, and d**5, to take the
 C     obvious trap, lists 6S last of its sixteen terms.
 C
-C     The table was read out of the CFP decks themselves (LSJJ/cowan_cfp.py,
+C     The table was read out of the CFP decks themselves
+C     (CODE/lsjj/cowan_cfp.py,
 C     Deck.terms, which is in deck order) rather than typed from a
 C     reference, so it is what LOCDSK will actually hand back.
 C
@@ -8662,7 +8689,7 @@ C     floating point -- and that was enough to move the last bits of
 C     TAPE2E, which would have made the ordinary results of a run depend
 C     on whether the extra output had been asked for.  A saved copy
 C     restores them exactly.  MODE=-1 remains, and is still tested by
-C     LSJJ/README.txt's round trip; it is simply not used here.
+C     FOR/LSJJ/README.txt's round trip; it is simply not used here.
 C
 C     One record per J block, written whether the rotation worked or
 C     not: IOK says which, and a block that failed carries the J1J2
@@ -16090,7 +16117,8 @@ C
 C     The first is Cowan's own, so his cfp cards are used unchanged; the
 C     second fixes the jj phases and is what LSJJ.DAT carries.
 C
-C     Data: LSJJ.DAT, written by LSJJ/mkdeck.py, holds Cowan's LS cfp
+C     Data: LSJJ.DAT, written by CODE/lsjj/mkdeck.py when make_cfp
+C     runs it, holds Cowan's LS cfp
 C     for p, d, f (every n) and g, h (n <= 2), and the jj cfp for
 C     j = 1/2 ... 7/2 (every n) and j = 9/2, 11/2 (n <= 2).
 C
@@ -16123,11 +16151,13 @@ C
 C     THE FILE IS REGENERATED, NOT REPAIRED.  If it is lost, corrupted,
 C     or carried to a machine of the other endianness, run
 C
-C         cd LSJJ
-C         python mkdeck.py ../LSJJ.DAT
+C         make_cfp
 C
-C     which rebuilds it from Cowan's own cfp tables and from the jj cfp
-C     recursion in LSJJ/recur.py -- see LSJJ/README.txt.  mkdeck.py -t
+C     which rebuilds it along with the cfp decks.  That is the supported
+C     route and the only one an installed user has: make_cfp runs
+C     CODE/lsjj/mkdeck.py, which builds the deck from Cowan's own cfp
+C     tables and from the jj cfp recursion in CODE/lsjj/recur.py -- see
+C     FOR/LSJJ/README.txt.  mkdeck.py -t
 C     writes the old text form instead, for inspection.  The first
 C     record carries a magic number and a version so that a stale, a
 C     foreign, or a still-text file is refused here rather than read as
@@ -16136,7 +16166,8 @@ C
       INCLUDE 'LSJJPAR.F'
 C
 C          MAGIC AND VERSION.  BUMP ILSVER WHENEVER THE RECORD LAYOUT
-C          BELOW CHANGES, AND BUMP IT IN mkdeck.py TO MATCH.
+C          BELOW CHANGES, AND BUMP IT IN CODE/lsjj/mkdeck.py TO
+C          MATCH.
       PARAMETER (ILSMAG=20260801, ILSVER=1)
 C
       IERR=0

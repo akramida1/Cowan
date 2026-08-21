@@ -105,3 +105,14 @@ CODE/RCN36K
 CODE/RCN2K
 CODE/rcg11kd
 CODE/RCE20KD
+
+# Derived data decks
+# FOR072, FOR073, FOR074 and LSJJ.DAT are built on the machine the
+# package is installed on -- make_cfp does all four -- and are not
+# distributed.  The three FOR07x were never tracked; naming them here
+# makes the rule explicit and stops a `git add -A` in a working tree
+# from committing a locally built deck.
+CODE/FOR072
+CODE/FOR073
+CODE/FOR074
+CODE/LSJJ.DAT

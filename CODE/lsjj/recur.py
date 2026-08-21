@@ -548,8 +548,20 @@ def main(argv):
     if 'fromdeck' in argv:
         argv.remove('fromdeck')
         import os
-        read_deck(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               'JJCFP'))
+        # JJCFP is part of the validation record and stayed in FOR/LSJJ/
+        # when these modules moved to CODE/lsjj/.  Beside this file first,
+        # so a deck rewritten in place by `recur.py deck JJCFP` is the one
+        # read back; then the committed copy across the tree.  $LSJJ_JJCFP
+        # overrides both, for a deck of one's own.
+        here = os.path.dirname(os.path.abspath(__file__))
+        for cand in (os.environ.get('LSJJ_JJCFP'),
+                     os.path.join(here, 'JJCFP'),
+                     os.path.join(here, '..', '..', 'FOR', 'LSJJ', 'JJCFP')):
+            if cand and os.path.isfile(cand):
+                read_deck(cand)
+                break
+        else:
+            raise IOError('JJCFP not found; set $LSJJ_JJCFP to point at it')
         print('jj cfp taken from the deck, not from the m-scheme')
     if not argv or argv[0] == 'check':
         which = argv[1] if len(argv) > 1 else 'all'

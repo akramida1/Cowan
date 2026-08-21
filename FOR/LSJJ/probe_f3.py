@@ -1,6 +1,15 @@
 """Check that the Casimir split of f^3 reproduces Racah's pattern:
 every v=3 doublet has a single SO(7) eigenvalue (W=(210)) and is
 separated only by G2 (U)."""
+import os
+import sys
+
+# The modules this checks -- lsjj, cowan_cfp, recur -- moved to CODE/lsjj/,
+# where make_cfp can find them in an installed tree.  This directory keeps
+# the record of the derivation and its validation, so the scripts here reach
+# across to the one copy rather than carry a second.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                '..', '..', 'CODE', 'lsjj'))
 import numpy as np
 from lsjj import (LSShell, highest_weight_space, pair_matrix,
                   split_by_operator, casimir_matrix,

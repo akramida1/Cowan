@@ -93,7 +93,7 @@ LS term lists with seniority, checked against published tables
  transformation orthogonal to 3.1e-15 in every J block
  independent of M to 5.6e-16
  PASS
- 0.01 s
+ 0.02 s
 
 ==========================================================================
  d^5      m-scheme dimension at 2M=1 : 37   (full shell: 252)
@@ -177,7 +177,7 @@ LS term lists with seniority, checked against published tables
  transformation orthogonal to 3.3e-15 in every J block
  independent of M to 2.1e-15
  PASS
- 0.38 s
+ 0.39 s
 
 ==========================================================================
  f^5      m-scheme dimension at 2M=1 : 198   (full shell: 2002)
@@ -188,7 +188,7 @@ LS term lists with seniority, checked against published tables
        the split inside such a group is an arbitrary rotation:
        2F(5 221/31)5/2, 2F(5 221/31)7/2, 2H(5 221/31)11/2, 2H(5 221/31)9/2, 2I(5 221/31)11/2, 2I(5 221/31)13/2, 2K(5 221/31)13/2, 2K(5 221/31)15/2
  PASS
- 1.36 s
+ 1.37 s
 
 ==========================================================================
  f^6      m-scheme dimension at 2M=0 : 295   (full shell: 3003)
@@ -200,7 +200,7 @@ LS term lists with seniority, checked against published tables
        the split inside such a group is an arbitrary rotation:
        1G(6 222|311/40)4, 1I(6 222|311/40)6, 1L(6 222|311/40)8, 3F(6 221/31)2, 3F(6 221/31)3, 3F(6 221/31)4, 3H(6 221/31)4, 3H(6 221/31)5, 3H(6 221/31)6, 3I(6 221/31)5, 3I(6 221/31)6, 3I(6 221/31)7, 3K(6 221/31)6, 3K(6 221/31)7, 3K(6 221/31)8
  PASS
- 3.90 s
+ 3.98 s
 
 ==========================================================================
  f^7      m-scheme dimension at 2M=1 : 327   (full shell: 3432)
@@ -211,7 +211,7 @@ LS term lists with seniority, checked against published tables
        the split inside such a group is an arbitrary rotation:
        2F(5 221/31)5/2, 2F(5 221/31)7/2, 2G(7 222|311/40)7/2, 2G(7 222|311/40)9/2, 2H(5 221/31)11/2, 2H(5 221/31)9/2, 2I(5 221/31)11/2, 2I(5 221/31)13/2, 2I(7 222|311/40)11/2, 2I(7 222|311/40)13/2, 2K(5 221/31)13/2, 2K(5 221/31)15/2, 2L(7 222|311/40)15/2, 2L(7 222|311/40)17/2
  PASS
- 4.79 s
+ 5.01 s
 
 ==========================================================================
  f^8      m-scheme dimension at 2M=0 : 295   (full shell: 3003)
@@ -223,7 +223,7 @@ LS term lists with seniority, checked against published tables
        the split inside such a group is an arbitrary rotation:
        1G(6 222|311/40)4, 1I(6 222|311/40)6, 1L(6 222|311/40)8, 3F(6 221/31)2, 3F(6 221/31)3, 3F(6 221/31)4, 3H(6 221/31)4, 3H(6 221/31)5, 3H(6 221/31)6, 3I(6 221/31)5, 3I(6 221/31)6, 3I(6 221/31)7, 3K(6 221/31)6, 3K(6 221/31)7, 3K(6 221/31)8
  PASS
- 4.46 s
+ 4.57 s
 
 ==========================================================================
  f^9      m-scheme dimension at 2M=1 : 198   (full shell: 2002)
@@ -234,7 +234,7 @@ LS term lists with seniority, checked against published tables
        the split inside such a group is an arbitrary rotation:
        2F(5 221/31)5/2, 2F(5 221/31)7/2, 2H(5 221/31)11/2, 2H(5 221/31)9/2, 2I(5 221/31)11/2, 2I(5 221/31)13/2, 2K(5 221/31)13/2, 2K(5 221/31)15/2
  PASS
- 1.88 s
+ 1.94 s
 
 ==========================================================================
  f^10      m-scheme dimension at 2M=0 : 107   (full shell: 1001)
@@ -243,7 +243,7 @@ LS term lists with seniority, checked against published tables
  transformation orthogonal to 4.9e-15 in every J block
  independent of M to 5.3e-15
  PASS
- 0.88 s
+ 0.89 s
 
 ==========================================================================
  f^11      m-scheme dimension at 2M=1 : 41   (full shell: 364)

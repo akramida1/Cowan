@@ -1,0 +1,21 @@
+# The identity strings compiled into the Windows executables as a
+# VERSIONINFO resource.  CODE/mkverres.bat reads this file and writes the
+# .rc; CODE/gfortran_O3.bat and CODE/gfortran_O3_OMP.bat link the result.
+#
+# NOTHING BUMPS THIS AUTOMATICALLY AND NOTHING NEEDS IT BUMPED.  A stale
+# version string costs nothing: the resource's purpose is to exist -- a PE
+# with no resource directory at all is what Norton's Win64:Evo-gen
+# heuristic reacts to -- not to be accurate to the day.  Edit it when you
+# feel like it.
+#
+# COMMA_VERSION is the same number in the form the binary FILEVERSION
+# field requires: four 16-bit fields.  Keeping both spellings here avoids
+# doing arithmetic in a .bat, which is where this kind of thing goes
+# wrong.  Keep the two in step by hand.
+#
+# ELF has no counterpart, so CODE/unix/build.sh reads nothing from here.
+VERSION=26.2.1
+COMMA_VERSION=26,2,1,0
+COMPANY=A. Kramida
+PRODUCT=Cowan Atomic Structure Codes
+COPYRIGHT=Public domain. Original codes by R. D. Cowan.

@@ -25,7 +25,15 @@ cards is the statement that Cowan's alpha respects Racah's classification.
 Usage:  python compare_racah.py [p|d|f|all]
 """
 
+import os
 import sys
+
+# The modules this checks -- lsjj, cowan_cfp, recur -- moved to CODE/lsjj/,
+# where make_cfp can find them in an installed tree.  This directory keeps
+# the record of the derivation and its validation, so the scripts here reach
+# across to the one copy rather than carry a second.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                '..', '..', 'CODE', 'lsjj'))
 import time
 import numpy as np
 

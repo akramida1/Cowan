@@ -79,6 +79,15 @@ def perl_env():
 #: not part of the distribution, so a source tree has none of them.
 CFP_DECKS = ('FOR072', 'FOR073', 'FOR074')
 
+#: The LS-to-jj deck, built by the same run of make_cfp since 2026 and
+#: not distributed either.  It is kept apart from CFP_DECKS because it
+#: is *optional*: its generator, CODE/lsjj/mkdeck.py, needs numpy, and
+#: where numpy is absent make_cfp warns, builds the three above and
+#: exits 0.  RCG then runs everything except true jj coupling.  So a
+#: missing LSJJ.DAT is not a failed deck build and must not skip the
+#: session fixture; it only makes the true-jj tests unrunnable.
+LSJJ_DECK = 'LSJJ.DAT'
+
 #: The four programs, spelled the way each platform's build leaves them:
 #: gfortran is told `-o NAME.exe` on Windows and `-o NAME` on Unix.
 PROGRAMS = ('RCN36K', 'RCN2K', 'rcg11kd', 'RCE20KD')
@@ -120,11 +129,49 @@ def _stale_deck(deck, executable, cfp):
     return when < executable.stat().st_mtime or when < cfp.stat().st_mtime
 
 
+def _stale_lsjj(deck, sources):
+    """The same question for LSJJ.DAT, which is allowed to be absent.
+
+    Absent means "numpy is not installed here", not "the build failed",
+    so it is *not* stale -- rebuilding would only run make_cfp again to
+    the same warning.  A deck that is there and older than the generator
+    that wrote it is stale, and that is what picks up an edit to
+    CODE/lsjj/.
+    """
+    if not deck.is_file() or deck.stat().st_size == 0:
+        return False
+    when = deck.stat().st_mtime
+    return any(when < one.stat().st_mtime
+               for one in sources if one.is_file())
+
+
+def lsjj_sources():
+    """The generator LSJJ.DAT is built from, for the staleness check."""
+    return sorted((CODE / 'lsjj').glob('*.py'))
+
+
+def have_numpy():
+    """True when LSJJ.DAT can be built here.
+
+    numpy is the one thing in this package that has to be pip-installed,
+    and it is optional: it buys true jj coupling and nothing else.  The
+    tests that need the deck skip on this rather than fail, because an
+    install without numpy is a supported install.
+    """
+    try:
+        import numpy                                   # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _make_cfp(into):
     """Build the cfp decks in `into` by running the shipped make_cfp.
 
-    make_cfp takes the directory the decks are to go in, and copies
-    SENIOR and LSJJ.DAT there with them; RCG is always the one in CODE/.
+    make_cfp takes the directory the decks are to go in.  It copies
+    SENIOR there, and builds LSJJ.DAT there along with the three cfp
+    decks -- it used to copy that one too, until it became a derived
+    file like the others.  RCG is always the one in CODE/.
     It runs *in* a working directory, leaving ING11 and OUTG11 behind,
     so it is given one of its own beside the decks.
 
@@ -164,8 +211,9 @@ def cowan_code():
             pytest.skip('%s is not built' % name)
     into = scratch_root()
     into.mkdir(parents=True, exist_ok=True)
-    if any(_stale_deck(into / one, CODE / RCG, CODE / 'ING11.CFP')
-           for one in CFP_DECKS):
+    if (any(_stale_deck(into / one, CODE / RCG, CODE / 'ING11.CFP')
+            for one in CFP_DECKS)
+            or _stale_lsjj(into / LSJJ_DECK, lsjj_sources())):
         _make_cfp(into)
     return into
 
