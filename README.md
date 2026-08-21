@@ -71,9 +71,9 @@ and nothing calls them.
 
 | Code                  | Date     |
 |-----------------------|----------|
-| RCN  ver. 36k         | Jan 2026 |
-| RCN2 ver. 2k          | May 2018 |
-| RCG  ver. 11kd        | Jan 2026 |
+| RCN  ver. 36k         | Aug 2026 |
+| RCN2 ver. 2k          | Aug 2026 |
+| RCG  ver. 11kd        | Aug 2026 |
 | RCE  ver. 20kd        | Jan 2026 |
 | **Python utility codes:** |        |
 | printout.py                 | Aug 2026 |
@@ -593,6 +593,85 @@ configurations with different cores.
 
 The same structure (1-4) follows for the second parity, if there is one.
 
+### THE FUNDAMENTAL CONSTANTS
+
+**Read this before comparing output from this release against output
+from an earlier one.** The physical constants the programs use have been
+brought up to CODATA 2022, and a small number of printed quantities move
+as a result. Nothing here is a change of method: every formula in the
+package was checked algebraically first and every one of them was
+already right.
+
+Until this release the constants were written as literals scattered
+through the Fortran, and most of them were the values of the late 1960s.
+Rinf appeared as `109737.31` in one routine, `109737.0` in another and
+`109735.3` in a third; alpha as `137.036` in one place and `137.04` in
+another; the Bohr radius as `0.529`; pi as `3.14159`. They are now
+**named parameters in one include file, `FOR/fundconst.f`**, which every
+routine that needs one includes. The rule that file states, and that the
+test suite enforces with no exception list, is that *every* fundamental
+constant used anywhere in the package lives there -- there is no
+threshold of smallness below which one may stay written inline, because
+a literal left in the Fortran is one that the next update of these values
+cannot reach.
+
+`fundconst.f` has two parts. The first holds CODATA values exactly as
+NIST publishes them, each with its relative uncertainty in the comment
+beside it. The second holds everything derived from them -- unit-scaled
+variants, products, quotients -- *computed* from the first rather than
+typed in again, so that two spellings of one constant cannot drift
+apart. Each derived entry also carries, in a comment, the literal that
+used to stand in the source, so the old numbers can be restored if you
+ever need to reproduce a historical result. (One exception: `RINF` now
+stands for three different legacy roundings and its comment can restore
+only one of them.) The Python utility codes take their coefficients from
+the same place, through `CODE/toolbox/fundconst.py`, which a test holds
+to the Fortran file bit for bit.
+
+**What moves.** Relative shifts, on the same input:
+
+| Quantity | Shift | Note |
+|---|---|---|
+| Autoionization rates (`AA`, `SUMGAA`, the dielectronic-recombination table) | **+4.8x10^-4^** | a truncated constant, see below |
+| *gf* (E1) in `OUTG11` | +1.9x10^-5^ | |
+| *gA* (E1) in `OUTG11` | +8.6x10^-5^ | |
+| M1/E1 ratio | +5.8x10^-5^ | |
+| E2/E1 ratio | +6.7x10^-4^ | the old *a*~0~ was 0.529 and enters squared |
+| Lande *g*-factors | -2.3x10^-7^ | below the printed field width almost everywhere |
+| M1 matrix elements | -6.9x10^-7^ | |
+| Maxwellian rate coefficient | -1.5x10^-5^ | |
+| Photoionization cross-section coefficient | +8.2x10^-5^ | |
+
+Nothing structural changed anywhere: no line count, no label, no column
+and no field width moved, in any of the five regression cases the work
+was verified against.
+
+The largest of these deserves a sentence of its own, because it is the
+one you will notice. **Autoionization rates printed by every earlier
+version of `RCG` were about 0.05 % low.** The rate expression in
+`SUBROUTINE ENERGY` is Fermi's golden rule, and its conversion factor
+Ry/hbar was written as `2066` where the value is 2067.0686667586 -- a
+truncation rather than a rounding. The rates rise by 4.81x10^-4^ rather
+than the 5.2x10^-4^ that implies, because the Rydberg constant in the
+same expression is squared in the denominator and its own correction
+pulls the other way. This affects `WORK/AI` and `WORK/AI/DIEL` and any
+calculation like them.
+
+Two of the constants the utility codes carried were not stale but
+wrong -- one E2 coefficient inconsistent with the E2 coefficient beside
+it, and an eV conversion out by a factor of a thousand. Both are now
+right and both are described under the summary of bugs fixed below,
+together with three more the Fortran carried. The *gA*/log(*gf*)
+scatter that is sometimes reported is **not** among them -- it is
+quantization of the three-decimal log(*gf*) print field and there is
+nothing in the arithmetic to correct. See item 3 of the additions to the
+manual above, which explains why *gA*, not log(*gf*), is the quantity to
+take numbers from.
+
+The full account, with every measurement, every verification step and
+the three sites that no test case in `WORK/` exercises, is in
+`FOR/LSJJ/README.txt` under EVERY FUNDAMENTAL CONSTANT IN ONE FILE.
+
 ### HARDWARE REQUIREMENTS
 
 A 64-bit machine with at least 16 GB of free RAM. The distributed
@@ -688,6 +767,37 @@ were unaffected, but the count of free parameters, and hence the
 degrees of freedom and every standard deviation derived from them, were
 too large. The groups are now renumbered consecutively before they are
 counted.
+- The conversion factor Ry/hbar in the autoionization rate computed by
+`RCG` (`SUBROUTINE ENERGY`) was written as 2066 where the value is
+2067.0686667586 -- a truncation, not a rounding. Together with the two
+other stale constants on the same line this made every autoionization
+rate `RCG` has ever printed about 0.05 % low. All three now come from
+`FOR/fundconst.f`; see THE FUNDAMENTAL CONSTANTS above.
+- The line-selection threshold in the `TEXCIT` branch of `RCG`'s
+`SUBROUTINE SPECTR` carried 0.6698 where the seven other sites of the
+same constant carry 0.66698, a dropped digit worth +0.42 %. The value is
+not printed, but it decides which lines survive the cutoff, so the
+affected transition lists were missing -- or keeping -- lines they should
+not have.
+- `RCN` used two different values of the fine-structure constant: the
+spin-orbit parameter took alpha^2^/2 from a pre-1969 alpha, 4x10^-5^ low,
+while the mass-velocity and Darwin terms took (alpha^2^/2)Rinf evaluated
+with the modern one. Half of it had been updated at some point and half
+had not. Both now derive from the same constant.
+- The E2 oscillator-strength coefficient used by `conv_out` was
+internally inconsistent with the E2 transition-probability coefficient
+beside it in the same table, by +3.6x10^-4^; the two are related exactly
+and cannot both be right. The E2 rows of the absorption model were
+therefore out by that much relative to the E1 and M1 rows. Both
+coefficients now come from `CODE/toolbox/fundconst.py`, and so from the
+same values the Fortran uses.
+- The Auger *dE* column of `conv_out` was printing meV under an eV
+heading: the eV-to-cm^-1^ conversion constant held the value per 1000
+cm^-1^ while the code used it as the value per cm^-1^. The value was
+wrong and the usage was right, in the Python and in the Perl it was
+translated from. The column now reads in eV, as its heading always
+claimed. This is a deliberate difference from `CODE/perl_legacy/`, which
+still has the old behaviour.
 
 ### RECOMPILING THE FORTRAN
 
@@ -1490,6 +1600,15 @@ flag set; a compiler without that extension will not build `RCG` or
                        air and the vacuum wavelength in angstroms,
                        respectively. This was vacair.pl.
 
+        toolbox/fundconst.py
+                     - The Python copy of FOR/fundconst.f: the same
+                       constants, under the same names, derived in the
+                       same order. toolbox/radiate.py takes all of its
+                       conversion coefficients from here, so a change to
+                       the Fortran file reaches the utility codes too.
+                       A test compiles FOR/fundconst.f and checks every
+                       value against this module bit for bit.
+
         calc_TP_M1E2
                      - Python program to run Monte Carlo trials for
                        estimation of uncertainties of M1 and E2 transition
@@ -1648,6 +1767,10 @@ flag set; a compiler without that extension will not build `RCG` or
         RCN2K.F
         rcg11kd.f
         rcgpar.f      - Include file for rcg11kd.f (array dimensions)
+        fundconst.f   - Include file for RCN36K.F, RCN2K.F and
+                        rcg11kd.f: every fundamental constant the
+                        package uses, as named PARAMETERs, at CODATA
+                        2022. See THE FUNDAMENTAL CONSTANTS above.
         RCE20KD.F
         RCE20KD_PAR.F - Include file for RCE20KD.F (array dimensions)
         LSJJCOM.F     | Include files for the true jj coupling
@@ -1657,7 +1780,10 @@ flag set; a compiler without that extension will not build `RCG` or
         LSJJ/         - The Python that builds CODE/LSJJ.DAT
                         (mkdeck.py) and the scripts that validated the
                         coefficients against Cowan's own. Its README.txt
-                        is the long-form account of that work.
+                        is the long-form account of that work, and of
+                        everything else done to these sources since:
+                        the utility-code port and the constants work
+                        described under THE FUNDAMENTAL CONSTANTS above.
 
 
 5) WORK directory   - Sample directory for Cowan calculation projects,

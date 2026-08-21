@@ -1,10 +1,10 @@
 # Plan — factor all fundamental constants into `FOR/fundconst.f`
 
-Status: in progress. Written 2026-08-20.  **Every numbered section except 9 is
-done** — 0c, 1 through 8, and 10 through 13.  The three executables committed
-after Section 6 are now four sections out of date: Sections 7, 10, 11 and 13
-have all moved `rcg11kd.f` since.  What remains is Section 9's documentation
-and the final promotion of the executables, in that order.
+Status: in progress. Written 2026-08-20.  **Every numbered section is done** —
+0c, and 1 through 13.  The three executables committed after Section 6 are
+four sections out of date: Sections 7, 10, 11 and 13 have all moved
+`rcg11kd.f` since.  What remains is **only the final promotion of the
+executables**.
 
 **Sections 10, 11 and 12 were added 2026-08-20, after Section 7, on the
 author's instruction.**  Section 7 delivered `GAFROMSCOEF` and
@@ -27,11 +27,10 @@ Section 10 quantified four that are still written inline and deferred the
 decision to the author; the decision is made, and Section 13 folds them in.
 Nothing in this document may say that a physical constant is to stay inline.
 
-**Execution order from here:** Sections 8, 10, 11, 12 and 13 are behind us.
-What is left is Section 9's documentation and the final promotion of the
-executables, both of which run **last**, in that order.  Section 9 keeps its
-number and its place in this file so that file order stays numeric order;
-only its execution is deferred.
+**Execution order from here:** Sections 8 through 13 are behind us, Section 9
+last of them as planned.  What is left is the final promotion of the
+executables.  Section 9 kept its number and its place in this file so that
+file order stays numeric order; only its execution was deferred.
 
 Scope: replace every hard-coded physical constant in the Fortran with named
 parameters from a single include file, update those values to CODATA 2022,
@@ -949,7 +948,7 @@ its own beyond this one.
 
 Record: `F:\COWAN\fundconst_work\rce\README.txt`.
 
-### Section 9 — Documentation
+### Section 9 — Documentation — **DONE 2026-08-21**
 
 **Runs last**, after Sections 8, 10, 11 and 12; it keeps this number and this
 position so that the file reads in numeric order. Add to its list, from the
@@ -984,6 +983,62 @@ which are easy to lose because they are not value substitutions:
   repeated a third time.
 - `rcg11kd.f` header change list — entry.
 - `README.md` — last, after everything else is complete (§3).
+
+**What was done.** Three places, in the order the section asked for, plus two
+entries in the distribution's own file list.
+
+- **`rcg11kd.f` header change list.** The fundconst entry already carried
+  Sections 6, 7, 11 and 13; what it was missing was Section 10. Added: the
+  sweep itself and why the §1 inventory could not have found these sites, the
+  `2066` autoionization change written out in full with the before-and-after
+  line and the 4.81e-04 arithmetic, `CSIGMA`/`PICSCN` recorded as
+  **unexercised**, and the `RINF`-has-three-legacy-roundings caveat with what
+  a bit-exact reversion now has to do instead of running `legacyize.py`. Two
+  corrections to what the header already said: the site count was `34`, which
+  Sections 10, 11 and 13 had made stale — it is 36 — and the claim that the
+  g-factor is "the one place in this whole revision where a printed number the
+  author reads directly changes" was true when it was written and stopped being
+  true when Section 10 landed. It now says *second of the two*, with the
+  autoionization rates named as the first. Comment-only; `-fsyntax-only` passes
+  and every added line begins with `C` in column 1 and stops before column 72.
+
+- **`FOR/LSJJ/README.txt`** — 442 lines appended under EVERY FUNDAMENTAL
+  CONSTANT IN ONE FILE, in the file's own house style (§6: add to it, do not
+  start a parallel document). It carries the §0 quantization analysis and the
+  seven-line verification table in full, so the gA/log gf investigation does
+  not have to be done a third time; both §0a defects; the design of
+  `fundconst.f` and the three properties of it that are load-bearing; the
+  two-stage protocol and why Stage A is worth more than it looks; the
+  program-by-program account including RCE's *nothing*, and why RCE's numbers
+  move anyway; the coefficient routines as the only independent oracle in the
+  package; the sweep and the `2066` error; Section 13 and the rule; the Python
+  side with both of its defects; and a closing table of every shift a reader
+  comparing old output will meet.
+
+- **`README.md`** — a new `### THE FUNDAMENTAL CONSTANTS` section between the
+  additions to the manual and the hardware requirements, opening with *read
+  this before comparing against an earlier release*: what changed and what
+  did not, the shift table, the autoionization change in plain words, and a
+  pointer at `FOR/LSJJ/README.txt` for the rest. Five entries added to
+  SUMMARY OF THE MAJOR BUGS FIXED — the `2066` truncation, the `0.6698`
+  dropped digit, RCN's two fine-structure constants, the inconsistent
+  `gf(E2)`, and the factor-of-1000 `EV_PER_CM`. The version dates of RCN,
+  RCN2 and RCG moved to Aug 2026; RCE's stayed at Jan 2026, because RCE did
+  not change.
+
+- **The addendum file list** gained `FOR/fundconst.f` and
+  `CODE/toolbox/fundconst.py`, and the `FOR/LSJJ/` entry now says its
+  `README.txt` is the long account of the constants work as well as of the
+  coupling work.
+
+Two things were deliberately *not* written into `README.md`: a pointer to
+`PLAN_fundconst.md`, which is not in the distribution, and any figure for a
+site the runs do not exercise presented as though it had been measured. The
+unexercised sites are named as unexercised in `FOR/LSJJ/README.txt` and
+counted in the `README.md` pointer sentence.
+
+Suite unchanged by any of it: **309 passed, 252 skipped**.
+
 
 ### Section 10 — Sweep: the sites Sections 4–6 missed — **DONE 2026-08-20**
 
@@ -1658,7 +1713,7 @@ Full suite: **309 passed, 252 skipped.**
 | 11 RCG onto the routines | 3–4 h — **done** |
 | 12 Python side | 3–4 h — **done** |
 | 13 the four remaining inline constants | 2–3 h — **done** |
-| 9 docs (runs last) | 2 h (incl. §0c reminder x3, done) |
+| 9 docs (runs last) | 2 h (incl. §0c reminder x3) — **done** |
 | final promotion of the four executables | 1 h |
 
 **~3 working days**, roughly 25% editing and 75% verification. Sections 1–3
