@@ -1,10 +1,11 @@
 # Plan — factor all fundamental constants into `FOR/fundconst.f`
 
-Status: in progress. Written 2026-08-20.  **Every numbered section is done** —
-0c, and 1 through 13.  The three executables committed after Section 6 are
-four sections out of date: Sections 7, 10, 11 and 13 have all moved
-`rcg11kd.f` since.  What remains is **only the final promotion of the
-executables**.
+Status: **complete, 2026-08-21.**  Written 2026-08-20.  Every numbered
+section is done — 0c, and 1 through 13 — and the executables have been
+promoted.  `CODE/RCN36K.exe`, `CODE/RCN2K.exe` and `CODE/rcg11kd.exe` are
+built from the committed sources and reproduce the Section 13 reference on
+all five regression cases; `CODE/RCE20KD.exe` is untouched, Section 8 having
+nothing in it.  Record: `F:\COWAN\fundconst_work\promote3\README.txt`.
 
 **Sections 10, 11 and 12 were added 2026-08-20, after Section 7, on the
 author's instruction.**  Section 7 delivered `GAFROMSCOEF` and
@@ -27,10 +28,9 @@ Section 10 quantified four that are still written inline and deferred the
 decision to the author; the decision is made, and Section 13 folds them in.
 Nothing in this document may say that a physical constant is to stay inline.
 
-**Execution order from here:** Sections 8 through 13 are behind us, Section 9
-last of them as planned.  What is left is the final promotion of the
-executables.  Section 9 kept its number and its place in this file so that
-file order stays numeric order; only its execution was deferred.
+**Execution order, as carried out:** Sections 8 through 13, then Section 9,
+then the promotion.  Section 9 kept its number and its place in this file so
+that file order stays numeric order; only its execution was deferred.
 
 Scope: replace every hard-coded physical constant in the Fortran with named
 parameters from a single include file, update those values to CODATA 2022,
@@ -794,6 +794,50 @@ and `promote2`:
 
 The one intended new difference anywhere is `OUT2`'s timing layout; see open
 question 5. Test suite at the commit: 280 passed, 252 skipped.
+
+### Final promotion of the executables — **DONE 2026-08-21**
+
+The three executables committed after Section 6 were five sections out of
+date: Sections 7, 10, 11 and 13 all moved `rcg11kd.f`, and Section 10 moved
+`RCN2K.F` as well. Work area `F:\COWAN\fundconst_work\promote3\`, full
+record in its `README.txt`.
+
+**One thing had to be undone first.** `CODE/rcg11kd.exe` in the working tree
+was a byte-for-byte copy of `sweep/binS11/rcg11kd.exe` — the Section 11
+build, copied in during that section and stale by the time Section 13 landed.
+It was reverted before Sections 10–13 were committed, so that no half-promoted
+binary reached the history at all.
+
+Built with the Section 2 flag sets, gfortran 13.2.0 (MinGW-W64, Strawberry);
+the only warning anywhere was the expected `-fno-automatic overwrites
+-frecursive`. `RCN2K.exe` was built straight into `CODE/` under a temporary
+name and renamed there, because Norton deletes a freshly built `RCN2K` binary
+from anywhere under `fundconst_work` — the Section 5 and 10 workaround.
+`CODE/` holds no scratch binary now; checked.
+
+Verified in three steps:
+
+1. The scratch build run **end to end — RCN → RCN2 → RCG** — on all five
+   cases, against `gfac/stageB2`: **0 of 40 file comparisons differ**
+   (`TAPE2E`, `OUTGINE`, `ING11`, `TAPE2N`, `genealogy.txt` raw; `OUT36`,
+   `OUT2`, `OUTG11` less timing lines). This is stronger than Section 13's
+   own check, which seeded RCN and RCN2 output and ran only RCG on the
+   strength of the object-file identity proof: here they were actually
+   re-run, and `TAPE2N`, `OUT36`, `OUT2` and `ING11` come back identical
+   anyway.
+2. The executables **actually placed in `CODE/`**, run on the same five
+   cases: 0 differ against the scratch build and 0 against `gfac/stageB2`.
+   A gfortran build is not byte-reproducible across invocations, so this is
+   checked on output rather than on the binary, as the Section 6 promotion
+   was.
+3. **The CFP decks rebuilt by the promoted `rcg11kd.exe`**, following
+   `make_cfp.bat` by hand: `FOR072`, `FOR073` and `FOR074` all come back
+   md5-identical to the decks in use. Not asked for by this plan and worth
+   having — the decks are unformatted and machine-built, and a user who
+   recompiles RCG is told to rebuild them. This recompilation does not
+   require it, and now that is established rather than assumed.
+
+`CODE/RCE20KD.exe` is untouched. The plan is complete.
 
 ### Section 7 — RCG conversion-coefficient routines (new code) — **DONE 2026-08-20**
 
@@ -1714,7 +1758,7 @@ Full suite: **309 passed, 252 skipped.**
 | 12 Python side | 3–4 h — **done** |
 | 13 the four remaining inline constants | 2–3 h — **done** |
 | 9 docs (runs last) | 2 h (incl. §0c reminder x3) — **done** |
-| final promotion of the four executables | 1 h |
+| final promotion of the four executables | 1 h — **done** |
 
 **~3 working days**, roughly 25% editing and 75% verification. Sections 1–3
 are prerequisites; 4 through 8 are strictly sequential, because each consumes
