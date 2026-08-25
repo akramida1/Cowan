@@ -82,6 +82,7 @@ and nothing calls them.
 | s11.py                      | Aug 2026 |
 | subst_params_ing11.py       | Aug 2026 |
 | subst_exp_levs.py           | Aug 2026 |
+| insert_level_ids.py         | Aug 2026 |
 | reorder_ing11.py            | Aug 2026 |
 | scale_param.py              | Aug 2026 |
 | conf_list.py                | Aug 2026 |
@@ -1729,6 +1730,72 @@ flag set; a compiler without that extension will not build `RCG` or
                        Running subst_exp_levs.py with no arguments, or
                        with --help, prints the whole option list with
                        the composition columns explained in full.
+
+        insert_level_ids
+                     - Python program to insert unique level
+                       identifiers into the level list and the
+                       transition list that conv_out writes. The
+                       identifiers come from a tab-delimited list of
+                       experimental levels -- the same kind of file
+                       subst_exp_levs takes as its source.
+
+                       Usage:
+
+                       insert_level_ids <source> <levels file> [<lines file>]
+
+                       Both target files are rewritten in place, and
+                       what they held is kept as <file>.bak. The line
+                       list may be left out, and then only the level
+                       list is done.
+
+                       A level of the source is tied to a level of the
+                       list on (parity, J, energy), the way
+                       subst_exp_levs ties one whose composition it
+                       cannot use: the Ee column holds the observed
+                       energies of the RCE deck, which came from a
+                       list like this one in the first place, so the
+                       energies are not so much compared as
+                       recognized. Every pair within the tolerance is
+                       considered, the closest first, and each level
+                       of either side is used once, so two levels of
+                       one J cannot both take the level between them.
+
+                       The columns of the source are named on the
+                       command line, by column number or, when the
+                       file has a header line, by column name:
+
+                       --idcol <col>  --ecol <col>  --jcol <col>
+                       --pcol <col>
+
+                       --idcol is the column holding the identifiers
+                       and defaults to one named level_id. Energies
+                       are cm-1 unless --units kK or --units eV says
+                       otherwise, and --tol <value>, in those same
+                       units, says how far apart two energies may be
+                       and still be one level (1 by default). A column
+                       named exclude, or one named by --excludecol,
+                       drops the levels marked in it.
+
+                       The identifier goes into the level list as a
+                       level_id column beside Ee, and into the
+                       transition list as id1 and id2 -- the lower
+                       level's and the upper level's -- beside the
+                       lid1 and lid2 columns they are looked up
+                       through. Nothing is matched twice: lid1 and
+                       lid2 are the Lev_# of the level list.
+
+                       Columns of those names already in a file are
+                       updated rather than duplicated. They keep their
+                       place, are emptied, and are filled with what
+                       this run matched, so a level that has lost its
+                       identifier since the last run loses it here too
+                       instead of keeping a stale one.
+
+                       The program reports how many levels matched,
+                       which source levels found nothing, how many
+                       levels of the list were left without an
+                       identifier, and any match made against a
+                       calculated energy rather than an observed one.
 
         subst_params_ing11
                      - Python program to substitute parameter values

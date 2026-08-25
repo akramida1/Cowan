@@ -4958,3 +4958,101 @@ ACCEPTANCE
   one test of the LOPT reader moved across, being the only part of it
   that was not LOPT-specific.  Full suite from CODE/: 340 passed, 286
   skipped.
+
+
+LEVEL IDENTIFIERS IN THE conv_out TABLES
+========================================
+
+A level of a published analysis is known by an identifier -- the key the
+database holds it under, `059003.000065` in the author's sheets -- and
+that name outlives every calculation the level appears in.  conv_out
+cannot know it.  The only name a level has in its output is `Lev_#`, and
+that is a position in this run's ordering: add a configuration, refit,
+run again, and every number has moved.  Anything downstream that has to
+say "this level, the one the last paper called ..." has had to be done
+by hand.
+
+CODE/insert_level_ids.py carries the identifiers in from the file that
+has them.  The source is the same tab-delimited experimental level list
+subst_exp_levs takes -- WORK/Pr3/Pr3_exp_levs.txt is the reference one,
+and its `level_id` column is where the name of the option's default came
+from -- and the targets are the two files of a conv_out run.
+
+  insert_level_ids <source> <levels file> [<lines file>]
+      --idcol <col>  --ecol <col>  --jcol <col>  --pcol <col>
+      --excludecol <col>  --units cm-1|kK|eV  --skip <n>  --tol <value>
+
+WHAT IT IS MATCHED ON
+
+  (parity, J, energy), which is what subst_exp_levs falls back to for a
+  source level whose composition it cannot use.  It is weaker evidence
+  there than an eigenvector and it is the right evidence here, for a
+  reason that is worth writing down: the `Ee` column of the level list
+  holds the observed energies of the RCE deck, and those energies came
+  *from* a list like this one, through subst_exp_levs.  The two sides
+  are not being compared.  They are being recognised, and the tolerance
+  exists only for the case where the two files are different vintages of
+  the analysis and a level has moved by a hundredth of a wavenumber
+  since.  It is one wavenumber by default, in the source's own unit, and
+  --tol changes it.
+
+  The match is made over the offers rather than level by level.  Every
+  (source level, list level) pair within the tolerance is collected, they
+  are taken in order of how far apart they are, and each level of either
+  side is used once.  Level by level, two source levels of one J that
+  straddle one list level would be settled by which of them came first in
+  the file; this way the nearer one takes it and the other is reported
+  unmatched.  An `Ee` that is the calculated energy -- the star in `e_c`
+  -- loses a tie to an observed one, and a match made to one is counted
+  and reported, because it is the one kind of match that is more likely
+  to be an accident than a recognition.
+
+WHERE THE COLUMNS GO
+
+  `level_id` goes into the level list beside `Ee`.  A level is printed
+  once per coupling block, the same `Lev_#` under a different `Cpl`, so
+  the identifier goes on every row of that level and the blocks stay in
+  step.
+
+  `id1` and `id2` -- the lower level's and the upper level's -- go into
+  the transition list beside `lid1` and `lid2`.  Nothing is matched a
+  second time to put them there: `lid1` and `lid2` *are* the `Lev_#` of
+  the level list, so the two levels of a line are already known and the
+  identifiers are looked up.  A line naming a level the list has not got
+  is reported rather than guessed at, which is what a truncated level
+  list would produce.
+
+  Columns of those names already in a file are updated, not duplicated.
+  They keep their place, are emptied, and are filled with what this run
+  matched -- so a level that has lost its identifier since the last run
+  loses it here too, instead of keeping a stale one that nothing would
+  ever contradict.  A second run over unchanged files reproduces them
+  byte for byte, and that is a test.
+
+  Both files are rewritten through toolbox/files.write_deck, so the line
+  endings survive and what was there is kept as `<file>.bak`.  Rows are
+  written the way conv_out writes them, trailing delimiters stripped, and
+  a row is padded only as far as an insertion needs: a table this has not
+  changed a field of comes back out as the bytes it went in as.
+
+  The header is found by the columns it names rather than by where it is,
+  because the line list carries a preamble line above its header and the
+  level list does not.  A file that is neither -- the cascade matrix of
+  model CM, the AUGER spectrum, which has an `id_up` and no `lid1` --
+  says so and stops.
+
+TESTS
+
+  CODE/tests/test_levids.py, 48 cases.  The J reader in every way a J is
+  written; the units and the column resolution; the identifier column by
+  name and by number; a repeated identifier, which is reported because
+  these are meant to be unique.  Then the matching: parity telling two
+  levels of one J and one energy apart, J telling two levels of one
+  energy apart, the nearer of two source levels taking the target and the
+  further one being reported, the tolerance in the source's unit, and an
+  observed energy winning a tie with a calculated one.  Then the tables:
+  the identifier on every coupling block, the two columns landing after
+  `lid2`, the blank header field they must not be inserted in front of,
+  the preamble kept, an orphaned `lid`, a second run reproducing the
+  files byte for byte, a stale identifier cleared, and CRLF surviving.
+  Full suite from CODE/: 388 passed, 286 skipped.
