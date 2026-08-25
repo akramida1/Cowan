@@ -3168,6 +3168,9 @@ sources rather than remembered.
   behaviours in _check() follow from that and are in the prose: the file is
   comma separated rather than tab separated, because it is read in a
   spreadsheet, and only the first coupling is used, a matrix having one axis.
+  A third belongs with them: the level list's n, l, occ, S and L columns
+  classify a level for this model and nothing else reads them, so they are
+  written with CM and with no other model.
 
   DR and AUGER, and why ai is two files.  Both models are built from
   autoionization rates and both require ai.  The rates come as two files
@@ -4471,3 +4474,487 @@ ACCEPTANCE
   A note that does not change with any of this: the file is still unsigned
   and still has near-zero prevalence.  What the measurement says is that
   those are not the operative terms.
+
+
+THE ONE-STATE J BLOCK AND THE TRUE jj SCRATCH FILE
+==================================================
+
+Reported by the author on 2026-08-21, from the Sn VIII installation test
+in WORK/ with true jj switched on -- the same IN2 switches W70 uses,
+KCPLD(8)=8 in column 38.  `printout` stopped with
+
+    toolbox.levels.LevelsError: OUTG11 has no J=9/2 block in
+    configuration set 2, but RCEOUT lists 26 levels for it
+
+which is `identify` saying that RCE has levels RCG never printed.  The
+same sequence in WORK/W70 had always worked.
+
+WHAT WAS ACTUALLY WRONG
+
+  Not the Python.  RCG had died, and the message is what a truncated
+  OUTG11 looks like from downstream.  The run ends with
+
+    DONE ENERGY FOR  J= 2.5  AT TIME=  0.00 MIN,  MATRIX SIZE=   39
+    UNPK1 error: wrong record in file          42
+    BB1(5),BB1(6),IM1,IM2,... =  37  8  36  36  20000  20000  1296
+
+  and above that, three of
+
+    *****TRUE jj RECORD OUT OF STEP: GOT J=  5.5, NLS=     1;
+     EXPECTED J=  0.5, NLS=    21.  NO TRUE jj OUTPUT FOR THIS J.
+
+  Unit 42 is the true jj scratch file: CALCFC writes one record pair per
+  J block -- the labels, then the PK1-packed transformation matrix --
+  and SPRIN reads one pair per block, in the same order.  The stream had
+  slipped by exactly one record, and the messages track it: the second
+  configuration set read the first set's last matrix, then its own
+  first, then its own second, and at the fourth block a packed row index
+  of 37 arrived in a 36 x 36 matrix and UNPK1 stopped the run.
+
+THE MECHANISM
+
+  SPRIN prints a block twice, once in the coupling the run asked for and
+  once in the other, and the true jj pass is entered from the second of
+  the two.  A block of ONE basis state has no second pass: there is
+  nothing to transform, so at label 289
+
+    289 IF ((NLS-1).LE.0) GO TO 400
+
+  took it straight out of the routine -- past the read.  Its record
+  stayed on the file and every later block took the record of the block
+  before it.
+
+  Sn VIII has such a block: J=11/2 of the first set, the single
+  4d7 (2H) 2H state.  It is the sixth of fourteen, so eight blocks
+  followed it.
+
+WHY W70 NEVER SHOWED IT
+
+  W70 has one too -- J=11/2 of its second set, the single sp4f state --
+  and it is the LAST block of the run, so nothing followed it to read
+  the record it left behind.  The only symptom there was the
+  absence of its own true jj section, which nobody had reason to look
+  for: `printout` fills that level from genealogy.txt (the fallback in
+  toolbox/case.py, written for Cowan's second coupling, which really
+  does print nothing for a one-state block) and its level counts come
+  out right either way.  The reference case for the feature could not
+  have found this.
+
+THE FIX
+
+  Three changes in rcg11kd.f, all inside the KPAR=4/IJJROT path:
+
+  - Label 289 no longer leaves.  A one-state block enters the true jj
+    pass, which consumes the record and prints the section.  VECT(1,1)
+    is set from C(1,1) first, because the product at 287 reads the LS
+    vectors from VECT when KCPL=1 and from C otherwise, and with no
+    second pass to have moved them they are in C either way.
+
+  - The other early exit, the term-keep card (NOLSKP), consumes its
+    record and discards it.  There is no true jj output to make from a
+    truncated LS basis -- LSJJRT will have refused the block and IOK=0
+    says so -- but the record still has to come off the file.
+
+  - The read is now SUBROUTINE LSJJRD, called from both places.  It
+    unpacks the matrix at the dimension the RECORD carries rather than
+    the caller's, so a reader out of step gets the existing OUT OF STEP
+    message instead of stopping the run inside UNPK1 -- which is what
+    turned a missing section into a dead run.
+
+  RCEINP, which copies the same records onto the tail of TAPE2E, was
+  never affected: it rewinds and reads them all, so RCE always had the
+  one-state block's matrix.  That is the second reason for printing the
+  section rather than discarding the record: with it, OUTG11 says what
+  TAPE2E carries.
+
+  Printing it is exact.  A one-dimensional block has one eigenvector,
+  the rotation is a 1 x 1 orthogonal matrix, and all it can do is change
+  a sign; the content of the section is the label, which is what a jj
+  section is for.
+
+  On the Python side only comments moved, plus one test:
+  CODE/tests/test_outg11.py::test_a_one_by_one_block_has_no_jj_section
+  now expects LS and TRUEjj and no JJ.  The genealogy fallback in
+  toolbox/case.py and toolbox/iden.py stays as it is -- it is still
+  needed for Cowan's second coupling, and for any OUTG11 written before
+  this fix.
+
+ACCEPTANCE
+
+  WORK/Pr3, both stages of its README -- the Hartree-Fock run and the
+  fitted run after update11 -- TAPE2E and OUTGINE byte identical against
+  the previous executable, OUTG11 differing only in timing lines.  The
+  publication chain that follows reproduces every number the README
+  quotes: 5626 levels, 16878 in three schemes, 39 configurations
+  suggested 19/13/7, 1036 published, 45 letter prefixes.
+
+  WORK/W70: TAPE2E and OUTGINE byte identical, and OUTG11 differs by
+  exactly the seven added lines of the true jj section of J=11/2 --
+  nothing deleted, nothing changed.  levels.txt from `printout` is
+  byte identical.
+
+  WORK/ (Sn VIII) without true jj: TAPE2E and OUTGINE byte identical,
+  OUTG11 identical modulo timing.  With KCPLD(8)=8 it now runs to
+  NORMAL EXIT, reports 14 J blocks appended to TAPE2E, and the chain
+  that failed -- RCE, then `printout ... --couplings LS,JJ,TRUEjj` --
+  gives 14 J blocks, 199 levels, 597 rows.
+
+  Full suite from CODE/: 450 passed, 107 skipped, with the reference
+  runs of Sn VIII, W70 and Pr III (JK folder included) present.  The
+  seven that fail do so with the previous executable as well and are
+  not about this change: five want a W70 run whose energies the
+  committed IN2/IN36 do not reproduce, and two want the author's own
+  Pr3 ING11 -- the one with Cowan's two prelude cards, already once
+  through s11.pl, whose zero parameters therefore read `  0.00e+01`
+  where a freshly generated deck has RCN2's `0.00E+001`.  Both are
+  worth a look, and neither belongs to the LSJJRD fix.
+UPDATE11 NO LONGER NEEDS THE PARITY COUNT TYPED AFTER IT
+========================================================
+
+The trailing `2` of `update11 2` is Perl-era: s11.pl had no way of knowing
+how many parity sets the run has, so the user told it.  The Python does
+know -- toolbox/in36.py parses IN36 the way RCN's own ANALYZ and SETCFG do
+-- so the count can be read off the deck instead.
+
+WHAT WAS ADDED
+
+  s11.py grows one function and one command word.  `s11 auto` calls
+  parity_sets(folder), which is len(in36.parities(...)) over IN36's
+  configurations, and substitutes both parity sets when there are two
+  parities and the first only when there is one.  It says which it chose
+  before it starts, so the choice is in the log:
+
+      IN36: both parities; substituting both parity sets.
+
+  IN36 cannot always answer.  A sub-folder holding only ING11 and RCEOUT,
+  as WORK/U90/reordered does, has no IN36 at all, and WORK/AI/DIEL's
+  shipped IN36 is the bare end card until `diel` writes the real one.
+  Both give 0, and the fallback is to walk every set: main() already skips
+  a parity set the deck has no configurations in, so a one-parity deck
+  comes out the same either way.
+
+  `s11` with no argument and `s11 2` are untouched -- the first still does
+  the first set only, the second still does both -- so nothing that was
+  typed before changes meaning.
+
+  update11.bat and CODE/unix/update11 pass `auto` when the user typed
+  nothing, and pass through whatever the user did type.  `update11 2`
+  therefore still works and still means both.
+
+ACCEPTANCE
+
+  WORK/Bi56, a real fitted run of both parities: `s11 auto` beside its
+  IN36 and `s11 2` without it produce byte-identical ING11 decks, both
+  reporting 1 parameter into set 1 and 2416 into set 2.  Counting alone,
+  over the shipped decks: WORK/, U90, Pr3 and W70 give two parities, AI
+  and Forbid one, AI/DIEL none until diel has run.
+
+  CODE/tests/test_rewriters.py gains three tests -- the count over every
+  shipped deck, `auto` against explicit `2` on U90, and the no-IN36
+  fallback.  Full suite from CODE/ unchanged otherwise.
+
+  READMEs: WORK/Pr3, WORK/U90 and README.md now say `update11`, and
+  README.md's s11 entry lists `auto`.
+
+
+PRINTOUT IN A FOLDER RCE HAS NOT RUN IN
+=======================================
+
+The JK/ arrangement of WORK/Pr3 was written to be *read from the folder
+above*: `printout --from LSJK=JK` merges the second coupling into the
+parent's level list, and the sub-folder itself was never a place one ran
+printout.  Running it there is the obvious thing to try -- the run is in
+that folder -- and three separate things stopped it.
+
+  IN36.  RCG and RCE do not read it; it is RCN's input, so JK/ has none,
+  and Case.read stopped with `IN36 not found in .`.  The `parent`
+  argument already existed for exactly this, but only the caller that
+  passes `--from` was setting it.  Case now falls back to the directory
+  above when the run's own folder has no IN36 (`case._in36_folder`); an
+  explicit `parent` still wins, and if neither has one the error names
+  the run's folder, which is where a reader looks first.
+
+  NLSMAX.  Columns 23-25 became a *permission* in 2026 -- blank reads as
+  999, "no limit", and only a punched 0 forbids couplings 3-7
+  (rcg11kd.f:897-910 and :955-978).  ing11.py had not followed: it kept
+  Cowan's rule that a blank field forbids them, so a deck that asked for
+  LSJK with columns 23-25 left alone was reported as asking for LS
+  alone, and printout refused the coupling RCG had just written.
+  MainCard now holds NLSMAX as RCG holds it, blank turned into 999 on
+  the way in, with `nlspch` keeping what was actually punched for the
+  one place that has to tell the two apart.
+
+  RCEOUT.  `--no-rce` was there for a run with no fit, but it wrote no
+  params.txt at all, and without it the missing RCEOUT came out as a
+  traceback.  It became advice first and then nothing at all: a folder
+  RCG has run in and RCE has not is a whole case of its own -- the
+  second coupling of a fit, most often -- so printout assumes --no-rce
+  where there is no RCEOUT to read, and says on the first line that it
+  has.  Asking for the option explicitly is now only a way of skipping
+  OUTE and RCEINP.HF where RCE *has* run.
+
+THE PARAMETERS OF AN UNFITTED RUN
+
+  params.txt needs three things: the parameter values, their names, and
+  the Hartree-Fock values the LSF/HF column divides by.  ING11 has the
+  values but not the names -- its cards carry numbers in slot order and
+  nothing else -- so the names have to come from somewhere.  They come
+  from OUTGINE, RCG's input deck *for* RCE, which lists every parameter
+  under the positional name RCE will use (`(7A10)` at :15739) and its
+  value (`(7A10)` at :15843) and its least-squares flag (`(7I10)` at
+  :15833).  Those three records are the last three blocks before the
+  convergence card, so `rce.read_outgine` counts back from the section
+  terminator rather than walking the eigenvalues in between, whose
+  record count depends on the J blocks and on which of RCG's three
+  energy FORMATs the run chose.  The all-zero record between the flags
+  and the values is checked, and is what says the count landed right.
+
+  One thing OUTGINE does not have is RCEOUT's columns 58-71, the two
+  configurations of a CI integral.  They are recoverable: RCG encodes
+  both serial numbers in the first two characters of the name --
+  '0'-'9', then 'A'-'Z', then one character per number up to 188, with
+  '*' past that (:6308-6322) -- and `parnames._ci_codes` decodes them
+  against the parity set's card order.  Where RCEOUT's columns are
+  there they are still what is used; the decode is the fallback, and a
+  '*' or a number the set does not have decodes to nothing rather than
+  to the wrong configuration.
+
+  The HF column is then the deck's value divided by the HR scale factor
+  of its card -- the same `_factor` division the fitted path makes, so
+  the LSF/HF column comes out as the scale factor itself.  Two things
+  about it are not the real Hartree-Fock value, and printout says both
+  at the end of the run rather than leaving them to be discovered.  Eav
+  carries no scale factor, so its HF column is the deck's own number
+  repeated.  And where the deck has already been through s11 -- which
+  is exactly the case in WORK/Pr3/JK -- the values are a fit's while
+  the factors are still the original ones, so the division recovers
+  nothing.  Only RCEINP.HF, written by an RCE run over the unfitted
+  deck, has those numbers, and that is what the message names.
+
+ACCEPTANCE
+
+  In WORK/Pr3/JK, with RCG run and RCE not:
+
+      printout levels.txt params.txt --couplings LS,LSJK --no-rce
+
+      LS, LSJK: 25 J blocks, 5626 levels
+      wrote levels.txt (11252 levels)
+         LSJK J=12.5 of set 2 has one basis state, so RCG printed no
+         LSJK section; it is named in LS
+      wrote params.txt (1207 parameters)
+
+  11252 is 2 x 5626, both couplings over every level; the one-basis-state
+  message is the same one the parent folder's three-scheme run gives and
+  is not a fault.  The 1207 parameters reproduce ING11's values exactly,
+  card for card, and their LSF/HF column is 0.85 or 1.00 throughout,
+  which is what `hr85998585` on those cards says it should be.
+
+  Without the option, in the same folder, the run is the same one with a
+  line in front of it:
+
+      printout levels.txt params.txt --couplings LS,LSJK
+
+      no RCEOUT here, so reporting the calculated levels alone, as
+      --no-rce does
+      ...
+      wrote params.txt (1207 parameters)
+         --no-rce, so the values are the deck's own and the HF column is
+         each one divided by the scale factor of its card; Eav has no
+         scale factor and is repeated as it stands.  RCEINP.HF, from an
+         RCE run over the unfitted deck, is what makes every HF value
+         right
+
+  CODE/tests/ gains eleven tests: one in test_ing11.py over both the
+  blank and the punched-0 NLSMAX (and one assertion there changed, the
+  W70 card's blank field now reading 999), four in test_rce.py for
+  read_outgine (the count-back, the misaligned section it refuses, a folder with no
+  OUTGINE, and the ING11 values), three in test_parnames.py for the CI
+  decode, and three in test_printout.py for the IN36 fallback, the
+  --no-rce run and the same run with no option at all.  One helper
+  changed: test_rewriters.copy skips instead of failing when a folder
+  that has been through RCG has not been through RCE, which is what
+  WORK/Pr3/JK now is.  Full suite from CODE/: 308 passed, 277 skipped.
+
+
+AN EXPERIMENTAL LEVEL LIST THAT IS NOT AN RCE DECK
+==================================================
+
+subst_exp_levs has always had two kinds of source.  One is another RCE
+deck, and that is the case it is good at: both sides speak the same
+eigenvectors, so a level is recognised by what it is made of and the
+match survives the fit being rebuilt.  The other was "a LOPT level
+list", and it was a fiction.  It was ported from subst_exp_levs.pl line
+for line, it had never been run against data, and every assumption in it
+was a hard-coded field number of one output of one version of one
+program: ten tab-separated columns, the designation in field 0, the
+second uncertainty in field 4, the configuration and term in fields 8
+and 9, and the parity taken from an asterisk on the designation with the
+first row deciding which parity set was which.  The LOPT the author runs
+now writes different columns; and the observed energies do not
+necessarily come from LOPT at all.  They come off a spreadsheet, in
+whatever shape the bookkeeping of that spectrum happens to have.
+
+So the branch is gone and CODE/toolbox/altlevsrc.py is in its place: a
+reader for *any* tab-delimited level list, told by option which column
+is which.  Nothing in it is specific to a program.
+
+WHAT IS RECOGNISED, AND HOW
+
+  The old test asked whether the file had exactly ten tab fields.  The
+  question worth asking is the other way round: an RCE deck is a file
+  rce.read_rceout can read, and everything else is a level list to be
+  described.  subst_exp_levs.is_deck is that one call.
+
+  Tab-delimited is required, and quoted fields are unquoted, because
+  these files come out of Excel and Excel quotes a field that holds a
+  comma.  A header line is found without being told about -- the leading
+  rows that hold no number at all are the header -- and once it has been
+  found, a column may be named rather than numbered.  --skip forces it.
+
+  --ecol, --jcol and --pcol are required for a source that is not a
+  deck; the rest are optional and are how much of the composition the
+  file happens to carry:
+
+      --confcol  --termcol  --perccol   the first component
+      --conf1col --term1col             its labels, where conf/term are
+                                        bookkeeping and these are real
+      --conf2col --term2col --perc2col  the second
+      --conf3col --term3col --perc3col  the third
+      --altcol --altvalue               the second triad is the first
+                                        component in another coupling
+      --excludecol                      leave this level starred
+      --units cm-1|kK|eV  --skip  --parity-sets
+
+  Energies are cm-1 by default, and kK and eV are converted with
+  fundconst.EV2CM -- section 4 of CLAUDE.md, no constant written at the
+  point of use.
+
+  There is no uncertainty option any more.  Reading LOPT's second
+  uncertainty existed so that a poorly determined level could be left
+  out of the deck, and a column of uncertainties is one way a file might
+  say that and not the general one.  --excludecol says it directly:
+  anything non-blank and non-zero in that column excludes the level, a
+  column called `exclude` is found without being named, and if there is
+  no such column nothing is excluded and nothing is said about it.
+
+THE THREE THINGS THAT MADE IT HARD
+
+  1. Percentages.  A source sheet quotes intensity per cent, unsigned,
+  the way a published table does; RCE prints a signed amplitude per
+  cent.  So the target's amplitudes are squared over 100 to meet the
+  source rather than the other way round, the sign question does not
+  arise, and CERTAIN -- the share of one basis state that settles a
+  match -- becomes 49 rather than 70, which is the same statement in the
+  other space.  FLOOR still cuts the target's components in amplitude
+  space, so exactly the components a deck-to-deck run would keep are the
+  ones kept here.
+
+  2. Partial vectors.  A table quotes two or three components and stops.
+  explevs.distance charges every component one side has and the other
+  does not, which is right when both vectors are complete and wrong
+  here: it makes the nearest level whichever one is most thoroughly
+  mixed, because that is the level whose components are all small.
+  Several of Pr III's matches went to f4p5 levels 100 kK away for
+  exactly that reason.  explevs.distance_named asks the question the
+  source actually answered -- these components, and this much of
+  everything else -- by comparing the named components one by one and
+  lumping the rest into a single remainder on both sides.  It is used
+  only for a source that is not a deck; the deck-to-deck distance is
+  untouched, and so is every number the Perl comparison tests pin.
+
+  3. Labels.  RCE writes a configuration in six columns and the source
+  writes it out in full: `f5d2` against `4f.(2F*).5d2.(3F)`, `f26p`
+  against `4f2.(3F<2>).6p`.  There is no rule that recovers the missing
+  digits, and there does not need to be one -- the deck names its own
+  configurations, the list is short, and the source's compact form ends
+  with the deck's label.  The longest label that is a tail of it wins;
+  a configuration no label matches is reported, not guessed at.  Terms
+  are compared on the total LS term alone, RCE's `(3F) 4D3` and the
+  sheet's `4D*` both reducing to `4D`, and target components that fall
+  on one key are added together -- an experiment quoting `4f3 2P` is not
+  distinguishing the parents RCE prints beside it.
+
+  A label is whatever column 3 of the IN36 card called it, so it need
+  not be an abbreviation at all: Pr III's `f4p5` is 4f4.5p5.  That one
+  matters twice.  It is why the parity of each parity set is taken as a
+  majority over the deck's labels rather than from one of them (`f4p5`
+  reads even where the deck has it odd, and it is one label in
+  twenty-one), and it is why an unresolvable configuration is a warning
+  rather than an error.
+
+MIXED COUPLING, WHICH IS WHAT THE REFERENCE FILE IS
+
+  WORK/Pr3/Pr3_exp_levs.txt is the author's own sheet for Pr III and the
+  first real file this part of the program has ever had.  593 levels, 14
+  columns, and the designations are in whatever scheme made each level
+  look pure: LS, JK (`2[1]*`), pair (`(2,3/2)*`), or nothing at all.
+  The term label says which -- a bracket is JK, a parenthesis with a
+  comma is pair, a multiplicity and an orbital letter is LS -- and only
+  LS can be compared with an LS deck.
+
+  Two conventions of that sheet no column list expresses, and both are
+  options rather than special cases:
+
+    term1 is the leading component's real label, used where term holds
+    only the parity mark.  Hence --conf1col/--term1col: the first triad
+    is (perc, conf, term) unless either of those is given, and a blank
+    configuration or term in any triad means the one in the conf or term
+    column.
+
+    remark = "or" makes the perc2/conf2/term2 triad the *same* component
+    written again in another scheme rather than a second component.
+    Hence --altcol/--altvalue: the second triad's labels join the
+    first's, its percentage is the one to believe, and the third triad
+    becomes the second component.
+
+  Of the labels offered for the leading component the first that is LS
+  is taken.  If none is, the row gets no vector at all and is matched on
+  (parity, J, energy), which is what the author asked for and is the
+  honest answer: a JK designation says nothing an LS deck can be
+  compared against, and using a second component of 25% instead would be
+  guessing.  Over the whole sheet that is 343 rows matched on
+  composition and 250 on energy, and the run says so:
+
+      Pr3_exp_levs.txt: 593 rows read, 1 header line skipped; 593 levels.
+         parity sets: e -> 2, o -> 1
+         343 levels carry a composition the target can be matched on;
+         250 are matched on (parity, J, energy) alone.
+         leading components by coupling scheme: JJ 151, JK 116, LS 226,
+         NONE 100
+         Warning: 218 of them name one component only, which is thin
+         evidence; check those matches.
+
+MATCHING BY ENERGY ON PURPOSE
+
+  --matchby has three settings.  `heuristic`, the default, is the above:
+  composition where the source gives one, energy where it does not.
+  `Ecalc` is energy alone against the deck's fitted energies.  `Eexp` is
+  energy alone against the deck's *observed* energies, and only levels
+  that already carry one are candidates -- which is how a deck fitted
+  early in an analysis has its observed energies replaced by optimized
+  values.  The adjustments there are small, so nearest wins; two source
+  levels of one (parity, J) landing on one target level is what the
+  duplicate report has always caught, and it still does.
+
+ACCEPTANCE
+
+  WORK/Pr3/RCEINP.fin already carries the observed energies the sheet
+  holds, so `--matchby Eexp` over it must put the deck back exactly as
+  it was.  It does -- byte for byte, all 593 energies -- and nothing but
+  a matcher that tied every source level to the level it came from would
+  manage that.  It is the one oracle this branch has and it is pinned.
+
+  The full run, with the composition columns, substitutes 593 energies,
+  leaves nothing unmatched, and reports no two levels of one J given the
+  same energy.
+
+  CODE/tests/test_altlevsrc.py, 31 tests and 47 cases: the coupling
+  classifier, the term and configuration keys, the parity of an
+  abbreviated label, the header and column resolution, the units, the
+  exclude column, each of the two sheet conventions above,
+  distance_named against the case that needed it, and the two runs over
+  the reference file.
+  CODE/tests/test_explevs.py keeps every deck-to-deck test it had; the
+  one test of the LOPT reader moved across, being the only part of it
+  that was not LOPT-specific.  Full suite from CODE/: 340 passed, 286
+  skipped.

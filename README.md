@@ -133,7 +133,7 @@ To install the package on your PC:
 0. Install Python 3 from https://www.python.org/downloads/ , selecting
 "Add python.exe to PATH" in the installer. That is all the utility codes
 need; the four main programs need nothing at all beyond the DLLs shipped
-in `CODE/`. If you intend to use true *jj* coupling, add `numpy` as well:
+in `CODE\`. If you intend to use true *jj* coupling, add `numpy` as well:
 
         pip install numpy
 
@@ -142,9 +142,11 @@ in `CODE/`. If you intend to use true *jj* coupling, add `numpy` as well:
 	deck -- and it is optional. Skip it and everything else still works.
 	Install a Fortran compiler only if you intend to recompile the
 	sources -- see RECOMPILING THE FORTRAN below.
-1. Extract all files from the COWAN.ZIP archive PRESERVING THE
+1. Extract all files from the COWAN.ZIP archive under directory `Cowan-main` PRESERVING THE
 SUB-DIRECTORY STRUCTURE into the directory you choose to host the
-package (typically `c:\COWAN`, but any location will do).
+package (typically `c:\COWAN`, but any location will do). Control check: 
+your ~\COWAN directory must contain subdirectories CODE, FOR, WORK, DOCS,
+and this README.md file - exactly like in Cowan-main of the zip archive.
 2. Add the path of the Cowan executables to the system `Path` variable.
 If you are installing to a network location, you may need to map it to a
 drive letter first: the Windows command interpreter (cmd.exe) does not
@@ -190,10 +192,10 @@ the make_cfp.bat batch file:
 7. Execute the test task defined by the sample input files `IN36` and
 `IN2` in the `COWAN\WORK` directory:
 
-        RCN  <Enter>
-        RCN2 <Enter>
-        RCG  <Enter>
-        RCE  <Enter>
+        rcn  <Enter>
+        rcn2 <Enter>
+        rcg  <Enter>
+        rce  <Enter>
 	Each of these commands should report a `NORMAL EXIT`. If any of them
 	fails, the installation was not successful; write to A. Kramida at
 	akramida @ umd.edu.
@@ -254,6 +256,17 @@ the same package. Five steps, none of them needing administrator rights.
    that it reads with `FORMAT(A)` and cuts at the first blank, so a path
    with a space in it cannot work. The build and install scripts check
    for this and say so.
+
+   The zip GitHub builds from the repository carries no Unix permission
+   bits, so nothing in `CODE/unix/` comes out of it executable. Restore
+   that before anything else:
+
+        chmod +x CODE/unix/*
+
+   Without it the two commands below are refused as not executable.
+   (`bash CODE/unix/build.sh` works around it for a single run.) Only
+   the unpacked tree needs this: `install.sh` sets the modes itself on
+   everything it installs.
 
 3. **Compile:**
 
@@ -351,33 +364,30 @@ One more thing is worth knowing about, though it is not normally needed:
 
 ### RUNNING THE PROGRAMS
 Programs are normally run in the following order:
-`RCN`, `RCN2`, `RCG`, `RCE`.
+`rcn`, `rcn2`, `rcg`, `rce`.
 
 These are the names of the wrappers -- the `.bat` files in `CODE/` on
 Windows, the shell scripts in `CODE/unix/` on Linux and macOS. Type them
-at the command prompt from the directory holding the input files.
-(Windows is case-insensitive, so `RCN` and `rcn` are the same command
-there; on Linux and macOS the wrappers are lowercase, as the commands are
-written in the rest of this README.) Each program produces the input for
-the next, and `RCG` and `RCE` are often run several times after the first
-pass.
+at the command prompt from the directory holding the input files. The
+commands are spelled the same way on every platform, in lower case, here
+and in every README of the package; Windows is case-insensitive, so `RCN`
+works there as well. Each program produces the input for the next, and
+RCG and RCE are often run several times after the first pass.
 
 After a least-squares fit (LSF) with RCE, one normally wants to
 recalculate the transition rates by running RCG with the fitted
 parameters from the LSF output. The easiest way to do that is to run the
 utility code:
 
-`update11 2`
-
-(if the `in36` file contains configurations of both parities) or
-
 `update11`
 
-(if there is only one parity in the calculation). Besides transferring the
-fitted Slater parameters from the `RCE` output (RCEOUT, to be exact) into the 
-`ing11` file and re-running `RCG` with these parameters, this does some 
-additional useful things (see more details below in the explanation of the
-update11 code).
+Nothing has to be typed after it: update11 reads the `in36` file, counts
+the parities in it, and substitutes both parity sets when both are there.
+(The older form `update11 2` still works and still means both.) Besides
+transferring the fitted Slater parameters from the `RCE` output (RCEOUT,
+to be exact) into the `ing11` file and re-running `RCG` with these
+parameters, this does some additional useful things (see more details
+below in the explanation of the update11 code).
 
 ### ADDITIONS TO THE MANUAL
 
@@ -506,12 +516,12 @@ additional line included at the top of `ING11` with zero in position 5
 and floating-point numbers `E0MAX(1)` and `E0MAX(2)` in positions 66-75 and
 76-85, respectively. The values are given in units of kK (10^3^ cm^-1^).
 
-8. The parameter `ICRIT2` is disabled in `RCE20k`: its value has no
+8. The parameter `ICRIT2` is disabled in `RCE`: its value has no
 effect. The program exits after completing the fit, whether the
 parameters were linked or unlinked, and never starts another run with
 the next value of `LSQM`.
 
-9. *Suspended* execution is not supported in `RCE20k`: intermediate
+9. *Suspended* execution is not supported in `RCE`: intermediate
 results cannot be saved after the *n*-th iteration and resumed from
 there. The new `RCEOUT`/`RCEINP` files (see below) achieve almost the
 same thing; the only cost is one extra initial iteration when a new run
@@ -1280,7 +1290,8 @@ flag set; a compiler without that extension will not build `RCG` or
         update11      - Run after the LSF fitting with RCE, to transfer
                        the fitted parameters into ING11, run RCG with
                        those fitted parameters, and run printout (see
-                       below).
+                       below).  It takes the number of parity sets to
+                       substitute from IN36, so it needs no argument.
 
         s11           - Python program for substituting the parameters
                        from the RCEOUT file (produced by RCE
@@ -1298,7 +1309,12 @@ flag set; a compiler without that extension will not build `RCG` or
                        s11 2
 
                        (for substituting the fitted parameters into
-                       ING11 for two parity sets).
+                       ING11 for two parity sets);
+
+                       s11 auto
+
+                       (for taking the number of parity sets from
+                       IN36 - what update11 uses).
 
         printout      - Python program to print out the level list in
                        a form similar to LEVELS2, but with
@@ -1311,7 +1327,7 @@ flag set; a compiler without that extension will not build `RCG` or
                        are substituted from the RCEOUT file. Thus,
                        to produce correct results, you must first
                        substitute the fitted parameters from RCEOUT
-                       into ING11 (e.g., by running s11 2) and
+                       into ING11 (e.g., by running s11 auto) and
                        re-run RCG. The program also produces a file
                        with fitted and HF parameter values and ratios
                        LSF/HF. Usage:
@@ -1340,7 +1356,8 @@ flag set; a compiler without that extension will not build `RCG` or
                        must be made with the sequence of runs
                        RCN/RCN2/RCG/RCE. The files OUTE and RCEINP.HF
                        are skipped if you specify an optional --no-rce
-                       parameter in the command line.
+                       parameter in the command line or RCE was not 
+											 run at all.
 
                        The Python version is no longer limited to LS
                        and JJ. Its options are:
@@ -1417,6 +1434,10 @@ flag set; a compiler without that extension will not build `RCG` or
 
                           CM is a special 'Cascade Matrix' option
                           in calculations of Auger electron spectra.
+                          With it, the levels file carries five extra
+                          columns, n, l, occ, S and L, which classify
+                          each level for this model; they are written
+                          with this option only.
 
                           BF stands for 'Beam-foil'. For this option,
                           an additional parameter, time of flight
@@ -1624,25 +1645,26 @@ flag set; a compiler without that extension will not build `RCG` or
 
                        Usage:
 
-                       subst_exp_levs <input file> <output_file> [params=flags|noflags|Eav|F|G|Z|CI|none]
+                       subst_exp_levs <source> <target> [params=<what>] [--matchby <how>]
 
-                       This program is used to substitute experimental
-                       level values from one RCEINP (or RCEOUT) file
-                       into another, possibly created with a different
-                       set of configurations. Typically, you would
-                       need it if you made an LSF fitting with a
-                       limited set of configurations and then
-                       discovered you need more configurations to
-                       include. Then, after you run RCN/RCN2/RCG/RCE
-                       with an extended configuration set, instead of
-                       manually editing again your new RCEINP file,
-                       you can use this program to transfer the level
-                       values from your previous calculations to the
-                       new RCEINP file, which is the <output_file> in
-                       the parameter list.
+                       The <target> is the RCEINP file the observed
+                       energies are put into. It is rewritten in place,
+                       and what it held is kept as <target>.bak.
 
-                       Optionally, you can specify a certain action
-                       for the parameters from your old calculation.
+                       The <source> is either another RCE file or a
+                       list of experimental levels; which one it is
+                       does not have to be stated, since an RCE file
+                       is recognized by being readable as one.
+
+                       An RCE source is the older use of this program:
+                       you made an LSF fitting with a limited set of
+                       configurations and then discovered you need more
+                       configurations to include. After running
+                       RCN/RCN2/RCG/RCE with an extended configuration
+                       set, instead of manually editing your new
+                       RCEINP file again, this program transfers the
+                       level values from the previous calculation into
+                       it. Optionally it transfers the parameters too:
 
                        params=flags will set only the flags for the
                        same parameters in the new RCEINP (i.e., make
@@ -1661,6 +1683,52 @@ flag set; a compiler without that extension will not build `RCG` or
                        params=none will skip all parameter values and
                        flags (leave them unchanged in the new RCEINP
                        file).
+
+                       An experimental source is any tab-delimited
+                       list of levels -- a spreadsheet saved as text,
+                       the output of a least-squares level
+                       optimization, a published table typed out. It
+                       has no parameter table, so params= does not
+                       apply to it. Its layout is not fixed: the
+                       columns that hold the energy, the parity and
+                       the J value are named on the command line, by
+                       column number or, when the file has a header
+                       line, by column name:
+
+                       --ecol <col>  --jcol <col>  --pcol <col>
+
+                       and everything else is optional. Energies are
+                       cm-1 unless --units kK or --units eV says
+                       otherwise. A column named exclude, or one named
+                       by --excludecol, drops the levels marked in it.
+
+                       Up to three composition triads may be given --
+                       --perccol/--confcol/--termcol and the numbered
+                       forms after them -- and where they are, a level
+                       is identified by its composition rather than by
+                       its energy. The percentages are read as
+                       intensity per cent, which is what a published
+                       table quotes; the configuration labels are
+                       matched against the ones the target deck itself
+                       uses; and only LS term labels can be matched
+                       against an LS deck, so a level designated in JK
+                       or pair coupling is matched on (parity, J,
+                       energy) alone. The program reports how many
+                       levels went each way.
+
+                       --matchby says how a source level is tied to a
+                       target level: heuristic, the default, uses the
+                       composition where the source gives one and the
+                       energy where it does not; Ecalc uses the energy
+                       alone, against the target's fitted energies;
+                       Eexp uses the energy alone, against the
+                       target's observed ones, which is how a deck
+                       fitted early in an analysis has its observed
+                       energies replaced by optimized ones.
+
+                       Running subst_exp_levs.py with no arguments, or
+                       with --help, prints the whole option list with
+                       the composition columns explained in full.
 
         subst_params_ing11
                      - Python program to substitute parameter values

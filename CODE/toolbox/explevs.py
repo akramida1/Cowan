@@ -24,7 +24,6 @@ The percentages are what RCE prints: a signed amplitude percentage,
 whose square over 100 is the intensity percentage a table shows.
 """
 
-import re
 from dataclasses import dataclass, field
 
 from . import files, rce
@@ -38,12 +37,16 @@ FLOOR = 10
 # two components cannot both be that large.
 CERTAIN = 70
 
+# The same thing in intensity per cent, which is where a source that
+# is not an RCE deck is compared: 70 in amplitude is 49 in intensity.
+CERTAIN_INTENSITY = 49
+
 # RCE prints five components on a level line and `subst_exp_levs.pl:74-86`
 # reads all five.
 COMPONENTS = 5
 
-_L = 'SPDFGHIKLMNOPQRSTUV'
-
+#: How a source level may be tied to a target level.
+MATCH_BY = ('heuristic', 'ecalc', 'eexp')
 
 class ExpLevelsError(Exception):
     """Two decks that cannot be matched level for level."""
@@ -63,6 +66,22 @@ class Level:
     line: int = -1                  # the line it was read from
     assigned: float = None          # the energy this level has been given
     match: object = None            # the level of the other deck it is tied to
+    mvector: dict = None            # the vector to match on, where it is not
+                                    # `vector` -- see `altlevsrc`
+    intensity: bool = False         # whether `vector` is already in intensity
+
+    @property
+    def match_vector(self):
+        """The vector the matcher compares, `vector` unless told otherwise.
+
+        A source that is not an RCE deck quotes intensity per cent and
+        names its components the way a table does, so the target's
+        amplitudes have to be brought into that space before the two
+        can be compared; `altlevsrc.normalize_target` puts the result
+        here and leaves `vector` as RCE wrote it, which is what the
+        reports print.
+        """
+        return self.vector if self.mvector is None else self.mvector
 
     @property
     def taken(self):
@@ -92,6 +111,10 @@ class Level:
     def sorted_vector(self):
         """The components, largest first."""
         return sorted(self.vector.items(), key=lambda kv: -abs(kv[1]))
+
+    def sorted_match_vector(self):
+        """The components the matcher sees, largest first."""
+        return sorted(self.match_vector.items(), key=lambda kv: -abs(kv[1]))
 
 
 class Deck:
@@ -173,94 +196,21 @@ def read_deck(path):
     return deck
 
 
-# A LOPT level list: ten tab-separated fields, of which the matcher
-# wants the designation, J, the energy and the second uncertainty, and
-# then the configuration and term of the last two columns
-# (`subst_exp_levs.pl:181-183`).
-_LOPT = re.compile(r'^([^\t]*\t){9}[^\t]*$')
-KK = 0.001                          # LOPT writes cm-1, RCE 1000 cm-1
-
-
-def read_lopt(path, most=None):
-    """Every level of a LOPT output, in the shape the matcher wants.
-
-    LOPT is the level-optimization program the observed energies come
-    out of, so this is how a freshly optimized level list is carried
-    into a fit.  A level whose second uncertainty is above `most` is
-    left out, which is the `max_unc` of `subst_exp_levs.pl:187`.
-
-    Parity comes from the term's own asterisk, and which parity set it
-    is filed under is settled by the first level read, exactly as
-    `:197-199` settles it -- a LOPT list does not say.
-
-    A row with no J is a **term** rather than a level, and one level is
-    made for each J the term has, which is `:206-221`.
-
-    There is no LOPT list among the reference cases, so this reader is
-    the Perl's, followed line for line, and it has not been run against
-    real data.
-    """
-    deck = Deck(path)
-    parities, count = {}, 0
-    for line in files.read_lines(path, strip=False):
-        if not _LOPT.match(line):
-            continue
-        fields = line.split('\t')
-        designation, j, energy, _, uncertainty = fields[:5]
-        configuration, term = fields[8], fields[9].strip()
-        if most is not None and _number(uncertainty) > most:
-            continue
-        parity = 'o' if designation.strip().endswith('*') else 'e'
-        if not count:
-            parities = {'e': 1, 'o': 2} if parity == 'e' \
-                else {'e': 2, 'o': 1}
-        count += 1
-        ee = _number(energy) * KK
-        vector = {'%s,%s' % (configuration.strip(), ' '.join(term.split())):
-                  100}
-        for one in _js(j, term):
-            deck.add(Level(j=one, ee=ee, ec=ee, observed=True,
-                           vector=dict(vector), kset=parities[parity]))
-    return deck
-
-
-def _number(text):
-    try:
-        return float(text)
-    except ValueError:
-        return 0.0
-
-
-def _js(j, term):
-    """The J values one LOPT row stands for.
-
-    A row that names a J is one level.  A row with the J column empty is
-    a term, and stands for every J the term has -- |L-S| to L+S.
-    """
-    if j.strip():
-        return [j.strip()]
-    found = re.match(r'^(\d+)([SPDFGHIKLMNOPQRSTUV])', term.strip())
-    if not found:
-        return []
-    spin = (int(found.group(1)) - 1) / 2.0
-    orbital = _L.index(found.group(2))
-    out, value = [], abs(orbital - spin)
-    while value <= orbital + spin + 1e-9:
-        out.append(_j_text(value))
-        value += 1.0
-    return out
-
-
 # --------------------------------------------------------------------------
 # matching
 # --------------------------------------------------------------------------
 
-def distance(one, other):
+def distance(one, other, certain=CERTAIN):
     """How far apart two eigenvectors are, and whether that is certain.
 
     Returns `(distance, certain)`.  A component in one vector and not
     the other contributes its own square, so a level that shares nothing
     is as far away as the two vectors are long.
+
+    `certain` is the share of one basis state that settles a match, and
+    it depends on which space the comparison is being made in: 70 in
+    amplitude per cent, which is RCE's, and `CERTAIN_INTENSITY` in the
+    intensity per cent an experimental table quotes.
     """
     near = far = 0.0
     for key, out in other.items():
@@ -271,7 +221,7 @@ def distance(one, other):
         inside = one[key]
         near += (inside - out) ** 2
         far += (inside + out) ** 2
-        if abs(inside) > CERTAIN and abs(out) > CERTAIN:
+        if abs(inside) > certain and abs(out) > certain:
             return 0.0, True
     for key, inside in one.items():
         if key not in other:
@@ -280,33 +230,90 @@ def distance(one, other):
     return min(near, far), False
 
 
-def identify(source, target):
+def distance_named(one, other, certain=CERTAIN_INTENSITY):
+    """The same, for a source that names only some of its components.
+
+    A published table quotes two or three components and stops, so the
+    target has ten and the source has two, and `distance` -- which
+    charges every component one side has and the other does not -- then
+    prefers whichever target level is most thoroughly mixed, because
+    that is the one whose components are all small.  It is the wrong
+    question: what a partial source says is *these* components and this
+    much of something else, so that is what is compared -- the named
+    components one by one, and everything the source did not name as a
+    single remainder on both sides.
+
+    Where the source does account for the whole level the two agree, so
+    this is what an intensity comparison uses throughout.
+    """
+    apart = mine_total = theirs_total = 0.0
+    for key, mine in one.items():
+        theirs = other.get(key, 0.0)
+        apart += (mine - theirs) ** 2
+        mine_total += mine
+        theirs_total += theirs
+        if mine > certain and theirs > certain:
+            return 0.0, True
+    apart += (max(0.0, 100.0 - mine_total)
+              - max(0.0, 100.0 - theirs_total)) ** 2
+    return apart, False
+
+
+def identify(source, target, by='heuristic', certain=CERTAIN):
     """Give every observed level of `source` a level of `target`.
 
-    The candidates are tried in order of how near their fitted energy is
-    to the source level's, so that where two levels of a J are equally
-    good the closer one wins.  A target level that already carries an
-    observed energy is passed over -- unless it is the very energy being
-    assigned, which is how a deck already carrying some of these levels
-    is brought up to date rather than refused.  Returns the list of
-    source levels nothing could be found for.
+    Three ways, `MATCH_BY`:
+
+    * **heuristic**, the default -- a source level that carries a
+      composition is tied to the candidate whose composition is
+      nearest, and one that does not is tied on energy alone.  This is
+      what a deck-to-deck run has always done, and it is what a source
+      file with only some of its levels designated needs.
+    * **ecalc** -- energy alone, against the target's fitted energies,
+      ignoring any composition.
+    * **eexp** -- energy alone, against the target's *observed*
+      energies, and only levels that already carry one are candidates.
+      That is how a deck built early in an analysis has its observed
+      energies brought up to date from a later level optimization: the
+      adjustments are small, so nearest wins, and where two source
+      levels of one (parity, J) land on the same target level the
+      duplicate report is what catches it.
+
+    Candidates are tried in order of how near their energy is to the
+    source level's, so that where two are equally good the closer one
+    wins.  A target level that already carries an observed energy is
+    passed over -- unless it is the very energy being assigned, which
+    is how a deck already holding some of these levels is brought up to
+    date rather than refused.  Returns the source levels nothing could
+    be found for.
     """
     lost = []
     for level in source.levels():
         if not level.observed:
             continue
-        candidates = [one for one in target.group(level.kset, level.j)
-                      if not one.taken
-                      or abs(one.energy - level.ee) < 0.001]
-        candidates.sort(key=lambda one: abs(one.ec - level.ec))
-        best, least = None, None
-        for one in candidates:
-            apart, certain = distance(level.vector, one.vector)
-            if certain:
-                best = one
-                break
-            if least is None or apart < least:
-                best, least = one, apart
+        group = target.group(level.kset, level.j)
+        if by == 'eexp':
+            candidates = [one for one in group
+                          if one.observed and one.assigned is None]
+            candidates.sort(key=lambda one: abs(one.ee - level.ee))
+        else:
+            candidates = [one for one in group
+                          if not one.taken
+                          or abs(one.energy - level.ee) < 0.001]
+            candidates.sort(key=lambda one: abs(one.ec - level.ec))
+        mine = level.match_vector
+        if by != 'heuristic' or not mine:
+            best = candidates[0] if candidates else None
+        else:
+            apply = distance_named if level.intensity else distance
+            best, least = None, None
+            for one in candidates:
+                apart, sure = apply(mine, one.match_vector, certain)
+                if sure:
+                    best = one
+                    break
+                if least is None or apart < least:
+                    best, least = one, apart
         if best is None:
             lost.append(level)
         else:
@@ -319,7 +326,7 @@ def identify(source, target):
 # what the run has to report
 # --------------------------------------------------------------------------
 
-def suspicious(source):
+def suspicious(source, certain=CERTAIN):
     """Matches worth a second look, as `print_suspicious` reports them.
 
     A match is quietly right where one of the two vectors is dominated
@@ -331,10 +338,11 @@ def suspicious(source):
         best = getattr(level, 'match', None)
         if not level.observed or best is None:
             continue
-        mine, theirs = level.sorted_vector(), best.sorted_vector()
+        mine = level.sorted_match_vector()
+        theirs = best.sorted_match_vector()
         if not mine or not theirs:
             continue
-        if abs(mine[0][1]) > CERTAIN and abs(theirs[0][1]) > CERTAIN:
+        if abs(mine[0][1]) > certain and abs(theirs[0][1]) > certain:
             continue
         if _same(mine, theirs, 2):
             continue
@@ -393,10 +401,17 @@ def known_configurations(target):
 
 
 def vector_text(level, most=2):
-    """A vector as the reports print it, in intensity per cent."""
+    """A vector as the reports print it, in intensity per cent.
+
+    RCE writes a signed amplitude per cent, so it is squared here; a
+    source that is not an RCE deck quotes the intensity already and
+    says so with `intensity`, and is printed as it came.
+    """
     out = []
     for key, percent in level.sorted_vector()[:most]:
         configuration, _, term = key.partition(',')
-        out.append('%4d%% %-7s%-8s' % (int(percent * percent / 100),
-                                       configuration, term))
+        out.append('%4d%% %-7s%-8s'
+                   % (int(percent if level.intensity
+                          else percent * percent / 100),
+                      configuration, term))
     return ''.join(out)

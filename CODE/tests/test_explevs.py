@@ -250,13 +250,6 @@ def test_a_level_already_carrying_an_energy_is_not_given_a_second():
     assert free.taken and free.energy == 3.0
 
 
-def test_a_term_with_no_j_stands_for_every_j_it_has():
-    """A LOPT row that names a term rather than a level, `:206-221`."""
-    assert explevs._js('', '3P') == ['0', '1', '2']
-    assert explevs._js('', '4F') == ['3/2', '5/2', '7/2', '9/2']
-    assert explevs._js('5/2', '2D') == ['5/2']
-
-
 def test_the_component_key_does_not_depend_on_how_wide_rce_padded_it():
     from toolbox.rce import Component
     assert explevs._key(Component(95, '2s2p  ', '(3S)  4P   ')) \
