@@ -14,8 +14,14 @@
 # wrong.  Keep the two in step by hand.
 #
 # ELF has no counterpart, so CODE/unix/build.sh reads nothing from here.
+#
+# COPYRIGHT is the one string here that has to stay true: it is compiled
+# into every distributed binary and it used to read "Public domain", which
+# contradicted LICENSE.md.  Keep it in step with LICENSE.md, and keep it
+# free of ( ) < > & | ^ % -- mkverres.bat echoes it into the .rc and cmd
+# would eat those.
 VERSION=26.2.1
 COMMA_VERSION=26,2,1,0
 COMPANY=A. Kramida
 PRODUCT=Cowan Atomic Structure Codes
-COPYRIGHT=Public domain. Original codes by R. D. Cowan.
+COPYRIGHT=Copyright 2022-2026 A. Kramida. Original codes by R. D. Cowan. Free to distribute, not to sell -- see LICENSE.md.
