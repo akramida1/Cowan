@@ -27,6 +27,11 @@ Usage:
              [--components 5] [--min-percent 1.5]
              [--no-rce]                 RCG only, no fitted energies
 
+IN36 is read from the folder above where the run's own folder has none,
+which is what the `JK/` arrangement looks like from the inside.  --no-rce
+is assumed where there is no RCEOUT to read, so a folder RCG has run in
+and RCE has not needs no option at all.
+
 Defaults are the Perl's: levels.txt, params.txt, five components, 1.5%.
 """
 
@@ -36,7 +41,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from toolbox import case as case_mod                            # noqa: E402
-from toolbox import asd, designate, in36, levels, rce      # noqa: E402
+from toolbox import asd, designate, files, in36, levels, rce   # noqa: E402
 
 
 def header(options):
@@ -262,7 +267,7 @@ def _rows(primary, block, source, options):
         if not found:
             found = levels.unfitted(primary.blocks, kset)
         for one in sorted(found,
-                          key=lambda x: levels.eigenvalue(primary.blocks, x)):
+                          key=lambda x: levels.order_key(primary.blocks, x)):
             level = one.level
             observed = '' if level.observed else '*'
             e_obs = level.e_calc if not level.observed else level.e_obs
@@ -314,7 +319,8 @@ def _param_rows(case, oute, hf, options):
     """params.txt, one row per fitted parameter.
 
     OUTE and RCEINP.HF list the same parameters in the same order as
-    RCEOUT, and they are paired by position rather than by name: the
+    RCEOUT -- and so does OUTGINE, which stands in for both where RCE
+    has not run -- and they are paired by position rather than by name: the
     name RCE prints is a slot number, so `ZETA 3` occurs once per
     configuration that has a slot 3, and a lookup by name silently
     collapses them (`conv_cowan.pl` keys them by index too).
@@ -327,7 +333,7 @@ def _param_rows(case, oute, hf, options):
     for kset in sorted({k for k, _ in case.blocks}):
         parity = 'e' if case.card(kset, 1).parity == 0 else 'o'
         named = case.parameters(kset)
-        fitted = case.cset(kset).parameters
+        fitted = case.parameter_source(kset)
         sigmas = list(oute.get(kset, ()))
         starting = list(hf.get(kset, ()))
         if sigmas and len(sigmas) != len(fitted):
@@ -335,7 +341,7 @@ def _param_rows(case, oute, hf, options):
                 'OUTE lists %d parameters for parity set %d and RCEOUT %d'
                 % (len(sigmas), kset, len(fitted)))
         groups = {}
-        for one in sigmas:
+        for one in sigmas or fitted:
             groups[abs(one.flag)] = groups.get(abs(one.flag), 0) + 1
 
         for at, (one, parameter) in enumerate(zip(named, fitted)):
@@ -428,12 +434,26 @@ def main(argv):
     for block in options.blocks:
         if block.folder is None and block.coupling not in wanted:
             wanted.append(block.coupling)
+    # A folder RCG has run in but RCE has not is a whole case of its own
+    # -- the second coupling of a fit, say -- so it is reported on rather
+    # than refused.  --no-rce is what that report is, and asking for it
+    # explicitly is only a way of skipping OUTE and RCEINP.HF where RCE
+    # has in fact run.
+    if not options.no_rce and files.resolve(rce.RCEOUT, '.',
+                                            required=False) is None:
+        options.no_rce = True
+        print('no %s here, so reporting the calculated levels alone, as '
+              '--no-rce does' % rce.RCEOUT)
     primary = case_mod.Case.read('.', couplings=wanted or ['LS'],
                                  with_rce=not options.no_rce,
                                  drop=options.drop)
+    # With --no-rce there is nothing identified against a fit, so the
+    # count is RCG's own eigenvalues -- which is what the blocks below
+    # will print, and what the reader is counting.
+    found = len(primary.identified) or sum(
+        len(block.eigenvalues) for block in primary.blocks.values())
     print('%s: %d J blocks, %d levels'
-          % (', '.join(wanted) or 'LS', len(primary.blocks),
-             len(primary.identified)))
+          % (', '.join(wanted) or 'LS', len(primary.blocks), found))
 
     sources = {}
     for block in options.blocks:
@@ -475,7 +495,42 @@ def main(argv):
         parameters = _param_rows(primary, oute, hf, options)
         _write(options.params, PARAM_HEADER, parameters)
         print('wrote %s (%d parameters)' % (options.params, len(parameters)))
+    else:
+        _write_params_without_rce(primary, options)
     return 0
+
+
+def _write_params_without_rce(primary, options):
+    """params.txt from the deck alone, with the HF column reconstructed.
+
+    Nothing here has been fitted, so the LSF column is the value the run
+    itself used -- what ING11 holds and OUTGINE punched.  The HF column
+    is that value divided back by the HR scale factor of its card, which
+    is what RCEINP.HF would have carried had RCE been run on an
+    unfitted deck; `_factor` is the same division the fitted path makes,
+    so the LSF/HF column comes out as the scale factor.
+
+    Two things about it are not the real Hartree-Fock value and are said
+    so at the end of the run rather than left to be discovered.  Eav is
+    not scaled at all, so its HF column is the deck's own number
+    repeated.  And where the deck has been through `s11`, the values are
+    a fit's and the factors are still the original ones, so dividing one
+    by the other recovers nothing: only RCEINP.HF, written by an RCE run
+    over the unfitted deck, has those numbers.
+    """
+    if not primary.starting:
+        print('no OUTGINE here, so no %s: it is the only file in a folder '
+              'RCE has not run in that carries the parameter names'
+              % options.params)
+        return
+    parameters = _param_rows(primary, {}, primary.starting, options)
+    _write(options.params, PARAM_HEADER, parameters)
+    print('wrote %s (%d parameters)' % (options.params, len(parameters)))
+    print("   --no-rce, so the values are the deck's own and the HF column "
+          "is each one divided by the scale factor of its card; Eav has no "
+          "scale factor and is repeated as it stands.  RCEINP.HF, from an "
+          "RCE run over the unfitted deck, is what makes every HF value "
+          "right")
 
 
 def _merge(primary, other, mode):

@@ -1709,13 +1709,37 @@ flag set; a compiler without that extension will not build `RCG` or
                        is identified by its composition rather than by
                        its energy. The percentages are read as
                        intensity per cent, which is what a published
-                       table quotes; the configuration labels are
-                       matched against the ones the target deck itself
-                       uses; and only LS term labels can be matched
-                       against an LS deck, so a level designated in JK
-                       or pair coupling is matched on (parity, J,
-                       energy) alone. The program reports how many
-                       levels went each way.
+                       table quotes.
+
+                       The configuration labels are matched against the
+                       ones the target deck itself uses, through IN36.
+                       RCE writes a configuration in six columns and
+                       abbreviates it from the left to get there, so
+                       the label alone does not say which subshells it
+                       means; IN36 is where they are written out, and
+                       the card whose subshells the source names is the
+                       card it means. IN36 is looked for beside the
+                       target deck and then in the directory above it.
+                       Without one the program falls back on matching a
+                       source configuration to the deck label its
+                       compacted form ends with, which is right for the
+                       labels that really are abbreviations and wrong
+                       for a card that was nicknamed something else.
+
+                       Only LS term labels can be matched against an LS
+                       deck. But a level designated in JK or pair
+                       coupling still writes its parent terms inside
+                       the configuration -- 4f2.(3F<2>).6p beside the
+                       pair label (2,3/2)* -- and the last of those is
+                       exactly the term RCE prints in brackets in its
+                       own label, f26p (3F) 4D. So a component is
+                       matched on the configuration, that parent and
+                       the final term separately, to whatever depth the
+                       source names them, and the target's components
+                       are added up over the rest. Only a level that
+                       gives neither an LS parent nor an LS term is
+                       matched on (parity, J, energy) alone. The
+                       program reports how many levels went each way.
 
                        --matchby says how a source level is tied to a
                        target level: heuristic, the default, uses the

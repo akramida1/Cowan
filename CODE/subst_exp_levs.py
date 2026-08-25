@@ -68,10 +68,26 @@ scheme rather than a second component.
 The percentages are read as **intensity** per cent, which is what a
 published table quotes, and the deck's signed amplitudes are squared to
 meet them.  A component with labels and no percentage is taken as 100.
-Only LS labels can be matched against an LS deck, so a row whose
-leading component is written in JK or pair coupling gets no composition
-at all and is matched on (parity, J, energy); the report says how many
-of them there were.
+
+A configuration is resolved against the deck's own labels through
+**IN36**, where the configurations are written out in full: RCE
+abbreviates a configuration from the left to fit six columns and no
+rule recovers the missing digits from the label alone, so the card
+whose subshells the source names is the card it means.  IN36 is looked
+for beside the target deck and then in the directory above it; without
+one, a source configuration falls back on matching the deck label its
+compacted form ends with.
+
+Only LS labels can be matched against an LS deck.  But a component
+designated in JK or pair coupling still writes its **parent terms**
+inside the configuration -- `4f2.(3F<2>).6p` beside `(2,3/2)*` -- and
+the last of those is exactly the term RCE prints in brackets in its own
+label, `f26p   (3F) 4D`.  So a component is matched on the
+configuration, that parent and the final term separately, to whatever
+depth the source gives them, and the target's components are added up
+over the rest.  A row whose leading component gives neither an LS
+parent nor an LS term gets no composition at all and is matched on
+(parity, J, energy); the report says how many went each way.
 
 Three reports go to standard output when the run is done: the matches
 worth checking by hand, any two levels of one J that came out with the

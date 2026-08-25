@@ -3,7 +3,9 @@
 # Re-run RCG with a substituted set of parameters and print the new level
 # list.  The Unix counterpart of update11.bat.
 #
-#   update11 [file]     the argument, if any, is handed to s11
+#   update11 [2|auto|folder]    the argument, if any, is handed to s11;
+#                               with none, s11 is asked for "auto" and
+#                               takes the number of parity sets from IN36
 #
 # The steps are s11's, RCG's and printout's; the only thing this adds is
 # the OUTGINE shuffle around them.  OUTGINE is RCG's deck for RCE, and RCG
@@ -29,6 +31,12 @@ die() {
 [ -f OUTGINE ] || die "no OUTGINE in $(pwd); run RCG first"
 
 cp OUTGINE OUTGINE.BAK || die "could not back up OUTGINE"
+
+# With nothing typed, s11 takes the number of parity sets from IN36
+# ("auto"): a deck of both parities gets both sets substituted without the
+# trailing 2 the Perl needed.  An explicit 2, or a folder, still goes
+# through.
+[ $# -gt 0 ] || set -- auto
 
 "$here/s11" "$@"      || die "s11 failed; OUTGINE.BAK holds the original OUTGINE"
 "$here/rcg"           || die "RCG failed; OUTGINE.BAK holds the original OUTGINE"

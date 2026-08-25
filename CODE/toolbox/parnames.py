@@ -117,7 +117,7 @@ def resolve(parameters, cards, shells):
                              key=_key(order.index(current), 0, '0')))
             continue
         ci = _CI.match(name)
-        if ci and parameter.configurations:
+        if ci and (parameter.configurations or _ci_codes(ci, order)):
             out.append(_ci(name, ci, parameter, by_slot, order))
             continue
         if current is None:
@@ -207,15 +207,21 @@ def _single(name, label, slots, anchor, nconf):
 def _ci(name, m, parameter, by_slot, order):
     """A configuration-interaction integral: `120D1112`.
 
-    The two configurations come from RCEOUT's own columns rather than
-    from the two code characters, which are alphanumeric once a run has
-    more than nine configurations (`FOR/RCE20KD.F:1505-1512`).
+    The two configurations come from RCEOUT's own columns where the
+    file has them, rather than from the two code characters, which are
+    alphanumeric once a run has more than nine configurations
+    (`FOR/rcg11kd.f:6308-6322`).  OUTGINE has no such columns, so there
+    the characters are decoded instead -- they are the configurations'
+    serial numbers within the parity set, which is what `order` holds.
     """
     rank, letter = int(m.group(2)), m.group(3)
     n1, n2, n3, n4 = (int(m.group(i)) for i in range(4, 8))
-    left, right = parameter.configurations
-    left = _configuration_of(left, order, parameter)
-    right = _configuration_of(right, order, parameter)
+    if parameter.configurations:
+        left, right = parameter.configurations
+        left = _configuration_of(left, order, parameter)
+        right = _configuration_of(right, order, parameter)
+    else:
+        left, right = _ci_codes(m, order)
     a, b = sorted((n1, n2))
     c, d = sorted((n3, n4))
     shells = _canonical((_slot(by_slot[left], a, name, left),
@@ -226,6 +232,33 @@ def _ci(name, m, parameter, by_slot, order):
     return Named(raw=name, kind='R', rank=rank, shells=shells,
                  configurations=(left, right), exchange=letter == 'E',
                  key=key)
+
+
+def _ci_codes(m, order):
+    """The two configurations a CI name encodes, or None if it cannot.
+
+    RCG writes the serial number of each configuration as one printable
+    character: `0`-`9` for 0-9, `A`-`Z` for 10-35, and one character per
+    number from 36 up, with `*` standing for everything past 188
+    (`FOR/rcg11kd.f:6308-6322`).  A `*`, or a number the parity set does
+    not have, means the name cannot be decoded, and the caller then
+    treats it as the single-configuration parameter it is not -- which
+    raises rather than mislabels.
+    """
+    out = []
+    for character in m.group(1):
+        if character == '*':
+            return None
+        if character.isdigit():
+            number = ord(character) - 48
+        elif 'A' <= character <= 'Z':
+            number = ord(character) - 55
+        else:
+            number = ord(character) - 61
+        if not 1 <= number <= len(order):
+            return None
+        out.append(order[number - 1])
+    return tuple(out)
 
 
 def _canonical(shells):

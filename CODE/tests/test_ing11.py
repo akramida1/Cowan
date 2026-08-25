@@ -49,8 +49,10 @@ def test_kcpld_says_yes_with_a_zero_and_true_jj_with_an_eight():
     m = ing11.read_main(W70_MAIN)
     assert m.true_jj
     assert m.couplings == ['LS', 'JJ', 'TRUEjj']
-    # Couplings 3-7 are gated by NLSMAX as well, and W70 leaves it blank.
-    assert m.nlsmax == 0
+    # Couplings 3-7 are gated by NLSMAX as well.  W70 leaves it blank,
+    # which since 2026 reads as 999 and permits them; W70 asks for none
+    # of them anyway, its KCPLD digits 3-7 all being 1.
+    assert m.nlsmax == 999 and m.nlspch == 0
 
 
 def test_a_hundred_configurations_are_read_from_the_overflow_field():
@@ -167,6 +169,20 @@ def test_the_jk_deck_asks_for_lsjk_instead_of_jj():
     m = deck('Pr3/JK').main
     assert m.couplings == ['LS', 'LSJK']
     assert not m.true_jj
+
+
+def test_a_blank_nlsmax_permits_couplings_3_to_7_and_a_punched_zero_does_not():
+    # `rcg11kd.f:897-910` reads columns 23-25 as A3: blank is 999, "no
+    # limit", and only a punched 0 switches couplings 3-7 off.  The card
+    # here asks for LS and LSJK, as the JK deck does.
+    card = ('    1   -182121818182 ' + '   '
+            + '     0111011 1 00000000 0 1000.0000')
+    blank = card
+    assert ing11.read_main(blank).couplings == ['LS', 'LSJK']
+    assert ing11.read_main(blank).nlsmax_effective is None
+    zero = card[:22] + '  0' + card[25:]
+    assert ing11.read_main(zero).couplings == ['LS']
+    assert ing11.read_main(zero).nlsmax_effective == 0
 
 
 def test_nlsmax_of_999_and_nocset_both_mean_no_limit():

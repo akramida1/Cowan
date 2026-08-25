@@ -14,8 +14,9 @@ few seconds instead of a walk through 122 MB per coupling.
 """
 
 from dataclasses import dataclass, field as _field
+from pathlib import Path
 
-from . import designate, genealogy, in36, ing11, levels, outg11
+from . import designate, files, genealogy, in36, ing11, levels, outg11
 from . import parnames, rce
 
 
@@ -29,7 +30,10 @@ class Case:
 
     `parent` is the folder to take IN36 from, for a sub-folder that
     carries only the files RCG and RCE rewrite -- the `JK/` arrangement
-    the author uses to get a second coupling out of the same fit.
+    the author uses to get a second coupling out of the same fit.  It
+    need not be given: a folder with no IN36 of its own falls back to
+    the directory above it (`_in36_folder`), which is that same
+    arrangement seen from inside the sub-folder.
     """
 
     folder: object
@@ -44,6 +48,8 @@ class Case:
     blocks: dict = _field(default_factory=dict)     # (kset, J) -> JBlock
     genealogy: object = None
     csets: list = _field(default_factory=list)      # rce.Cset
+    starting: dict = _field(default_factory=dict)   # OUTGINE's parameters,
+                                                    # where RCE has not run
     identified: list = _field(default_factory=list)
     unlabelled: set = _field(default_factory=set)   # (coupling, kset, J) that
                                                     # RCG printed in LS only
@@ -63,7 +69,8 @@ class Case:
         case = cls(folder=folder, couplings=tuple(couplings), parent=parent,
                    drop=tuple(drop))
         case.deck = ing11.read_ing11(folder=folder)
-        case.configurations = in36.read_in36(folder=parent or folder)
+        case.configurations = in36.read_in36(folder=_in36_folder(folder,
+                                                                parent))
         case.core = in36.common_closed_shells(case.configurations.configurations)
         by_label = case.configurations.by_label()
         # The order the slots hand out their `n` values: Cowan's own
@@ -90,6 +97,12 @@ class Case:
         case.blocks = levels.by_block(outg11.read_outg11(folder=folder),
                                       wanted)
         case.genealogy = genealogy.read_genealogy(folder=folder)
+        if not with_rce:
+            # The deck's own parameters, under the names RCG punched for
+            # RCE.  Without them a folder RCE has never run in can be
+            # reported on for its levels but not for its parameters,
+            # which are in ING11 all along but nameless there.
+            case.starting = rce.read_outgine(folder=folder)
         if with_rce:
             case.csets = rce.read_rceout(folder=folder)
             case._refine()
@@ -207,7 +220,8 @@ class Case:
             except outg11.Outg11Error:
                 if self.blocks[(kset, j)].nlevels != 1:
                     raise
-                # A block of one basis state is printed in LS and in
+                # An OUTG11 written before RCG printed the sections
+                # of a one-state block has this one in LS and in
                 # nothing else, so K was never written.  The level is
                 # that one basis state whatever the coupling, so it is
                 # named in LS rather than guessed at; `unlabelled`
@@ -228,13 +242,17 @@ class Case:
     def amplitudes(self, coupling, kset, j, eigenvector):
         """(|amplitude|, basis state) of one eigenvector, largest first.
 
-        RCG prints no section at all for a block of one basis state in
-        any coupling but LS: there is nothing to transform, so TMX is
-        never formed and the print loop is never reached.  The row is
-        recovered rather than dropped -- a one-dimensional block has
-        amplitude 1 by construction, and `genealogy.txt` prints its
-        chain whatever RCG left out.  A block of more than one state
-        with no section is a real gap and is reported as one.
+        RCG used to print no section for a block of one basis state
+        in any coupling but LS: there is nothing to transform, so TMX
+        was never formed and the print loop never reached.  It prints
+        them all now -- true jj first, with the LSJJRD fix, and then
+        couplings 3-7 -- but an OUTG11 written before that does not
+        have them, which is why this fallback stays.  The row is
+        recovered rather than dropped -- a
+        one-dimensional block has amplitude 1 by construction, and
+        `genealogy.txt` prints its chain whatever RCG left out.  A block
+        of more than one state with no section is a real gap and is
+        reported as one.
         """
         block = self.blocks[(kset, j)]
         try:
@@ -250,13 +268,29 @@ class Case:
         return weights
 
     def parameters(self, kset):
-        """The fitted parameters of one parity set, under readable names."""
+        """The parameters of one parity set, under readable names."""
         if kset not in self._named:
-            cset = self.cset(kset)
             self._named[kset] = parnames.resolve(
-                cset.parameters, self.deck.set(kset),
+                self.parameter_source(kset), self.deck.set(kset),
                 {c.label: self.shells[(c.kset, c.index)] for c in self.deck})
         return self._named[kset]
+
+    def parameter_source(self, kset):
+        """The parameter table the reports run on, in RCE's own order.
+
+        RCEOUT where RCE has run, and OUTGINE where it has not: the two
+        list the same parameters in the same order, and differ in that
+        OUTGINE's values are the deck's rather than a fit's and carry no
+        standard deviations.
+        """
+        if self.csets:
+            return self.cset(kset).parameters
+        try:
+            return self.starting[kset]
+        except KeyError:
+            raise CaseError('%s has no parameters for parity set %d: RCEOUT '
+                            'was not read and OUTGINE does not have it'
+                            % (self.folder, kset))
 
     def cset(self, kset):
         for cset in self.csets:
@@ -284,6 +318,27 @@ class Case:
             if set(card.labels) == set(labels):
                 return _factors(card)[3]
         return 1.0
+
+
+def _in36_folder(folder, parent):
+    """Where to read IN36 from: the run's own folder, or the one above.
+
+    RCG and RCE need no IN36 -- it is RCN's input -- so a sub-folder
+    holding a second coupling of the same fit does not have one, and the
+    author runs `printout` in it as readily as in the folder above.  An
+    explicit `parent` still wins, because a caller that names one has
+    decided; otherwise the directory above is tried, and only if it has
+    no IN36 either does the missing-file error come back naming the
+    run's own folder, which is where a reader would look first.
+    """
+    if parent is not None:
+        return parent
+    if files.resolve(files.IN36, folder, required=False) is not None:
+        return folder
+    above = Path(folder).resolve().parent
+    if files.resolve(files.IN36, above, required=False) is not None:
+        return above
+    return folder
 
 
 def _factors(card):

@@ -189,6 +189,35 @@ def test_summation_order_is_kept_where_an_intermediate_makes_it_visible():
 
 
 # --------------------------------------------------------------------------
+# a configuration with nothing open
+# --------------------------------------------------------------------------
+
+def _closed_shell_case(coupling):
+    """3s2.3p6.3d10 -- a Ni-like ground configuration, as WORK/Bi56 has.
+
+    GENPRT writes such a state with no field at all: a field describes an
+    open subshell and there is none.  Built here rather than read from a
+    reference run because no shipped case is closed-shell.
+    """
+    shells = [ing11.SlotShell(slot=1, n=3, l=0, occ=2),
+              ing11.SlotShell(slot=2, n=3, l=1, occ=6),
+              ing11.SlotShell(slot=3, n=3, l=2, occ=10)]
+    state = genealogy.State(number=1, cfg=1, label='1S) 1S', fields=())
+    return designate.designate(coupling, state, shells)
+
+
+def test_a_closed_configuration_is_one_state_and_its_term_is_1s():
+    found = _closed_shell_case('LS')
+    assert '%s | %s' % (found.configuration, found.term)         == '3s2.3p6.3d10 | 1S'
+
+
+def test_a_closed_configuration_in_a_jj_scheme_pairs_to_zero():
+    for coupling in ('JJ', 'TRUEjj'):
+        found = _closed_shell_case(coupling)
+        assert '%s | %s' % (found.configuration, found.term)             == '3s2.3p6.3d10 | (0,0)'
+
+
+# --------------------------------------------------------------------------
 # failure
 # --------------------------------------------------------------------------
 

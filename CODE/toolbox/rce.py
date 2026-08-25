@@ -15,6 +15,11 @@ Four files, each written by a `FORMAT` named below:
   * **RCEINP.HF** -- the starting (Hartree-Fock) parameter values, which
     is what the `LSF/HF` column of `params.txt` is divided by.
 
+A fifth file is read here although RCE does not write it: **OUTGINE**,
+RCG's input deck *for* RCE.  It is the only place a run that has never
+been through RCE carries its parameters under their names, and
+`read_outgine` is what lets `printout --no-rce` write params.txt at all.
+
 Every one of these has *two or more* layouts, chosen inside RCE by how
 large the energies are (`EMAX.LT.1000000.0` and friends).  The fields
 after the energies never move, so the layout is settled here by the
@@ -27,6 +32,7 @@ from dataclasses import dataclass, field
 from . import files
 from .fortfmt import read_f, read_i, write_f_wide
 
+OUTGINE = 'OUTGINE'
 RCEOUT = 'RCEOUT'
 RCEINP = 'RCEINP'
 RCEINP_HF = 'RCEINP.HF'
@@ -646,4 +652,121 @@ def read_hf(path=RCEINP_HF, folder=None):
             out[kset], i = _read_parameters(lines, i)
         else:
             i += 1
+    return out
+
+
+# --------------------------------------------------------------------------
+# OUTGINE -- the parameters of a run RCE has not seen
+# --------------------------------------------------------------------------
+
+# RCG writes one section per parity set in SUBROUTINE RCEINP
+# (`FOR/rcg11kd.f:15704-15855`).  Only four of its records are wanted
+# here, and each is on a 10-column grid:
+#
+#   `(4I5,F10.3,2I5,F10.4)`  the section head, which `_is_control`
+#                            recognises exactly as it does RCEOUT's
+#   `(A8,2X,6(A6,A4))` +     the spectrum and the configuration names
+#     `(7(A6,A4))`
+#   `(7A10)`   `:15739`      the parameter names, NPAR of them
+#   ...                      the eigenvalues and their indices, per J
+#   `(7I10)`   `:15833`      MULTQQ, the least-squares flag per parameter
+#   `(7F10.4)` `:15835`      XMAX, all zero
+#   `(7A10)`   `:15843`      the parameter values, as text
+#   `(3F10.1,F5.2,I5,F10.3,F10.2,2F5.2,I2)`   the convergence card
+#   `(4I5,...)` with -1      the section terminator
+#
+# The three parameter records are the last three blocks before the
+# convergence card, so they are found by counting back from the
+# terminator rather than by walking the eigenvalues, whose record count
+# depends on the number of J blocks and on which of the three energy
+# FORMATs RCG chose.  The all-zero block in the middle is checked, and
+# is what says the count landed where it was meant to.
+_OUTGINE_PER_LINE = 7
+_OUTGINE_WIDTH = 10
+
+
+def read_outgine(path=OUTGINE, folder=None):
+    """The parameters RCG punched for RCE: {cset: [Parameter]}.
+
+    The values are the ING11 ones -- already multiplied by the HR scale
+    factors of the parameter cards, exactly as RCEINP.HF's are -- and
+    the flag is MULTQQ, the group code RCE will fit them under.  There
+    are no standard deviations and no CI configuration columns; the two
+    configurations of a CI integral are decoded from its name instead
+    (`parnames._ci`).
+    """
+    if folder is not None:
+        path = files.resolve(path, folder, required=False)
+        if path is None:
+            return {}
+    lines = files.read_lines(path, width=140)
+    out, i = {}, 0
+    while i < len(lines):
+        if not _is_control(lines[i]):
+            i += 1
+            continue
+        names, i = _outgine_names(lines, i + 1)
+        end = i
+        while end < len(lines) and lines[end].strip() != '-1':
+            end += 1
+        if end >= len(lines):
+            raise RceError('%s: the section that begins with %s has no '
+                           'terminator' % (path, names[0] if names else '?'))
+        out[len(out) + 1] = _outgine_parameters(lines, end, names, path)
+        i = end + 1
+    return out
+
+
+def _outgine_names(lines, i):
+    """The parameter names of one section, and the line after them.
+
+    They follow the configuration names on the same 10-column grid, so
+    the two blocks are told apart by their content rather than by a
+    count: the parameter block starts a record of its own and its first
+    field is always the EAV of the first configuration, which no
+    configuration label can be.  It ends at the first eigenvalue, which
+    is the first line carrying a decimal point.
+    """
+    while i < len(lines) and not lines[i][:_OUTGINE_WIDTH].startswith('EAV'):
+        if not lines[i].strip() or '.' in lines[i]:
+            raise RceError('a parameter block with no EAV record')
+        i += 1
+    out = []
+    while i < len(lines) and lines[i].strip() and '.' not in lines[i]:
+        out.extend(_outgine_fields(lines[i]))
+        i += 1
+    return out, i
+
+
+def _outgine_fields(line):
+    """The non-blank 10-column fields of one record."""
+    return [f for f in (line[k:k + _OUTGINE_WIDTH].strip()
+                        for k in range(0, len(line), _OUTGINE_WIDTH)) if f]
+
+
+def _outgine_parameters(lines, end, names, path):
+    """The flags and the values, counted back from the terminator."""
+    n = -(-len(names) // _OUTGINE_PER_LINE)         # records per block
+    first = end - 1 - 3 * n                         # the convergence card is
+    if first < 0:                                   # the line before `first`
+        raise RceError('%s: a section too short to hold %d parameters'
+                       % (path, len(names)))
+    flags = _outgine_block(lines, first, n)
+    zeros = _outgine_block(lines, first + n, n)
+    values = _outgine_block(lines, first + 2 * n, n)
+    for block in (flags, zeros, values):
+        if len(block) != len(names):
+            raise RceError('%s: %d parameter names but a block of %d'
+                           % (path, len(names), len(block)))
+    if any(float(z) for z in zeros):
+        raise RceError('%s: the record before the parameter values is not '
+                       'the block of zeros it should be' % path)
+    return [Parameter(name=name, flag=int(flag), value=float(value))
+            for name, flag, value in zip(names, flags, values)]
+
+
+def _outgine_block(lines, first, n):
+    out = []
+    for line in lines[first:first + n]:
+        out.extend(_outgine_fields(line))
     return out

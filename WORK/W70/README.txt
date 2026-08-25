@@ -41,15 +41,12 @@ THE RUN
 
 Work in a copy of this directory, not in the distribution.
 
-The commands below are written as they are typed on Windows.  On
-Linux and macOS type them in lower case -- rcn, rcn2, rcg, rce, and
-likewise for the utility codes -- and read `cp` wherever this file
-says `copy`.  Nothing else differs.
+The commands below are typed the same way on every platform.
 
-    RCN
-    RCN2
-    RCG
-    RCE
+    rcn
+    rcn2
+    rcg
+    rce
 
 RCN2 writes ING11 with no editing needed.  RCG reports
 

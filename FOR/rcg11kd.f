@@ -220,6 +220,32 @@ C         COEFFICIENTS 2.0261D+18, 2.6974D+13 AND 1.11995D+18 (S AND
 C         LAMBDA IN ANGSTROM) TO EVERY DIGIT THAT HANDBOOK PRINTS.
 C         SEE CODE/tests/test_coefficients.py.
 C
+C       - FIXED: A J BLOCK OF ONE BASIS STATE LOST ITS TRUE jj RECORD.
+C         SPRIN LEAVES SUCH A BLOCK AFTER ITS FIRST PASS - WITH ONE
+C         STATE THERE IS NOTHING TO TRANSFORM, SO THE SECOND PASS IS
+C         SKIPPED - AND IT USED TO LEAVE BEFORE THE TRUE jj PASS AS
+C         WELL, SO THE RECORD CALCFC HAD WRITTEN FOR IT STAYED ON THE
+C         SCRATCH UNIT AND EVERY LATER BLOCK READ THE RECORD OF THE
+C         BLOCK BEFORE IT.  WHERE THE ONE-STATE BLOCK WAS THE LAST OF
+C         THE RUN ONLY ITS OWN SECTION WAS MISSING (WORK/W70, J=11/2);
+C         WHERE IT WAS NOT, THE BLOCKS AFTER IT PRINTED "TRUE jj
+C         RECORD OUT OF STEP" AND THE RUN THEN STOPPED INSIDE UNPK1 ON
+C         A PACKED INDEX OUTSIDE THE MATRIX - WORK/ (Sn VIII) WITH
+C         KCPLD(8)=8 IN COLUMN 38 DID EXACTLY THAT, AND THE TRUNCATED
+C         OUTG11 IS WHAT THE PYTHON UTILITIES THEN COMPLAINED ABOUT.
+C         THE ONE-STATE BLOCK NOW TAKES ITS RECORD AND PRINTS ITS TRUE
+C         jj SECTION LIKE ANY OTHER, WHICH IS EXACT: THE ROTATION CAN
+C         ONLY CHANGE THE SIGN OF A SINGLE STATE, AND THE LABEL IS
+C         WHAT THE SECTION IS FOR.  THE RECORD IS TAKEN AND DISCARDED
+C         ON THE TERM-KEEP PATH (NOLSKP), WHICH LEAVES BY THE OTHER
+C         EARLY EXIT.  THE READ ITSELF IS NOW SUBROUTINE LSJJRD, WHICH
+C         UNPACKS THE MATRIX AT THE DIMENSION THE RECORD CARRIES
+C         RATHER THAN THE CALLER'S, SO A READER OUT OF STEP IS
+C         REPORTED INSTEAD OF STOPPING THE RUN.  THE ONLY CHANGE TO
+C         OUTPUT IS THE ADDED SECTION: ON Pr III, W70 AND Sn VIII
+C         TAPE2E AND OUTGINE ARE BYTE-IDENTICAL AND OUTG11 DIFFERS BY
+C         NOTHING ELSE.
+C
 C       - SPEED AND MEMORY REVISION.  AN 800 MB STATIC ARRAY REMOVED
 C         (A POINTER-NAME TYPO IN SPRIN/MUPOLE), THE LINE SORT MADE
 C         O(N LOG N) (MSORTX), THE TWO CUBIC LOOPS OF CALCFC REPLACED
@@ -1572,10 +1598,45 @@ C       ENDIF
         WRITE (IW,30) PUR, (CT4(N,1), N=1,NNN)
    30   FORMAT (13X,8H PURITY=,F5.3,2X,11F9.5/(28X,11F9.5))
       ENDIF
-  288 IF (NOLSKP.NE.0) GO TO 398
+  288 IF (NOLSKP.NE.0) GO TO 2891
       IF ((KCPL1-KCPL).NE.0) GO TO 287
-  289 IF ((NLS-1).LE.0) GO TO 400
-      GO TO 300
+C
+C     A. Kramida 2026: a one-state block never takes the second pass --
+C     there is nothing to transform -- and so used to leave SPRIN here,
+C     with the true jj record CALCFC wrote for it still sitting on
+C     IJJU.  That file is read strictly sequentially, so from such a
+C     block onwards every other one picked up the record of the block
+C     before it.  On WORK (Sn VIII) with KCPLD(8)=8 the J=11/2 block of
+C     the first set, 4d7, is that single state: the second set then came
+C     out with no true jj sections at all, three RECORD OUT OF STEP
+C     messages, and finally a STOP inside UNPK1 when a packed index of
+C     the J=5/2 matrix fell outside the J=7/2 one.  The pass is entered
+C     instead, so the record is consumed and the block gets its section
+C     like any other.  That is exact for NLS=1: one state can only have
+C     its sign changed by the rotation, and the label -- which is all
+C     the section carries that the LS one does not -- is the FIDJ2 of
+C     the record.
+C     The single pass leaves the one vector in C whichever coupling it
+C     printed, so VECT is set from it and both branches of the product
+C     at 287 read the same number.  It is set on every way out of here
+C     and not only on the way into that pass: SPRN37 reads VECT too,
+C     and a one-state block reaches SPRN37 as well now that CPL37
+C     writes its record, so otherwise it would print there the vector
+C     of the block before this one.
+  289 IF ((NLS-1).GT.0) GO TO 300
+      VECT(1,1)=C(1,1)
+      IF (KPAR.NE.4.OR.IJJROT.EQ.0.OR.KCPL1.EQ.8) GO TO 400
+      GO TO 287
+C
+C     A. Kramida 2026: the term-keep card (NOLSKP, label 90 of the main
+C     program) leaves this block with an incomplete LS basis, so LSJJRT
+C     will have refused it and its record carries Cowan's J1J2 matrix
+C     with blank labels.  There is no true jj output to make from it,
+C     but the record still has to come off the file, for the reason
+C     given above.
+ 2891 IF (KPAR.EQ.4.AND.IJJROT.NE.0.AND.KCPL1.NE.8)
+     1  CALL LSJJRD (IJJU,TMX,SCRJ8J,NLSJ,IOKJJ,IERJJ)
+      GO TO 398
 C
 C          A. Kramida 2026: THE TRUE jj PASS (KCPL1=8).
 C
@@ -1598,14 +1659,15 @@ C     ENERGY reloads it from unit 3 after every call.
 C
 C     One IJJU record per block, in the order CALCFC wrote them, and
 C     KPAR=4 brings us here exactly once per block -- so the two streams
-C     stay in step provided every record is consumed.  Hence the reads
-C     happen before any of the tests that can abandon the pass.
+C     stay in step provided every record is consumed.  Hence the read
+C     happens before any of the tests that can abandon the pass, and
+C     hence also the two entries above, at 289 and 2891, which are the
+C     blocks that have no true jj section to print but must still take
+C     their record off the file.
 C
   287 IF (KPAR.NE.4.OR.IJJROT.EQ.0.OR.KCPL1.EQ.8) GO TO 400
-      READ (IJJU,END=297,ERR=297) IOKJJ,SCRJ8J,NLSJ,NSBJ,
-     1  (((NJJST(K1,L,I),K1=1,4), I=1,NSBJ), FIDJ2(L), L=1,NLSJ)
-      IMSQ=NLS*NLS
-      CALL UNPK1(IJJU,NLS,NLS,TMX,KMX,KMX,IMSQ,MAXBC)
+      CALL LSJJRD (IJJU,TMX,SCRJ8J,NLSJ,IOKJJ,IERJJ)
+      IF (IERJJ.NE.0) GO TO 297
       IF (IOKJJ.EQ.0) GO TO 400
       IF (NLSJ.NE.NLS.OR.SCRJ8J.NE.SCRJ8) THEN
         WRITE (IW,36) SCRJ8J,NLSJ,SCRJ8,NLS
@@ -1930,7 +1992,11 @@ c     +  ,DUMEE2(KEE2)                                                    ! A. K
 c                                                                        ! comment the line with DUMEE2
 C
       K=KK
-  100 IF (NOSUBC.LE.1.OR.NLS.LE.1.OR.NLS.GT.NLSMAX) GO TO 940
+C     A. Kramida 2026: NLS=1 dropped from this test.  CPL37 now writes
+C     the record of a one-state block like any other, so it is read and
+C     its section printed here; the level had no name in any coupling
+C     but LS before.
+  100 IF (NOSUBC.LE.1.OR.NLS.GT.NLSMAX) GO TO 940
 C     A. Kramida 2026: return at once if no coupling 3-7 was asked for.
 C     Blank columns 23-25 now mean "no limit" instead of 0 (label 105 of
 C     the main program), so the NLSMAX test above no longer catches the
@@ -9940,7 +10006,14 @@ C
 C        CALC TRANSFORMATION MATRICES FROM LS (KCPL=1) OR JJ (KCPL=2) TO
 C               FIVE ADDITIONAL COUPLINGS (KCPL1=3,4,5,6,7)
 C
-  100 IF (NOSUBC.LE.1.OR.NLS.LE.1) GO TO 980
+C     A. Kramida 2026: a block of one basis state goes through like any
+C     other.  There is nothing to recouple in a 1x1 matrix, but the K
+C     (or K and Q) it carries is what names the level in couplings 3-7,
+C     and skipping the block left it named in LS alone -- the same gap
+C     the one-state true jj block had.  SPRN37, which reads what is
+C     written below, and the skip over these records in RCEINP were
+C     relaxed with this, so the IC stream stays in step by construction.
+  100 IF (NOSUBC.LE.1) GO TO 980
       IF (NLS.GT.NLSMAX) GO TO 980
       KCPL1=3
       IF (KCPL.EQ.1) GO TO 101
@@ -15616,7 +15689,9 @@ C  ********************************************************
    15 FORMAT (' END CALC OF MATRIX',I3,' OF',I3,';   TIME=',
      1  F9.2,',   SIZE=',I5,',   NPARS=',I5)
       IF (ISPACE.EQ.0) GO TO 400
-      IF (NLS.EQ.1) GO TO 400
+C     A. Kramida 2026: a one-state block has these records now, so the
+C     skip covers it too.  Nothing written on unit 2 changes; only the
+C     position of unit IC does.
       IF (NLS.GT.NLSMAX) GO TO 400
       DO 1232 I=1,ISPACE
         ICPTR=ICPTR+2
@@ -17104,6 +17179,43 @@ C
   700     CONTINUE
   800   CONTINUE
   900 CONTINUE
+      RETURN
+      END
+C
+      SUBROUTINE LSJJRD(LU,TMX,SCRJ8J,NLSJ,IOKJJ,IERR)
+C
+C          A. Kramida 2026.  TAKE ONE TRUE jj RECORD PAIR OFF THE
+C          SCRATCH UNIT CALCFC WROTE.
+C
+C          THE UNIT CARRIES ONE PAIR PER J BLOCK -- THE LABELS AND THE
+C          jj STATES, THEN THE PK1-PACKED TRANSFORMATION MATRIX -- IN
+C          THE ORDER CALCFC PRODUCED THEM, AND ITS READERS ARE PURELY
+C          SEQUENTIAL.  A PAIR THAT IS NOT TAKEN OFF PUTS EVERY LATER
+C          BLOCK ON THE MATRIX OF THE BLOCK BEFORE IT, SO SPRIN CALLS
+C          THIS ONCE FOR EVERY BLOCK IT SEES, INCLUDING THE ONES IT
+C          PRINTS NO TRUE jj SECTION FOR.
+C
+C          THE MATRIX IS UNPACKED AT THE DIMENSION THE RECORD ITSELF
+C          CARRIES, NOT AT THE CALLER'S.  A CALLER OUT OF STEP THEN
+C          GETS ITS NLSJ BACK AND CAN SAY SO; BEFORE, UNPK1 WAS HANDED
+C          THE WRONG DIMENSION AND STOPPED THE RUN WHEREVER A PACKED
+C          INDEX HAPPENED TO FALL OUTSIDE THE CALLER'S MATRIX.
+C
+C          IERR = 0 RECORD READ, 1 END OF FILE OR READ ERROR.  ON
+C          IERR=1 NOTHING BUT IERR IS DEFINED.
+C
+      INCLUDE 'rcgpar.f'
+      DIMENSION TMX(KMX,KMX)
+      INCLUDE 'LSJJID.F'
+C
+      IERR=0
+      READ (LU,END=100,ERR=100) IOKJJ,SCRJ8J,NLSJ,NSBJ,
+     1  (((NJJST(K1,L,I),K1=1,4), I=1,NSBJ), FIDJ2(L), L=1,NLSJ)
+      IMSQ=NLSJ*NLSJ
+      CALL UNPK1(LU,NLSJ,NLSJ,TMX,KMX,KMX,IMSQ,MAXBC)
+      RETURN
+C
+  100 IERR=1
       RETURN
       END
 C

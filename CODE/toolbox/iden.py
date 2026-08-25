@@ -275,8 +275,9 @@ def _label(case, coupling, one):
     try:
         rows = block.section(coupling).rows
     except outg11.Outg11Error:
-        # A block of one basis state gets no section but LS's; the level
-        # is that one state, so its label is the one row LS printed.
+        # An OUTG11 written before RCG printed the sections of a
+        # one-state block has none for it but LS; the level is that
+        # one state, so its label is the one row LS printed.
         rows = block.section('LS').rows
     weights = case.amplitudes(coupling, one.kset, one.j, one.rcg)
     row = rows[weights[0][1] - 1]

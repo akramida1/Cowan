@@ -91,11 +91,16 @@ HANDOFF.md
 .claude/
 
 # Test cases
-WORK/Pr3_2026_v0
+WORK/Pr3_2026_v0/
+WORK/Bi56/
 
 # Task reference materials
 Handbook/
 ASD_syntax_examples.txt
+
+# Development builds
+FOR/*.exe
+FOR/gfortran_out.txt
 
 # Unix builds
 # gfortran -o leaves no suffix, so CODE/unix/build.sh puts the four

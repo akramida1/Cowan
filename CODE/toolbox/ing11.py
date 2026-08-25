@@ -68,7 +68,8 @@ class MainCard:
     nsconf: tuple = ((0, 0, 0), (0, 0, 0))   # [set][0..2], 1-based in Fortran
     iabg: int = 0
     iv: int = 0
-    nlsmax: int = 0
+    nlsmax: int = 0                 # as RCG holds it: blank reads 999
+    nlspch: int = 0                 # what was actually punched there
     nlt11: int = 0
     nevmax: int = 0
     kcpld: tuple = (0,) * 9
@@ -105,8 +106,12 @@ class MainCard:
 
         Couplings 3 to 7 are gated by NLSMAX as well as by their KCPLD
         digit: a J block with more than NLSMAX basis states gets none of
-        them (`:1739`, `:9619`, `:14993`), and NLSMAX blank means none
-        at all.  This list is therefore what the deck *asks* for; what a
+        them (`:1739`, `:9619`, `:14993`).  Since 2026 columns 23-25 are
+        a permission rather than a requirement -- blank reads as 999 and
+        permits them, and only a punched 0 forbids them
+        (`rcg11kd.f:897-910`, `:955-978`) -- which is what `nlsmax`
+        already holds, blank having been turned into 999 on the way in.
+        This list is therefore what the deck *asks* for; what a
         particular block actually carries is a question for `outg11.py`.
         """
         out = []
@@ -119,7 +124,12 @@ class MainCard:
 
     @property
     def nlsmax_effective(self):
-        """NLSMAX as RCG uses it: 999 means no limit (`:756-762`)."""
+        """NLSMAX as RCG uses it: 999 means no limit (`:977-978`).
+
+        A blank field is already 999 here, so it lifts the limit too;
+        a punched 0 is a limit of 0, which is what forbids couplings
+        3-7 outright.
+        """
         if self.nlsmax == 999 or (self.nocset and self.nlsmax):
             return None                     # KMX, i.e. every block qualifies
         return self.nlsmax
@@ -328,7 +338,8 @@ def read_main(card):
         nsconf=(set1, set2),
         iabg=read_i(c[20:21]),
         iv=read_i(c[21:22]),
-        nlsmax=read_i(c[22:25]),
+        nlsmax=_nlsmax(c[22:25]),
+        nlspch=read_i(c[22:25]),
         nlt11=read_i(c[25:27]),
         nevmax=read_i(c[27:30]),
         kcpld=tuple(read_i(c[30 + i:31 + i]) for i in range(9)),
@@ -344,6 +355,16 @@ def read_main(card):
         isenior=read_i(c[80:82]),
         ipgen=read_i(c[82:84]),
         raw=card)
+
+
+def _nlsmax(field):
+    """NLSMAX as RCG holds it after reading columns 23-25.
+
+    RCG reads the field as A3 and a blank one becomes 999, "no limit"
+    (`rcg11kd.f:897-910`).  Only an explicitly punched 0 switches
+    couplings 3-7 off, and `nlspch` is what tells the two apart.
+    """
+    return 999 if not field.strip() else read_i(field)
 
 
 def read_config_card(card, kset, index):

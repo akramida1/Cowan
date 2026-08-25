@@ -135,6 +135,16 @@ def eigenvalue(blocks, one):
     return (one.level.e_calc, one.level.e_calc)
 
 
+def order_key(blocks, one):
+    """The ordering key of every printed level list: the parity set,
+    then `eigenvalue` above.  `printout` and `conv_out` must sort by
+    this one key, or their level lists -- and so `conv_out`'s Lev_# --
+    disagree wherever two eigenvalues are equal, which is not rare: 81
+    tied values in the Pr III case, one of them shared by five levels.
+    """
+    return (one.kset,) + eigenvalue(blocks, one)
+
+
 def unfitted(blocks, kset):
     """Stand-in levels for a run with no RCE output: RCG's own eigenvalues.
 

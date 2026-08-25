@@ -123,7 +123,9 @@ SPECS = (
 
         CM -- cascade matrix.  Not a line list at all but a square
         table of A(i->j) over the levels, comma separated.  A matrix
-        has one axis, so only the first entry of couplings is used."""),
+        has one axis, so only the first entry of couplings is used,
+        and the level list gains the five columns n, l, occ, S and L,
+        which classify a level for this model."""),
 
     S('temperature', parfile.FLOAT, None, minimum=0.0, description="""
         Effective temperature, in the unit of the run -- 10^3 cm-1 in
@@ -471,13 +473,14 @@ def _nl(text):
 class Lev:
     """One level: where it came from, what it is called, what it does."""
 
-    __slots__ = ('one', 'kset', 'j', 'rcg', 'energy', 'number',
+    __slots__ = ('one', 'kset', 'j', 'rcg', 'key', 'energy', 'number',
                  'ar_tot', 'aa_tot', 'e_ai', 'dr', 'channels')
 
-    def __init__(self, one, energy):
+    def __init__(self, one, key):
         self.one = one                  # levels.Identified
         self.kset, self.j, self.rcg = one.kset, one.j, one.rcg
-        self.energy = energy            # the RCG eigenvalue
+        self.key = key                  # levels.eigenvalue, tie-break and all
+        self.energy = key[0]            # the RCG eigenvalue, for the physics
         self.number = 0                 # Lev_#, filled once all are known
         self.ar_tot = 0.0               # sum of A over the lines from here
         self.aa_tot = 0.0
@@ -552,8 +555,8 @@ def _collect(case, options):
         if not found:
             found = levels.unfitted(case.blocks, kset)
         for one in found:
-            energy = levels.eigenvalue(case.blocks, one)[0]
-            out[(kset, one.j, one.rcg)] = Lev(one, energy)
+            out[(kset, one.j, one.rcg)] = Lev(
+                one, levels.eigenvalue(case.blocks, one))
     return out
 
 
@@ -566,11 +569,16 @@ def _number_levels(found, options):
     glance.  The cascade matrix is the exception: it is a single square
     matrix over all levels, so its rows run in energy order across both
     sets.
+
+    Both branches carry `levels.eigenvalue`'s own tie-break, so that two
+    levels of one set with the same printed eigenvalue -- common, RCG
+    printing it to two decimals -- fall here in the order `printout`
+    gives them, which is `levels.order_key`.
     """
     if options.model == CM:
-        order = sorted(found, key=lambda x: (x.energy, x.kset, x.j))
+        order = sorted(found, key=lambda x: x.key + (x.kset,))
     else:
-        order = sorted(found, key=lambda x: (x.kset, x.energy, x.j))
+        order = sorted(found, key=lambda x: (x.kset,) + x.key)
     order = [one for one in order if one.e_calc <= options.upper_bound]
     for number, one in enumerate(order, 1):
         one.number = number
@@ -738,7 +746,12 @@ def _level_header(options):
         out.append('Lande_g')
     if options.ai:
         out.extend(['Eai', 'AA_tot'])
-    out.extend(['AR_tot', 'n', 'l', 'occ', 'S', 'L'])
+    out.append('AR_tot')
+    # n, l, occ, S and L classify a level for the cascade-matrix model and
+    # are of no use to the others, so they are written only with CM.  The
+    # Perl wrote them in every model.
+    if options.model == CM:
+        out.extend(['n', 'l', 'occ', 'S', 'L'])
     for at in range(1, options.components + 1):
         out.extend(['%%%d' % at, 'conf%d' % at, 'term%d' % at])
     return out
@@ -799,7 +812,10 @@ def _level_rows(case, order, coupling, options):
 
 
 def _components(case, coupling, one, options):
-    """The n, l, occ, S, L columns and then the eigenvector components."""
+    """The eigenvector components, after the n, l, occ, S, L columns.
+
+    Those five come first and only with model CM -- see `_level_header`.
+    """
     weights = case.amplitudes(coupling, one.kset, one.j, one.rcg)
     out = []
     for rank, (amplitude, state) in enumerate(weights[:options.components], 1):
@@ -807,12 +823,12 @@ def _components(case, coupling, one, options):
         if percent < options.min_percent and rank > 1:
             break
         found = case.designation(coupling, one.kset, one.j, state)
-        if rank == 1:
+        if rank == 1 and options.model == CM:
             n, l, occ = _outer_shell(found)
             s, big_l = _term_quantum_numbers(found)
             out.extend(['%s' % n, '%s' % l, '%s' % occ, s, big_l])
         out.extend(['%d' % percent, found.configuration, found.term])
-    if not out:
+    if not out and options.model == CM:
         out = ['', '', '', '', '']
     return out
 

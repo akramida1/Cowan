@@ -53,9 +53,9 @@ OUTG11.reference    RCG output
 
 Commands - run in an empty scratch directory holding INDIEL, IN36, IN2
 ----------------------------------------------------------------------
-    RCN                     # DIEL + preliminary + final RCN
-    RCN2                    # -> ING11, OUT2
-    RCG                     # -> OUTG11, TAPE2E, OUTGINE
+    rcn                     # DIEL + preliminary + final RCN
+    rcn2                    # -> ING11, OUT2
+    rcg                     # -> OUTG11, TAPE2E, OUTGINE
 
 For the optional DR rates, put the gcard on the front of ING11 after
 RCN2 and before RCG.  On Windows:

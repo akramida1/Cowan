@@ -118,3 +118,44 @@ def test_a_parameter_before_any_eav_is_an_error():
     with pytest.raises(ParNameError):
         parnames.resolve([rce.Parameter(name='ZETA 3', flag=0, value=0.0)],
                          deck.set(1), {c.label: [] for c in deck})
+
+
+# --------------------------------------------------------------------------
+# a CI name with no configuration columns beside it
+# --------------------------------------------------------------------------
+
+def test_a_ci_name_decodes_its_own_two_configurations():
+    # OUTGINE has no columns 58-71, so the two code characters are what
+    # is left.  RCG writes '0'-'9' for 0-9, 'A'-'Z' for 10-35 and one
+    # character per number above that (`FOR/rcg11kd.f:6308-6322`).
+    order = ['c%d' % i for i in range(1, 40)]
+    match = parnames._CI.match('1K0D1112')
+    assert parnames._ci_codes(match, order) == ('c1', 'c20')
+    assert parnames._ci_codes(parnames._CI.match('Aa0D1112'), order) \
+        == ('c10', 'c36')
+
+
+def test_a_ci_name_the_parity_set_cannot_hold_is_not_decoded():
+    # '*' stands for every serial number past 188, and a number the set
+    # does not have is a name from somewhere else; either way the caller
+    # is told nothing rather than the wrong thing.
+    order = ['c1', 'c2']
+    assert parnames._ci_codes(parnames._CI.match('*20D1112'), order) is None
+    assert parnames._ci_codes(parnames._CI.match('190D1112'), order) is None
+
+
+def test_the_ci_integrals_of_outgine_match_the_ones_rceout_names():
+    # The same run read both ways: RCEOUT's own columns, and OUTGINE's
+    # two characters.  They must name the same integrals.
+    folder = case('Pr3/JK')
+    deck = ing11.read_ing11(folder=folder)
+    confs = in36.read_in36(folder=folder.parent)      # JK/ has no IN36
+    core = in36.common_closed_shells(confs.configurations)
+    by = confs.by_label()
+    shells = {c.label: ing11.match_shells(c, by[c.label], core) for c in deck}
+    starting = rce.read_outgine(folder=folder)
+    named = parnames.resolve(starting[1], deck.set(1), shells)
+    integrals = [n for n in named if n.kind == 'R']
+    assert integrals and all(len(n.configurations) == 2 for n in integrals)
+    assert integrals[0].text == 'RD2(4f4f,4f6p)'
+    assert integrals[0].configurations == ('4f3', 'f26p')

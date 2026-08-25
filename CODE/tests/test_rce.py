@@ -154,3 +154,66 @@ def test_the_hartree_fock_values_read_in_the_same_shape():
 
 def test_a_run_without_rceinp_hf_is_not_an_error():
     assert rce.read_hf(folder=case('W70') / 'nothing-here') == {}
+
+
+# --------------------------------------------------------------------------
+# OUTGINE, the deck's parameters under RCE's names
+# --------------------------------------------------------------------------
+
+def _outgine(names, flags, values, spectrum='X1+', configurations=('2s',)):
+    """One OUTGINE section, in the records `read_outgine` counts on."""
+    def block(items, form):
+        return [''.join(form % x for x in items[k:k + 7])
+                for k in range(0, len(items), 7)]
+    head = ['    1   30    5   -6    0    0    0',
+            '    1    0    1    1     0.000    1    3    1.0000',
+            '%-8s  ' % spectrum + ''.join('%-10s' % c
+                                          for c in configurations)]
+    return (head + block(names, '%-10s')
+            + ['    1.0000    2.0000', '         1         2']
+            + block(flags, '%10d') + block([0.0] * len(names), '%10.4f')
+            + block(values, '%10.4f')
+            + ['       1.0       0.0      -1.0 0.00 1000',
+               '   -1'])
+
+
+def test_outgine_finds_the_parameters_by_counting_back(tmp_path):
+    # The three parameter records are the last three blocks before the
+    # convergence card, whatever the eigenvalues in between look like.
+    names = ['EAV 2s', 'F2(11)', 'ZETA 1', '120D1112'] * 3
+    values = [float(i) for i in range(12)]
+    path = tmp_path / 'OUTGINE'
+    path.write_text('\n'.join(_outgine(names, [-100] * 12, values)) + '\n')
+    got = rce.read_outgine(folder=tmp_path)
+    assert list(got) == [1]
+    assert [p.name for p in got[1]] == names
+    assert [p.value for p in got[1]] == values
+    assert all(p.flag == -100 for p in got[1])
+
+
+def test_outgine_refuses_a_section_whose_blocks_do_not_line_up(tmp_path):
+    # The all-zero record is the check that the count landed right.
+    lines = _outgine(['EAV 2s', 'F2(11)'], [-100, -100], [1.0, 2.0])
+    lines.insert(-2, '    9.0000    9.0000')
+    path = tmp_path / 'OUTGINE'
+    path.write_text('\n'.join(lines) + '\n')
+    with pytest.raises(rce.RceError):
+        rce.read_outgine(folder=tmp_path)
+
+
+def test_a_folder_with_no_outgine_is_not_an_error(tmp_path):
+    # printout --no-rce reports that it cannot write params.txt; it does
+    # not stop, because the level list needs none of this.
+    assert rce.read_outgine(folder=tmp_path) == {}
+
+
+def test_outgine_carries_the_ing11_values():
+    from toolbox import ing11
+    folder = case('Pr3/JK')
+    got = rce.read_outgine(folder=folder)
+    deck = ing11.read_ing11(folder=folder)
+    # The first card of parity set 1: EAV and the parameters after it,
+    # in the order RCG punched them.
+    card = deck.parameters[0][0]
+    values = [p.value for p in got[1][:len(card.values)]]
+    assert values == [round(v, 4) for v in card.values]

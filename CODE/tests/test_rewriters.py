@@ -20,6 +20,8 @@ import sys
 
 import pytest
 
+import s11 as s11_tool
+
 from conftest import PERL, case, perl_env
 from toolbox import files, ing11, rce
 
@@ -57,10 +59,18 @@ def perl(script, folder, *arguments):
 
 
 def copy(folder, tmp_path, *names):
-    """Put the named files of a reference run into a temporary directory."""
+    """Put the named files of a reference run into a temporary directory.
+
+    `conftest.case` gates on OUTG11, which says RCG has run; a folder
+    where RCE has not run as well is half a reference run, and a test
+    that wants RCEOUT out of it skips rather than fails.
+    """
     tmp_path.mkdir(parents=True, exist_ok=True)
     for name in names:
-        shutil.copy(str(files.resolve(name, folder)), str(tmp_path / name))
+        found = files.resolve(name, folder, required=False)
+        if found is None:
+            pytest.skip('%s has no %s (see its README.txt)' % (folder, name))
+        shutil.copy(str(found), str(tmp_path / name))
     return tmp_path
 
 
@@ -248,6 +258,45 @@ def test_s11_substitutes_one_parity_unless_asked_for_both(tmp_path):
     after_one = ing11.read_ing11(one / 'ing11')
     assert [c.raw for c in after_one.parameters[1]] \
         == [c.raw for c in original.parameters[1]]
+
+
+@pytest.mark.parametrize('name,parities', [
+    ('U90', 2), ('Pr3', 2), ('W70', 2), ('AI', 1), ('Forbid', 1),
+    ('AI/DIEL', 0),
+])
+def test_s11_auto_counts_the_parities_in_in36(work, name, parities):
+    """`auto` reads off what the trailing 2 used to say.
+
+    The decks that need both parity sets substituted are exactly the
+    ones whose IN36 holds both parities.  AI/DIEL is the third answer:
+    its shipped IN36 is the bare end card, `diel` writes the real one,
+    and until then IN36 cannot say -- which is 0 here and the fallback
+    in `main`.
+    """
+    folder = work / name
+    if not folder.is_dir():
+        pytest.skip('WORK/%s is not present' % name)
+    assert s11_tool.parity_sets(folder) == parities
+
+
+def test_s11_auto_substitutes_both_sets_when_in36_has_both(tmp_path):
+    """`s11 auto` beside a two-parity IN36 is `s11 2`."""
+    folder = case('U90')
+    mine = copy(folder, tmp_path / 'auto', 'ing11', 'RCEOUT', 'IN36')
+    theirs = copy(folder, tmp_path / 'two', 'ing11', 'RCEOUT')
+    automatic, explicit = run('s11.py', mine, 'auto'), run('s11.py', theirs, '2')
+    assert automatic.returncode == 0 and explicit.returncode == 0
+    assert 'both parities' in automatic.stdout
+    assert lines_of(mine / 'ing11') == lines_of(theirs / 'ing11')
+
+
+def test_s11_auto_falls_back_when_there_is_no_in36(tmp_path):
+    """A folder IN36 cannot answer for gets every set the deck has."""
+    mine = copy(case('U90'), tmp_path, 'ing11', 'RCEOUT')
+    out = run('s11.py', mine, 'auto')
+    assert out.returncode == 0
+    assert 'does not say how many parities' in out.stdout
+    assert 'parity set 1' in out.stdout and 'parity set 2' in out.stdout
 
 
 def test_s11_stops_when_rceout_does_not_match_the_deck(tmp_path):

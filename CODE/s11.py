@@ -10,10 +10,12 @@ one it started from.
 
 Usage:
 
-    s11 [2] [folder]
+    s11 [2|auto] [folder]
 
 With no argument only the first parity set is substituted, which is
-what the Perl did; `2` does both.  ING11 and RCEOUT are read from
+what the Perl did; `2` does both, and `auto` -- what `update11` asks
+for -- takes the number of parity sets from IN36, so that nothing has
+to be typed to match the deck.  ING11 and RCEOUT are read from
 `folder`, or from the working directory, and ING11 is rewritten in
 place with the previous deck kept as `ing11.bak`.
 
@@ -51,7 +53,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from toolbox import files, ing11, rce                           # noqa: E402
+from toolbox import files, in36, ing11, rce                     # noqa: E402
 
 BACKUP = 'ing11.bak'
 
@@ -137,15 +139,50 @@ def substitute(deck, csets, kset):
     return at
 
 
+def parity_sets(folder):
+    """How many parities the run has, from IN36.
+
+    RCN2 splits the configurations into a first and a second set by
+    parity, so the `2` that had to be typed after `s11` in the Perl
+    days is nothing but a count of the parities in IN36.  The Python
+    parses IN36 the way RCN itself does (`toolbox.in36`), so the count
+    can be read off instead of typed.
+
+    Returns 0 when IN36 cannot answer: a sub-folder holding only ING11
+    and RCEOUT, as `WORK/U90/reordered` does, or an IN36 that is the
+    bare end card and names no configuration, as `WORK/AI/DIEL`'s is
+    until `diel` writes the real one.  The caller then falls back to
+    substituting every set: the deck's own second set is empty when
+    there is only one parity, and `main` skips it.
+    """
+    path = files.resolve(files.IN36, folder, required=False)
+    if path is None:
+        return 0
+    return len(in36.parities(in36.read_in36(path).configurations))
+
+
 def main(argv):
-    both, folder = False, '.'
+    both, auto, folder = False, False, '.'
     for argument in argv:
         if argument == '2':
             both = True
+        elif argument == 'auto':
+            auto = True
         elif folder == '.':
             folder = argument
         else:
-            raise Usage('%r is neither the option 2 nor a folder' % argument)
+            raise Usage('%r is neither the option 2 nor auto nor a folder'
+                        % argument)
+
+    if auto and not both:
+        found = parity_sets(folder)
+        both = found != 1
+        print('IN36: one parity; substituting the first parity set.'
+              if found == 1 else
+              'IN36: both parities; substituting both parity sets.'
+              if found else
+              'IN36 does not say how many parities there are; '
+              'substituting every parity set the deck has.')
 
     path = files.resolve(files.ING11, folder)
     ending = files.line_ending(path)

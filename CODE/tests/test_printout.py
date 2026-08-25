@@ -259,3 +259,55 @@ def test_from_must_name_a_requested_coupling(tmp_path):
               '--couplings', 'LS', '--from', 'JJ=reordered')
     assert out.returncode == 2
     assert '--from' in out.stderr
+
+
+# --------------------------------------------------------------------------
+# a folder RCE has not run in
+# --------------------------------------------------------------------------
+
+def test_a_subfolder_takes_in36_from_the_folder_above():
+    # RCG and RCE need no IN36, so JK/ has none; printout run inside it
+    # reads the parent's rather than stopping.
+    one = Case.read(case('Pr3/JK'), couplings=('LS', 'LSJK'), with_rce=False)
+    assert len(one.configurations.configurations) == 39
+    assert one.card(1, 1).label == '4f3'
+
+
+@pytest.mark.slow
+def test_printout_runs_in_the_jk_folder_with_no_rce(tmp_path):
+    # Couplings 3-7 (LSJK is 5) and no RCEOUT, RCEINP.HF or OUTE: the
+    # levels are RCG's own and the parameters come out of OUTGINE.
+    out = run(case('Pr3/JK'), str(tmp_path / 'levels.txt'),
+              str(tmp_path / 'params.txt'), '--couplings', 'LS,LSJK',
+              '--no-rce')
+    assert out.returncode == 0, out.stderr
+    table = rows(tmp_path / 'levels.txt')
+    assert len(table) == 2 * 5626
+    assert {r[0] for r in table} == {'LS', 'LSJK'}
+    # Nothing is observed and nothing is fitted, so every level carries
+    # the calculated energy and the flag that says so.
+    assert all(r[3] == '*' and r[5] == '' for r in table)
+    parameters = rows(tmp_path / 'params.txt')
+    # No OUTE, so no standard deviation on any of them.  A row whose
+    # trailing columns are empty is written short, the file being read
+    # by spreadsheet as well as by code.
+    assert parameters and all(row[5] == '' for row in parameters)
+    # The HF column is the value divided by the scale factor of its
+    # card, so the ratio column is that factor; Eav is not scaled.
+    ratios = {row[8] for row in parameters if len(row) > 8 and row[8]}
+    assert ratios <= {'1.00000000', '0.85000000'}
+    eav = [row for row in parameters if row[3].startswith('Eav')]
+    assert eav and all(row[4] == row[7] for row in eav)
+    assert 'RCEINP.HF' in out.stdout
+
+
+@pytest.mark.slow
+def test_a_missing_rceout_is_the_no_rce_report_rather_than_an_error(tmp_path):
+    # No option given.  A folder RCG has run in and RCE has not is
+    # reported on as --no-rce reports, and says so, warning included.
+    out = run(case('Pr3/JK'), str(tmp_path / 'levels.txt'),
+              str(tmp_path / 'params.txt'), '--couplings', 'LS')
+    assert out.returncode == 0, out.stderr
+    assert 'RCEOUT' in out.stdout and '--no-rce' in out.stdout
+    assert 'RCEINP.HF' in out.stdout
+    assert rows(tmp_path / 'params.txt')

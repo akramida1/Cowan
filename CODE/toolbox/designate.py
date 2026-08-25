@@ -223,6 +223,10 @@ def designate(coupling, state, shells, outer=None, drop=()):
                ' '.join(str(s) for s in open_shells)))
 
     odd = bool(_parity_of(shells))
+    if not open_shells:
+        # A configuration with no open subshell has one state and no
+        # chain to walk; `_chain` would run off the end of the fields.
+        return _closed(coupling, shells, drop)
     if coupling == TRUEJJ:
         tokens, term = _true_jj(state, shells, open_shells, odd, drop)
     elif coupling in K_SCHEMES:
@@ -234,6 +238,28 @@ def designate(coupling, state, shells, outer=None, drop=()):
     tokens, canonical = _ordered(tokens)
     return Designation(Level(tokens=tokens, term=term, j=None),
                        canonical=canonical)
+
+
+def _closed(coupling, shells, drop):
+    """The designation of a closed-shell configuration: one state, 1S0.
+
+    `WORK/Bi56`'s Ni-like `3s2.3p6.3d10` is one, and GENPRT writes it as
+    a basis state with no field at all -- there is no open subshell for a
+    field to describe.  Everything couples to J=0, so the label is the
+    subshells alone and the term is `1S`, which is what RCG's own
+    eigenvector heading prints for it; in the jj schemes, whose term
+    column is a pair of J values, that is `(0,0)`.
+
+    `drop` could empty the label of this one configuration where it
+    empties no other, all its subshells being closed, so a label that
+    would come out blank keeps its subshells.
+    """
+    kept = _kept(shells, drop) or _kept(shells, ())
+    tokens = [Subshell(n=s.n, l=s.l, occ=s.occ) for s in kept]
+    term = (PairTerm(j1=0, j2=0) if coupling in (JJ, TRUEJJ)
+            else LSTerm(mult=1, l='S'))
+    return Designation(Level(tokens=tokens, term=term, j=None),
+                       canonical=True)
 
 
 def _kept(shells, drop):

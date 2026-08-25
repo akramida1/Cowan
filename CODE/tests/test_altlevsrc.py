@@ -22,7 +22,7 @@ import sys
 import pytest
 
 from conftest import WORK
-from toolbox import altlevsrc, explevs
+from toolbox import altlevsrc, explevs, in36
 
 CODE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -49,11 +49,15 @@ def pr3():
     return SOURCE, TARGET
 
 
-def prepare(tmp_path):
+def prepare(tmp_path, with_in36=True):
     source, target = pr3()
     tmp_path.mkdir(parents=True, exist_ok=True)
     shutil.copy(str(source), str(tmp_path / 'SRC'))
     shutil.copy(str(target), str(tmp_path / 'TGT'))
+    if with_in36:
+        # A real working directory has one, and it is where the
+        # configurations of the deck's labels are written out.
+        shutil.copy(str(WORK / 'Pr3' / 'IN36'), str(tmp_path / 'IN36'))
     return tmp_path
 
 
@@ -117,6 +121,65 @@ def test_the_parity_of_an_abbreviated_label():
     assert altlevsrc.parity_of_label('f26p') == 1
     assert altlevsrc.parity_of_label('f25d') == 0
     assert altlevsrc.parity_of_label('f6s2') == 1
+
+
+def test_the_parent_term_a_configuration_label_writes():
+    """The last term in brackets, which is the one RCG's label carries.
+
+    A J1J2 parent carries its J as well and the LS part of it is still
+    the parent an LS deck prints; a parent that is not LS at all is not
+    one this can use.
+    """
+    assert altlevsrc.parent_term('4f2.(3F<2>).6p') == '3F'
+    assert altlevsrc.parent_term('4f.(2F*).5d2.(3F)') == '3F'
+    assert altlevsrc.parent_term('4f.5d.(3F*).6s') == '3F'
+    assert altlevsrc.parent_term('4f3') == ''
+    assert altlevsrc.parent_term('4f2.(3H<4>).5f') == '3H'
+    assert altlevsrc.parent_term('4f2.((2,3/2)).6p') == ''
+
+
+def test_the_eight_character_label_splits_into_parent_and_term():
+    assert altlevsrc.split_label('(3F) 4D3') == ('3F', '4D')
+    assert altlevsrc.split_label('(2P) 2P') == ('2P', '2P')
+    assert altlevsrc.split_label('2P') == ('', '2P')
+
+
+def test_a_written_out_configuration_is_read_subshell_by_subshell():
+    assert altlevsrc.written_shells('4f2.(3F<2>).6p') == {(4, 3): 2.0,
+                                                          (6, 1): 1.0}
+    # No principal quantum number: not spelled out, so not usable here.
+    assert altlevsrc.written_shells('f26p') is None
+
+
+def test_the_deck_label_is_read_off_in36_where_there_is_one():
+    """IN36 says what a label means; the abbreviation only suggests it.
+
+    `f4p5` is Pr III's 4f4.5p5, which no rule recovers from the label,
+    and `f6s2`/`f7s2` differ only in a closed subshell the source may
+    leave out -- so a source that does leave it out fits both and is
+    told it fits neither.
+    """
+    index = altlevsrc.ConfIndex(_in36())
+    assert index.resolve('4f4.5p5') == 'f4p5'
+    assert index.resolve('4f2.(3F<2>).6p') == 'f26p'
+    assert index.resolve('4f.(2F*).5d2.(3F)') == 'f5d2'
+    assert index.resolve('4f.6s2') == 'f6s2'
+    assert index.resolve('4f.7s2') == 'f7s2'
+    assert index.resolve('4f') == ''
+    assert index.resolve('4f2.7h') == ''
+
+
+def test_the_parity_of_a_label_is_the_card_s_where_in36_is_there():
+    """`f4p5` reads as even and the deck has it odd -- the case the
+    majority vote of the fallback exists to survive."""
+    index = altlevsrc.ConfIndex(_in36())
+    assert altlevsrc.parity_of_label('f4p5') == 0
+    assert index.parity['f4p5'] == 1
+
+
+def _in36():
+    pr3()
+    return in36.read_in36(str(WORK / 'Pr3' / 'IN36'))
 
 
 def test_a_term_with_no_j_stands_for_every_j_it_has():
@@ -214,7 +277,7 @@ def test_labels_with_no_percentage_are_taken_as_the_whole_level(tmp_path):
     path = write(tmp_path / 'src.txt',
                  [['18693.65', '1/2', 'o', '4f3', '2P*']])
     deck, _ = read(path, ecol=1, jcol=2, pcol=3, confcol=4, termcol=5)
-    assert list(deck.levels())[0].vector == {'4f3,2P': 100.0}
+    assert list(deck.levels())[0].vector == {'4f3|*|2P': 100.0}
 
 
 def test_conf1_and_term1_override_the_bookkeeping_labels(tmp_path):
@@ -222,7 +285,7 @@ def test_conf1_and_term1_override_the_bookkeeping_labels(tmp_path):
                  [['18693.65', '1/2', 'o', '4f3', '*', '95', '2P*']])
     deck, _ = read(path, ecol=1, jcol=2, pcol=3, confcol=4, termcol=5,
                    perccol=6, term1col=7)
-    assert list(deck.levels())[0].vector == {'4f3,2P': 95.0}
+    assert list(deck.levels())[0].vector == {'4f3|*|2P': 95.0}
 
 
 def test_a_blank_configuration_in_a_later_triad_is_the_first_one(tmp_path):
@@ -231,7 +294,8 @@ def test_a_blank_configuration_in_a_later_triad_is_the_first_one(tmp_path):
                    '4D*']])
     deck, _ = read(path, ecol=1, jcol=2, pcol=3, confcol=4, termcol=5,
                    perccol=6, perc2col=7, conf2col=8, term2col=9)
-    assert list(deck.levels())[0].vector == {'4f3,2P': 95.0, '4f3,4D': 5.0}
+    assert list(deck.levels())[0].vector == {'4f3|*|2P': 95.0,
+                                             '4f3|*|4D': 5.0}
 
 
 def test_the_alternate_coupling_flag_makes_one_component_of_two(tmp_path):
@@ -268,7 +332,10 @@ def test_the_target_is_brought_into_intensity_per_cent():
     altlevsrc.normalize_target(deck)
     level = list(deck.levels())[0]
     assert level.vector == {'4f3,(2P) 2P': 96}
-    assert level.mvector == {'4f3,2P': pytest.approx(92.16)}
+    # Both the parent RCE writes in brackets and the final term are
+    # kept; `explevs.project` is what adds them up again, per source
+    # level, over whatever that level did not say.
+    assert level.mvector == {'4f3|2P|2P': pytest.approx(92.16)}
 
 
 def test_a_source_that_names_two_components_is_not_charged_for_ten():
@@ -295,6 +362,56 @@ def test_two_vectors_agreeing_on_one_state_in_intensity_settle_the_match():
     assert not explevs.distance_named({'a': 40.0}, {'a': 45.0})[1]
 
 
+def test_the_target_is_added_up_over_what_the_source_did_not_say():
+    """`explevs.project`, which is what makes one key space out of two.
+
+    The source names one component to the parent and no further, so
+    the target's share of it is every final term that parent has; it
+    names another to the final term and gives no parent, so that one
+    takes every parent.  The sharper key is served first, or the
+    blunter one would swallow the components it wanted.
+    """
+    theirs = {'f26p|3F|4D': 30.0, 'f26p|3F|2D': 20.0, 'f26p|1D|2D': 10.0,
+              'f5d2|3F|4F': 5.0}
+    assert explevs.project({'f26p|3F|*': 0.0}, theirs) == {'f26p|3F|*': 50.0}
+    assert explevs.project({'f26p|*|2D': 0.0}, theirs) == {'f26p|*|2D': 30.0}
+    assert explevs.project({'f26p|3F|4D': 0.0, 'f26p|*|2D': 0.0},
+                           theirs) == {'f26p|3F|4D': 30.0,
+                                       'f26p|*|2D': 30.0}
+    # `ANY` on either side matches, so a deck label with no parent in
+    # brackets is not shut out by a source that names one.
+    assert explevs.project({'f26p|3F|*': 0.0},
+                           {'f26p|*|2D': 7.0}) == {'f26p|3F|*': 7.0}
+
+
+def test_a_parent_term_alone_carries_a_row_the_final_term_cannot(tmp_path):
+    """The pair label is no use against an LS deck; the parent is.
+
+    `4f2.(3F<2>).6p | (2,3/2)*` is how the author's sheet designates a
+    level RCE prints as `f26p   (3F) 4D`, and everything the two have
+    in common is the `3F`.
+    """
+    path = write(tmp_path / 'src.txt',
+                 [['66324.84', '1/2', 'o', '4f2.(3F<2>).6p', '(2,3/2)*',
+                   '81']])
+    deck, notes = read(path, ecol=1, jcol=2, pcol=3, confcol=4, termcol=5,
+                       perccol=6)
+    # FakeDeck knows no f26p, so the key keeps the parent and loses the
+    # configuration only because there is no card to resolve it to.
+    assert notes.unknown_conf and notes.couplings == {'jj': 1}
+    path = write(tmp_path / 'src2.txt',
+                 [['66324.84', '1/2', 'o', '4f3', '(2,3/2)*', '81']])
+    deck, notes = read(path, ecol=1, jcol=2, pcol=3, confcol=4, termcol=5,
+                       perccol=6)
+    assert list(deck.levels())[0].vector == {}
+    path = write(tmp_path / 'src3.txt',
+                 [['66324.84', '1/2', 'o', '4f3.(2P)', '(2,3/2)*', '81']])
+    deck, notes = read(path, ecol=1, jcol=2, pcol=3, confcol=4, termcol=5,
+                       perccol=6)
+    assert list(deck.levels())[0].vector == {'4f3|2P|*': 81.0}
+    assert notes.by_parent == 1
+
+
 # --------------------------------------------------------------------------
 # the reference case
 # --------------------------------------------------------------------------
@@ -310,10 +427,14 @@ def test_the_pr3_sheet_reads_as_the_author_describes_it(tmp_path):
     levels, notes = altlevsrc.read_alt_lev_src(str(source), spec, deck)
     assert notes.rows == 593 and notes.levels == 593
     assert notes.parities == {'o': 1, 'e': 2}
-    # 343 rows expose an LS label for their leading component -- in
-    # `term`, in `term1`, or in `term2` where `remark` says `or`; the
-    # other 250 are designated in JK or pair coupling, or not at all.
-    assert notes.by_vector == 343 and notes.by_energy == 250
+    # 343 rows expose an LS *final* term for their leading component --
+    # in `term`, in `term1`, or in `term2` where `remark` says `or`.
+    # Another 242 expose no final term an LS deck can use but do write
+    # an LS parent inside the configuration -- `4f2.(3F<2>).6p` beside
+    # the pair label `(2,3/2)*` -- and that parent is what RCE prints
+    # in brackets, so it is matched too.  Eight rows say nothing at all.
+    assert notes.by_vector == 585 and notes.by_energy == 8
+    assert notes.by_parent == 332
     assert sum(notes.couplings.values()) == 593
     assert notes.couplings['ls'] == 226
 

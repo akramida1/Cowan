@@ -108,9 +108,10 @@ def test_w70_state_five_reads_as_the_file_has_it():
 
 
 def test_the_one_by_one_block_still_has_its_chain():
-    # W70's J=11/2 block is one state, so RCG prints no JJ or TRUEjj
-    # eigenvector section for it; genealogy.txt carries the chain all
-    # the same, which is what lets the parser fill the gap.
+    # W70's J=11/2 block is one state, so RCG prints no JJ eigenvector
+    # section for it -- nor a true jj one before the LSJJRD fix;
+    # genealogy.txt carries the chain all the same, which is what lets
+    # the parser fill the gap.
     gen = genealogy.read_genealogy(case('W70') / 'genealogy.txt')
     block = gen.block(2, 5.5)
     assert block.nstates == 1

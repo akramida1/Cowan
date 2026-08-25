@@ -22,11 +22,13 @@ Three things are worth knowing before reading the code.
 **The key space is the target deck's own configuration labels.**  RCE
 writes a configuration in six columns and abbreviates from the left to
 get there -- `4f.5d2` is `f5d2`, `5d.6s.6p` is `d6s6p` -- and no rule
-recovers the missing digits in general.  It does not have to: the deck
-names its own configurations, that list is short, and a source
-configuration written out in full matches the deck label its compact
-form *ends with*.  The longest such label wins, and a configuration no
-label matches is reported rather than guessed at.
+recovers the missing digits from the label alone.  IN36 is where they
+are written out, so where there is one beside the deck a source
+configuration is the card whose subshells it names, closed ones it
+leaves out allowed to be left out (`ConfIndex`).  Without an IN36 the
+weaker rule stands: the deck's label is a tail of the compacted full
+form, and the longest such label wins.  Either way a configuration
+nothing matches is reported rather than guessed at.
 
 **The comparison is in intensity per cent, not amplitude.**  A source
 sheet quotes what a published table quotes, so the target's amplitudes
@@ -34,20 +36,28 @@ are squared over 100 to meet it and the sign question does not arise.
 `FLOOR` still cuts the target's components in amplitude space, so the
 same components survive as in a deck-to-deck run.
 
-**A row whose leading component is not in the target's coupling gets no
-vector at all.**  Experimental designations are chosen for whichever
-scheme makes the level look pure, so one file can hold LS, JK and pair
-labels side by side; only LS can be matched against an LS deck.  Such a
-row is matched on (parity, J, energy) instead, and counted in the report
-so that the share of the file that got the weaker treatment is never a
+**A component is matched to whatever depth it is named.**  Experimental
+designations are chosen for whichever scheme makes the level look pure,
+so one file can hold LS, JK and pair labels side by side, and only LS
+can be matched against an LS deck.  But a label in another scheme still
+writes its parent terms inside the configuration -- `4f2.(3F<2>).6p`
+beside `(2,3/2)*` -- and the last of those is exactly what RCG has room
+for in brackets in the eight characters RCE prints.  So a component is
+keyed on the configuration, that parent and the final term separately,
+with `explevs.ANY` for each one it does not give, and `explevs.project`
+adds the target's components up over the fields it left open.  A row
+whose leading component gives neither an LS parent nor an LS term is
+matched on (parity, J, energy) instead, and counted in the report so
+that the share of the file that got the weaker treatment is never a
 surprise.
 """
 
 import csv
+import os
 import re
 
-from . import purity
-from .explevs import Deck, Level, _j_text
+from . import files, in36, purity
+from .explevs import Deck, Level, _j_text, match_key
 from .fundconst import EV2CM
 
 #: Source energies, in the 10^3 cm-1 RCE works in.
@@ -63,6 +73,17 @@ _SHELL = re.compile(r'(\d*)([spdfghiklmno])(\d*?)'
                     r'(?=\d[spdfghiklmno]|[spdfghiklmno]|$)')
 _REPEAT = re.compile(r'^(\d+[%s])\d+$' % _L, re.I)
 _ORBITALS = 'spdfghiklmno'
+
+#: A subshell of a configuration spelled out in full, `4f3` or `6p`.
+_WRITTEN = re.compile(r'^(\d+)([%s])(\d*)$' % _ORBITALS)
+
+#: What a parent term is written inside, and the J a J1J2 label adds.
+_PARENS = re.compile(r'\(([^)]*)\)')
+_JOFTERM = re.compile(r'<[^>]*>')
+
+#: How RCG writes the eight-character label RCE prints: the last term
+#: the chain writes, in brackets, and the final term after it.
+_LABEL = re.compile(r'^\(([^)]*)\)\s*(.*)$')
 
 
 class AltSourceError(Exception):
@@ -115,6 +136,8 @@ class Report:
         self.by_vector = 0
         self.by_energy = 0
         self.partial = 0            # a vector of one component only
+        self.by_parent = 0          # components named to the parent only
+        self.in36 = ''              # the IN36 the configurations came from
         self.couplings = {}         # {scheme: rows whose leading term is it}
         self.unknown_conf = {}      # {source configuration: rows}
         self.bad_parity = []
@@ -131,6 +154,8 @@ class Report:
         if self.excluded:
             out.write(', %d excluded by the exclude column' % self.excluded)
         out.write('.\n')
+        if self.in36:
+            out.write('   configurations read from %s\n' % self.in36)
         out.write('   parity sets: %s\n'
                   % ', '.join('%s -> %d' % (parity, kset) for parity, kset
                               in sorted(self.parities.items())))
@@ -146,6 +171,11 @@ class Report:
                       % ', '.join('%s %d' % (name.upper(), count)
                                   for name, count
                                   in sorted(self.couplings.items())))
+        if self.by_parent:
+            out.write('   %d component%s named only by the parent term '
+                      'written in the configuration; those are matched '
+                      'against the parent of the deck\'s own label.\n'
+                      % (self.by_parent, '' if self.by_parent == 1 else 's'))
         if self.partial:
             out.write('   Warning: %d of them name one component only, which '
                       'is thin evidence; check those matches.\n'
@@ -188,12 +218,46 @@ def coupling(term):
 
 
 def term_key(term):
-    """The LS term a component is matched on: `2P*` and `2P2` -> `2P`."""
-    text = term.strip().strip('"')
+    """The LS term a component is matched on: `2P*` and `2P2` -> `2P`.
+
+    A J1J2 parent carries its J as well (`3H<4>`), and that J is no
+    part of the LS term RCG prints in its label, so it goes too.
+    """
+    text = _JOFTERM.sub('', term.strip().strip('"'))
     text = text.split()[-1] if text.split() else ''
     text = text.rstrip('*').upper()
     found = _REPEAT.match(text)
     return found.group(1) if found else text
+
+
+def parent_term(configuration):
+    """The LS parent a configuration label writes, or `''`.
+
+    Spectroscopic notation writes inside the configuration exactly the
+    terms of the coupling chain that the final term does not give back
+    (`designate.py`), and the **last** of them is the one RCG has room
+    for in the eight characters RCE prints -- `4f2.(3F<2>).6p` against
+    `f26p   (3F) 4D`, `4f.(2F*).5d2.(3F)` against `f5d2   (3F) 2P`.
+
+    So it is worth having even where the final term is not: a level
+    designated `(2,3/2)*` is in pair coupling and cannot be compared
+    with an LS deck at all, but the `3F` written beside it can.  Only
+    an LS parent is taken; a J1J2 or pair parent is not one.
+    """
+    found = _PARENS.findall(configuration.strip().strip('"'))
+    if not found:
+        return ''
+    text = _JOFTERM.sub('', found[-1]).strip()
+    return term_key(text) if coupling(text) == 'ls' else ''
+
+
+def split_label(label):
+    """`(3F) 4D3` -> `('3F', '4D')`: what RCE prints for one component."""
+    text = ' '.join(str(label).split())
+    found = _LABEL.match(text)
+    if found is None:
+        return '', term_key(text)
+    return term_key(found.group(1)), term_key(found.group(2))
 
 
 def compact(configuration):
@@ -213,13 +277,140 @@ def deck_labels(target):
     return out
 
 
-def resolve_configuration(configuration, labels):
-    """The deck label a written-out configuration abbreviates to.
+def written_shells(configuration):
+    """`{(n, l): occupation}` for a configuration spelled out in full.
 
-    RCE cuts a configuration from the left to fit six columns, so the
-    deck's label is a tail of the full form.  The longest label that is
-    one wins; nothing else is a match.
+    `None` where the label is not spelled out -- a token with no
+    principal quantum number, or none this recognises at all -- which
+    is what sends the caller back to matching on the written form.
     """
+    text = purity.strip_intermediates(configuration.strip().strip('"'))
+    if not text:
+        return None
+    out = {}
+    for token in text.split('.'):
+        found = _WRITTEN.match(token.strip().lower())
+        if found is None:
+            return None
+        n, letter, count = found.groups()
+        key = (int(n), _ORBITALS.index(letter))
+        if key in out:
+            return None
+        out[key] = float(count) if count else 1.0
+    return out or None
+
+
+class ConfIndex:
+    """The deck's configurations as IN36 spells them out.
+
+    The deck itself cannot say what its labels mean.  RCE writes a
+    configuration in six columns and abbreviates from the left to get
+    there -- `4f.5d2` is `f5d2`, `5d.6s.6p` is `d6s6p` -- and nothing
+    recovers the missing digits from the label alone.  The old reader
+    therefore matched a written-out configuration against the deck
+    label its compact form *ends with*, which works for the labels that
+    really are abbreviations and quietly fails for the ones that are
+    not: a card may be nicknamed anything, and Pr III has `f4p5` for
+    4f4.5p5 among its twenty-one.
+
+    IN36 is where the configurations are written out, and `in36`
+    already reads it the way RCN does, so the mapping is made there
+    instead: a source configuration is the card whose subshells it
+    names, subshell for subshell, with the closed ones it leaves out
+    allowed to be left out.  A source that fits two cards equally well
+    -- `4f.6s2` and `4f.7s2` are told apart only by a closed shell --
+    fits neither, and is reported rather than guessed at.
+    """
+
+    def __init__(self, deck):
+        self.path = getattr(deck, 'path', '')
+        self.cards = [card for card in deck.configurations if card.shells]
+        self.parity = {}
+        for card in self.cards:
+            self.parity.setdefault(card.label, card.parity)
+
+    def __bool__(self):
+        return bool(self.cards)
+
+    def resolve(self, configuration):
+        """The label of the card a written-out configuration names."""
+        wanted = written_shells(configuration)
+        if wanted is None:
+            return ''
+        best, spare = '', None
+        for card in self.cards:
+            extra = self._extra(card, wanted)
+            if extra is None:
+                continue
+            if spare is None or extra < spare:
+                best, spare = card.label, extra
+            elif extra == spare and card.label != best:
+                best = ''                      # two cards fit alike
+        return best
+
+    @staticmethod
+    def _extra(card, wanted):
+        """How many closed subshells the card has and the source left out.
+
+        `None` where the card is not the configuration at all: an
+        occupation that differs, a subshell the source names and the
+        card has not, or one the card has open and the source is silent
+        about.
+        """
+        held = {(s.n, s.l): s.occ for s in card.shells if s.occ}
+        for key, occ in wanted.items():
+            if held.get(key) != occ:
+                return None
+        extra = 0
+        for key, occ in held.items():
+            if key in wanted:
+                continue
+            if occ != 4 * key[1] + 2:
+                return None
+            extra += 1
+        return extra
+
+
+def read_configurations(target):
+    """The `ConfIndex` of the folder the target deck is in, or `None`.
+
+    IN36 is RCN's input, so a folder holding only the files RCG and RCE
+    rewrite has none of its own; the directory above is tried next,
+    which is the sub-folder arrangement `toolbox.case` reads the same
+    way.  Without one the reader falls back on the written form.
+    """
+    here = os.path.dirname(os.path.abspath(getattr(target, 'path', '') or '.'))
+    for folder in (here, os.path.dirname(here)):
+        if not folder or not os.path.isdir(folder):
+            continue
+        try:
+            path = files.resolve(files.IN36, folder, required=False)
+            if path is None:
+                continue
+            deck = in36.read_in36(path)
+        except (in36.In36Error, OSError, UnicodeDecodeError):
+            # A deck RCN itself would reject, or two files differing
+            # only in case: the fallback still has something to say, so
+            # this is not the place to stop the run.
+            return None
+        index = ConfIndex(deck)
+        return index if index else None
+    return None
+
+
+def resolve_configuration(configuration, labels, index=None):
+    """The deck label a written-out configuration stands for.
+
+    With IN36 beside the deck (`index`) the answer is read off the
+    cards; the label it gives is still required to be one the deck
+    itself uses, so a card RCE never got is not put in a key that can
+    match nothing.  Without IN36 the old rule stands: the deck's label
+    is a tail of the compacted full form, and the longest one wins.
+    """
+    if index is not None:
+        label = index.resolve(configuration)
+        if label and (not labels or label in labels):
+            return label
     text = compact(configuration)
     if not text:
         return ''
@@ -251,7 +442,7 @@ def parity_of_label(label):
     return odd % 2
 
 
-def parity_sets(target):
+def parity_sets(target, index=None):
     """{'e': parity set, 'o': parity set}, from the target's own labels.
 
     The old reader let the first row of the source settle which parity
@@ -259,6 +450,11 @@ def parity_sets(target):
     does say -- every component names a configuration, and a
     configuration has a parity -- so it is read off there instead, and
     the source is only asked which parity each of *its* levels is.
+
+    With IN36 beside the deck (`index`) a label's parity is the card's
+    and there is nothing to weigh up.  Without it the parity has to be
+    read out of the abbreviation itself, which a nickname that is not
+    an abbreviation gets wrong, so a majority of the set decides.
     """
     out = {}
     for kset in sorted(target.sets):
@@ -266,12 +462,14 @@ def parity_sets(target):
         for j in target.sets[kset]:
             for level in target.group(kset, j):
                 label = level.leading[1].partition(',')[0]
-                if label:
+                if not label:
+                    continue
+                if index is not None and label in index.parity:
+                    votes[index.parity[label]] += 1
+                elif index is None:
                     votes[parity_of_label(label)] += 1
         if not (votes[0] or votes[1]):
             continue
-        # A majority: a nickname that is not an abbreviation reads as
-        # the wrong parity, and one of Pr III's twenty-one does.
         out['e' if votes[0] >= votes[1] else 'o'] = kset
     return out
 
@@ -283,17 +481,20 @@ def parity_sets(target):
 def normalize_target(target, use_conf=True):
     """Give every target level the vector the source is compared to.
 
-    In intensity per cent, keyed the way a source row is keyed, with
-    the components that fall on one key added together -- an experiment
-    that quotes `4f3 2P` is not distinguishing the parents RCE prints
-    beside it.
+    In intensity per cent, and keyed on all three of the fields a
+    source row may name: the configuration, the parent term RCE writes
+    in brackets, and the final term.  Nothing is added together here --
+    `explevs.project` does that, for each source level, over exactly
+    the fields that level left open, so a source that quotes `4f3 2P`
+    is not distinguishing the parents and one that quotes
+    `4f2.(3F).6p` is distinguishing nothing else.
     """
     for level in target.levels():
         out = {}
         for key, percent in level.vector.items():
-            configuration, _, term = key.partition(',')
-            mine = '%s,%s' % (configuration if use_conf else '',
-                              term_key(term))
+            configuration, _, label = key.partition(',')
+            parent, term = split_label(label)
+            mine = match_key(configuration if use_conf else '', parent, term)
             out[mine] = out.get(mine, 0.0) + percent * percent / 100.0
         level.mvector = out
     return target
@@ -334,13 +535,16 @@ def read_alt_lev_src(path, spec, target):
                 % (path, name.replace('_', '-'),
                    {'ecol': 'energy', 'jcol': 'J', 'pcol': 'parity'}[name]))
 
+    index = read_configurations(target)
+    if index is not None:
+        report.in36 = index.path
     wants_conf = any(columns[name] is not None
                      for name in ('confcol', 'conf1col', 'conf2col',
                                   'conf3col'))
     labels = deck_labels(target) if wants_conf else set()
     use_conf = bool(labels)
     report.use_conf = use_conf
-    report.parities = _parity_sets(spec, target)
+    report.parities = _parity_sets(spec, target, index)
 
     deck = Deck(path)
     for number, row in enumerate(rows[first:], first + 1):
@@ -361,7 +565,8 @@ def read_alt_lev_src(path, spec, target):
             report.bad_parity.append((number, _field(row, columns['pcol'])))
             continue
 
-        vector, scheme = _vector(row, columns, spec, labels, use_conf, report)
+        vector, scheme = _vector(row, columns, spec, labels, use_conf,
+                                 report, index)
         report.couplings[scheme] = report.couplings.get(scheme, 0) + 1
         if vector:
             report.by_vector += 1
@@ -472,7 +677,7 @@ def _parity(text):
     return None
 
 
-def _parity_sets(spec, target):
+def _parity_sets(spec, target, index=None):
     if spec.parity_sets:
         out = {}
         for kset, piece in enumerate(str(spec.parity_sets).split(','), 1):
@@ -482,7 +687,7 @@ def _parity_sets(spec, target):
                                      % piece)
             out[parity] = kset
         return out
-    out = parity_sets(target)
+    out = parity_sets(target, index)
     if not out:
         raise AltSourceError(
             'the target deck names no configuration, so which parity set is '
@@ -497,7 +702,7 @@ def _percent(text):
         return 0.0
 
 
-def _vector(row, columns, spec, labels, use_conf, report):
+def _vector(row, columns, spec, labels, use_conf, report, index=None):
     """{key: intensity per cent} for one row, and its leading coupling.
 
     The triads, in the order the author's files write them:
@@ -546,30 +751,41 @@ def _vector(row, columns, spec, labels, use_conf, report):
 
     out, scheme = {}, 'none'
     for i, (percent, offered) in enumerate(triads):
-        label = None
+        # Of the labels offered for one component -- the same component
+        # written in one scheme or another -- the first LS final term
+        # is taken, and the first LS parent written inside any of the
+        # configurations beside it.  Either alone is worth having: the
+        # parent is what an LS deck's label carries in brackets, so a
+        # component designated `(2,3/2)*` in pair coupling still says
+        # something an LS deck can be asked about.
+        term, written, parent = '', '', ''
         for one in offered:
-            if one[1] and coupling(one[1]) == 'ls':
-                label = one
-                break
+            if one[1] and not term and coupling(one[1]) == 'ls':
+                term = term_key(one[1])
+            if one[0] and not written:
+                written = one[0]
+            parent = parent or parent_term(one[0])
         if not i:
             for one in offered:
                 if one[1]:
                     scheme = coupling(one[1]) or 'none'
                     break
-            if label is None:
+            if not (term or parent):
                 return {}, scheme
-        if label is None or percent <= 0:
+        if not (term or parent) or percent <= 0:
             continue
         configuration = ''
         if use_conf:
-            configuration = resolve_configuration(label[0], labels)
+            configuration = resolve_configuration(written, labels, index)
             if not configuration:
-                report.unknown_conf[label[0]] = \
-                    report.unknown_conf.get(label[0], 0) + 1
+                report.unknown_conf[written] = \
+                    report.unknown_conf.get(written, 0) + 1
                 if not i:
                     return {}, scheme
                 continue
-        key = '%s,%s' % (configuration, term_key(label[1]))
+        if not term:
+            report.by_parent += 1
+        key = match_key(configuration, parent, term)
         out[key] = out.get(key, 0.0) + percent
     return out, scheme
 

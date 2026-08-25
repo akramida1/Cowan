@@ -41,15 +41,14 @@ THE RUN
 
 Work in a copy of this directory, not in the distribution.
 
-The commands below are written as they are typed on Windows.  On
-Linux and macOS type them in lower case -- rcn, rcn2, rcg, rce, and
-likewise for the utility codes -- and read `cp` wherever this file
-says `copy`.  Nothing else differs.
+The commands below are typed the same way on every platform.  Only
+`copy` is Windows' own: read `cp` wherever this file says it.  Nothing
+else differs.
 
-    RCN
-    RCN2
-    RCG
-    RCE                             <- do not skip this one
+    rcn
+    rcn2
+    rcg
+    rce                             <- do not skip this one
 
 The first RCE run fits nothing -- there are no observed energies in the
 OUTGINE that RCG wrote -- but it writes RCEINP.HF, the Hartree-Fock
@@ -58,7 +57,7 @@ the LSF/HF ratios.  Nothing else recreates it.
 
     copy OUTGINE.fin OUTGINE
     copy RCEINP.fin  RCEINP
-    RCE
+    rce
 
 Now it fits, five cycles per parity set, and converges at the third:
 
@@ -73,11 +72,13 @@ run, 1000 cm-1, so the fit is good to about 1.9E5 cm-1 -- 24 eV out of
 not.  There is one unit in this package and it is 1000 cm-1 everywhere
 above levels_pub.txt.
 
-    update11 2
+    update11
 
-with the 2 because IN36 has two parity sets (RCN2 reports the split:
-configurations 1-3 are the first, 4-5 the second).  update11 saves
-OUTGINE, runs s11 to substitute the fitted Slater parameters from
+Nothing has to be typed after it: update11 reads IN36 and substitutes
+both parity sets because both parities are there (RCN2 reports the
+split: configurations 1-3 are the first, 4-5 the second).  The trailing
+2 of the Perl days is still accepted and still means both.  update11
+saves OUTGINE, runs s11 to substitute the fitted Slater parameters from
 RCEOUT back into ING11, re-runs RCG so that the eigenvectors belong to
 the fitted parameters, restores OUTGINE, and runs printout.
 
@@ -103,8 +104,8 @@ identified by position alone -- and RCG prints the names nowhere else.
 Then run RCG and RCE in the sub-folder:
 
     cd reordered
-    RCG
-    RCE
+    rcg
+    rce
     cd ..
 
 RCG reads its own ING11 and needs nothing from the parent.  RCE runs

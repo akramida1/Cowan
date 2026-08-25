@@ -42,15 +42,14 @@ THE RUN
 
 Work in a copy of this directory, not in the distribution.
 
-The commands below are written as they are typed on Windows.  On
-Linux and macOS type them in lower case -- rcn, rcn2, rcg, rce, and
-likewise for the utility codes -- and read `cp` wherever this file
-says `copy`.  Nothing else differs.
+The commands below are typed the same way on every platform.  Only
+`copy` is Windows' own: read `cp` wherever this file says it.  Nothing
+else differs.
 
-    RCN
-    RCN2
-    RCG
-    RCE                             <- do not skip this one
+    rcn
+    rcn2
+    rcg
+    rce                             <- do not skip this one
 
 RCN2 writes ING11 straight from the G5INP card of IN2, and it needs no
 editing.  RCN2 punches IPGEN=2 into columns 83-84 of the ING11 main
@@ -70,7 +69,7 @@ Now put the converged fit in place and run the last iteration:
 
     copy OUTGINE.fin OUTGINE
     copy RCEINP.fin  RCEINP
-    RCE
+    rce
 
 It reports
 
@@ -78,15 +77,17 @@ It reports
 
 -- a mean deviation of 133 cm-1 over the fitted levels.  Then
 
-    update11 2
+    update11
 
-with the 2 because IN36 has two parity sets (RCN2 reports the split:
-configurations 1-21 are the first, 22-39 the second).  update11 is a
-batch file and does four things: it saves OUTGINE, runs s11 to
-substitute the fitted Slater parameters from RCEOUT back into ING11,
-re-runs RCG so that the eigenvectors and the transition rates belong to
-the fitted parameters rather than to the Hartree-Fock ones, restores
-OUTGINE, and runs `printout levels.txt`.
+Nothing has to be typed after it: update11 reads IN36 and substitutes
+both parity sets because both parities are there (RCN2 reports the
+split: configurations 1-21 are the first, 22-39 the second).  The
+trailing 2 of the Perl days is still accepted and still means both.
+update11 is a batch file and does four things: it saves OUTGINE, runs
+s11 to substitute the fitted Slater parameters from RCEOUT back into
+ING11, re-runs RCG so that the eigenvectors and the transition rates
+belong to the fitted parameters rather than to the Hartree-Fock ones,
+restores OUTGINE, and runs `printout levels.txt`.
 
 That last printout is the default one, LS only.  The three-scheme list
 is made below and overwrites it.
@@ -120,8 +121,8 @@ can be used as it stands, or replaced by a copy of your own ING11 with
 those two fields edited.
 
     cd JK
-    RCG
-    RCE
+    rcg
+    rce
     cd ..
 
 RCG in JK/ reads its own ING11 and needs nothing from the parent; RCE
@@ -132,9 +133,7 @@ printout reads it from the parent folder.
 
 THE LEVEL LIST IN THREE SCHEMES
 
-    printout levels.txt --dominant-config
-             --couplings LS,JJ,LSJK --from LSJK=JK
-             --components 10 --min-percent 0.5
+    printout levels.txt --dominant-config --couplings LS,JJ,LSJK --from LSJK=JK --components 10 --min-percent 0.5
 
 (on one line).  `--from LSJK=JK` is the merge that used to be done by
 hand: it reads the LSJK block out of JK/OUTG11 and pairs each of its
@@ -144,14 +143,8 @@ reports
     LS, JJ: 25 J blocks, 5626 levels
     LSJK (LSJK) from JK, matched by eigenvector
     wrote levels.txt (16878 levels)
-       LSJK J=12.5 of set 2 has one basis state, so RCG printed no
-       LSJK section; it is named in LS
 
-16878 is 3 x 5626: one block per scheme, every level in all three.  The
-last message is not a fault.  A J block with a single basis state has
-nothing to recouple, so RCG prints no alternate-coupling section for
-it, and printout falls back to the LS name -- which is the same state
-under any name.
+16878 is 3 x 5626: one block per scheme, every level in all three.
 
 `--components 10 --min-percent 0.5` are wider than printout's defaults
 of 5 and 1.5% on purpose.  The next two programs take components from
@@ -177,7 +170,14 @@ A star is already on the highest purity in every row.  **It is a
 suggestion.**  Highest purity is the main criterion but not the only
 one: the literature on the spectrum, and the schemes used for the
 neighboring isoelectronic ions, routinely outweigh the few percent
-that the 15 near-ties above are decided by.  Move the stars, keeping
+that the 15 near-ties above are decided by. For Pr III, the code suggests 
+JJ for 4f2.5p6.5f. However, the literature has it designated in LSJK 
+[W. C. Martin, R. Zalubas, and L. Hagan, NSRDS-NBS 60, 422 pp. (Nat. Bur. 
+Stand., U.S., 1978); J. Sugar, J. Res. Natl. Bur. Stand. (U.S.), Sect. A 
+73, 333–381 (1969)]. Thus, despite its purity being slightly lower in
+LSJK than in JJ (61% vs. 64%), LSJK should be chosen for this 
+configuration. The same should be done for 4f2.5p6.6f for uniformity,
+despite the absence of the literature precedent. Move the stars, keeping
 exactly one per row.  Nothing else in the file may be edited; it is
 read back by column.  Re-running config_purity over a marked file needs
 --force, or --merge to redo the numbers and leave the stars alone.

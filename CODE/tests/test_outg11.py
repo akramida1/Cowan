@@ -127,14 +127,23 @@ def test_purity_is_read_past_its_first_line():
 
 
 def test_a_one_by_one_block_has_no_jj_section():
-    # This is the whole of the "blank configuration" problem: RCG prints
-    # no JJ and no TRUEjj section where the block is one state, so the
-    # level must be built from genealogy.txt instead.  Every block that
-    # lacks a section in the reference runs is of this kind.
+    # This is the whole of the "blank configuration" problem: a block of
+    # one state has nothing to transform, so RCG never reaches the print
+    # loop of Cowan's second coupling and the level has to be built from
+    # genealogy.txt instead.  Every block that lacks a section in the
+    # reference runs is of this kind.
+    #
+    # True jj is the exception, and deliberately so: its pass is entered
+    # for a one-state block precisely so that the block takes its record
+    # off the scratch unit -- skipping it put every later block on the
+    # wrong matrix -- and having read it, the section is printed, which
+    # is where the level's jj label comes from.  See the LSJJRD item in
+    # the header of rcg11kd.f.
     _, blocks = blocks_of('W70')
     b = blocks[(2, 5.5)]
     assert b.nlevels == 1
-    assert sorted(b.sections) == ['LS']
+    assert sorted(b.sections) == ['LS', 'TRUEjj']
+    assert list(b.section('TRUEjj').rows[0].amplitudes) == [1.0]
     with pytest.raises(outg11.Outg11Error) as bad:
         b.section('JJ')
     assert 'column 32' in str(bad.value)     # KCPLD(2), ING11 col 32

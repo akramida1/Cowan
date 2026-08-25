@@ -48,6 +48,74 @@ COMPONENTS = 5
 #: How a source level may be tied to a target level.
 MATCH_BY = ('heuristic', 'ecalc', 'eexp')
 
+# --------------------------------------------------------------------------
+# the match key
+#
+# A deck-to-deck run compares the keys RCE itself writes, `conf,term`,
+# and nothing below is used.  A source that is not a deck names its
+# components with whatever it has -- a configuration, the parent term
+# written inside it, the final term -- and any of the three may be
+# missing, so the key it is matched on is the three fields separately
+# with `ANY` where the source said nothing.  `project` then adds the
+# target's components together over the fields the source left open,
+# which is what lets one source name a component to the parent and
+# another only to the configuration and both be compared fairly.
+# --------------------------------------------------------------------------
+
+#: A field the source (or the target's own label) does not pin down.
+ANY = '*'
+
+#: What separates the three fields of a match key.  Not a comma: the
+#: deck's own keys use one, and the two spaces must not be confusable.
+KEY = '|'
+
+
+def match_key(configuration, parent, term):
+    """The key a component is matched on, `ANY` for what is not said."""
+    return KEY.join(field or ANY for field in (configuration, parent, term))
+
+
+def key_fields(key):
+    """The three fields of a match key, or `None` for a deck's own key."""
+    if KEY not in key:
+        return None
+    return tuple(key.split(KEY, 2))
+
+
+def key_matches(one, other):
+    """Whether two match keys can stand for the same basis state."""
+    for mine, theirs in zip(one.split(KEY), other.split(KEY)):
+        if mine != theirs and mine != ANY and theirs != ANY:
+            return False
+    return True
+
+
+def _sharpness(key):
+    """How many of a key's fields are pinned down; the most specific first."""
+    return -sum(1 for field in key.split(KEY) if field != ANY)
+
+
+def project(mine, theirs):
+    """The target's vector added up over the fields the source left open.
+
+    A source that names `4f2.(3F).6p` and no final term is saying
+    *this parent*, and the target's share of it is every component of
+    that configuration and parent whatever their final term.  So the
+    target is projected onto the keys the source actually used, most
+    specific key first so that a component claimed by a sharp key is
+    not claimed again by a blunt one.
+    """
+    out, taken = {}, set()
+    for key in sorted(mine, key=_sharpness):
+        total = 0.0
+        for other, value in theirs.items():
+            if other in taken or not key_matches(key, other):
+                continue
+            total += value
+            taken.add(other)
+        out[key] = total
+    return out
+
 class ExpLevelsError(Exception):
     """Two decks that cannot be matched level for level."""
 
@@ -69,6 +137,8 @@ class Level:
     mvector: dict = None            # the vector to match on, where it is not
                                     # `vector` -- see `altlevsrc`
     intensity: bool = False         # whether `vector` is already in intensity
+    pvector: dict = None            # a target level's vector as the source
+                                    # that took it saw it -- see `project`
 
     @property
     def match_vector(self):
@@ -113,8 +183,15 @@ class Level:
         return sorted(self.vector.items(), key=lambda kv: -abs(kv[1]))
 
     def sorted_match_vector(self):
-        """The components the matcher sees, largest first."""
-        return sorted(self.match_vector.items(), key=lambda kv: -abs(kv[1]))
+        """The components the matcher sees, largest first.
+
+        For a target level tied to a source that named its components
+        loosely, that is the projection the match was decided on and
+        not the finer vector the deck holds, so that the report prints
+        the two sides in the one key space they were compared in.
+        """
+        vector = self.match_vector if self.pvector is None else self.pvector
+        return sorted(vector.items(), key=lambda kv: -abs(kv[1]))
 
 
 class Deck:
@@ -302,22 +379,29 @@ def identify(source, target, by='heuristic', certain=CERTAIN):
                           or abs(one.energy - level.ee) < 0.001]
             candidates.sort(key=lambda one: abs(one.ec - level.ec))
         mine = level.match_vector
+        seen = None
         if by != 'heuristic' or not mine:
             best = candidates[0] if candidates else None
         else:
             apply = distance_named if level.intensity else distance
             best, least = None, None
             for one in candidates:
-                apart, sure = apply(mine, one.match_vector, certain)
+                # A source that is not a deck names its components to
+                # whatever depth it can, so the target is added up over
+                # the fields it left open before the two are compared.
+                theirs = (project(mine, one.match_vector) if level.intensity
+                          else one.match_vector)
+                apart, sure = apply(mine, theirs, certain)
                 if sure:
-                    best = one
+                    best, seen = one, theirs
                     break
                 if least is None or apart < least:
-                    best, least = one, apart
+                    best, least, seen = one, apart, theirs
         if best is None:
             lost.append(level)
         else:
             best.assigned = level.ee
+            best.pvector = seen if level.intensity else None
             level.match = best
     return lost
 
@@ -400,6 +484,25 @@ def known_configurations(target):
     return out
 
 
+def key_text(key):
+    """(configuration, term) of a key, however it was written.
+
+    A deck's own key is `conf,term`; a match key is the three fields of
+    `match_key`, and its parent comes back inside the term the way RCE
+    prints one, so that the two sides of a report read alike.
+    """
+    fields = key_fields(key)
+    if fields is None:
+        configuration, _, term = key.partition(',')
+        return configuration, term
+    configuration, parent, term = fields
+    if parent != ANY:
+        term = ('(%s) %s' % (parent, '' if term == ANY else term)).strip()
+    elif term == ANY:
+        term = ''
+    return ('' if configuration == ANY else configuration), term
+
+
 def vector_text(level, most=2):
     """A vector as the reports print it, in intensity per cent.
 
@@ -409,7 +512,7 @@ def vector_text(level, most=2):
     """
     out = []
     for key, percent in level.sorted_vector()[:most]:
-        configuration, _, term = key.partition(',')
+        configuration, term = key_text(key)
         out.append('%4d%% %-7s%-8s'
                    % (int(percent if level.intensity
                           else percent * percent / 100),

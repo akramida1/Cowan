@@ -151,13 +151,34 @@ def test_w70_levels_differ_only_in_the_brackets_and_the_outer_shell(tmp_path):
 
 def test_the_outer_shell_columns_name_the_outermost_open_subshell(tmp_path):
     # `conv_cowan.pl:3043` matched the first subshell of the label
-    # instead of the last, which for 2s2.2p gave 2s2.
-    out = run(case('W70'), str(tmp_path / 'lev.txt'), str(tmp_path / 'tr.txt'),
-              'RCE', 'LTE', '1e6', '1000')
+    # instead of the last, which for 2s2.2p gave 2s2.  They are CM's
+    # columns, so CM is the model that has them to name.
+    out = run(case('W70'), str(tmp_path / 'lev.txt'), str(tmp_path / 'tr.csv'),
+              'RCE', 'CM', '1e6', '1000')
     assert out.returncode == 0, out.stderr
     ground = rows(tmp_path / 'lev.txt')[0]
     assert ground[14:16] == ['100', '2s2.2p']
     assert ground[9:12] == ['2', '1', '1']
+
+
+def test_the_classifying_columns_are_written_with_cm_alone(tmp_path):
+    # The Perl wrote n, l, occ, S and L in every model; nothing but the
+    # cascade matrix reads them.
+    folder = case('W70')
+    out = run(folder, str(tmp_path / 'cm.txt'), str(tmp_path / 'cm.csv'),
+              'RCE', 'CM', '1e6', '1000')
+    assert out.returncode == 0, out.stderr
+    out = run(folder, str(tmp_path / 'lte.txt'), str(tmp_path / 'lte.txt.tr'),
+              'RCE', 'LTE', '1e6', '1000')
+    assert out.returncode == 0, out.stderr
+    cm = rows(tmp_path / 'cm.txt', 0)[0]
+    lte = rows(tmp_path / 'lte.txt', 0)[0]
+    assert cm[9:14] == ['n', 'l', 'occ', 'S', 'L']
+    assert lte[9:14] == ['%1', 'conf1', 'term1', '%2', 'conf2']
+    assert [c for c in lte if c in ('n', 'l', 'occ', 'S', 'L')] == []
+    # and every row is five fields shorter for it
+    assert (len(rows(tmp_path / 'cm.txt')[0])
+            - len(rows(tmp_path / 'lte.txt')[0])) == 5
 
 
 def test_the_cascade_matrix_is_reproduced_exactly(tmp_path):
