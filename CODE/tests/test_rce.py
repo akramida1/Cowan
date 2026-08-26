@@ -217,3 +217,84 @@ def test_outgine_carries_the_ing11_values():
     card = deck.parameters[0][0]
     values = [p.value for p in got[1][:len(card.values)]]
     assert values == [round(v, 4) for v in card.values]
+
+
+# --------------------------------------------------------------------------
+# column 14: the relative-energy groups
+# --------------------------------------------------------------------------
+
+def test_a_group_letter_is_an_observed_level_that_is_not_absolute():
+    """The two questions `observed` used to answer at once, split.
+
+    A group level has an experimental energy -- that is the whole point
+    of the letter -- but the offset of that energy is what the group
+    says is uncertain, so it is not on the deck's absolute scale.
+    """
+    line = '     1.234560X     0.000   1/2 100 2s     (1S) 2S     '
+    levels, _ = rce._read_rceout_levels([line.ljust(140)], 0, 1, 'x')
+    level, = levels
+    assert level.flag == 'X'
+    assert level.observed
+    assert level.group == 'x'
+    assert level.is_base
+    assert not level.absolute
+
+
+def test_a_member_carries_the_same_group_as_its_base():
+    base = rce.Level(e_obs=1.0, e_calc=1.0, j=0.5, flag='X')
+    member = rce.Level(e_obs=2.0, e_calc=2.0, j=0.5, flag='x')
+    assert member.group == base.group and not member.is_base
+    assert rce.comparable(base, member)
+
+
+def test_a_difference_is_not_comparable_across_a_group_boundary():
+    plain = rce.Level(e_obs=1.0, e_calc=1.0, j=0.5, flag=' ')
+    grouped = rce.Level(e_obs=2.0, e_calc=2.0, j=0.5, flag='x')
+    other = rce.Level(e_obs=3.0, e_calc=3.0, j=0.5, flag='y')
+    unfitted = rce.Level(e_obs=4.0, e_calc=4.0, j=0.5, flag='*')
+    assert rce.comparable(plain, rce.Level(e_obs=0.0, e_calc=0.0, j=0.5))
+    assert not rce.comparable(plain, grouped)
+    assert not rce.comparable(grouped, other)
+    assert not rce.comparable(plain, unfitted)
+
+
+def test_set_observed_keeps_the_status_it_is_given():
+    # The literal blank this wrote until now would have promoted a
+    # relative energy to an absolute one in the target deck.
+    line = RCEOUT_LINE.ljust(140)
+    assert rce.set_observed(line, 2270.5)[13] == ' '
+    assert rce.set_observed(line, 2270.5, 'x')[13] == 'x'
+    assert rce.set_observed(line, 2270.5, 'x')[14:] == line[14:]
+    with pytest.raises(rce.RceError):
+        rce.set_observed(line, 2270.5, '?')
+
+
+# --------------------------------------------------------------------------
+# the group card block
+# --------------------------------------------------------------------------
+
+# `(A1,2F12.3)` and `(A1,12X,F12.3)`, exactly as RELWR punches them
+# (`FOR/RCE20KD.F:2652-2656`): the letter in column 1, sigma_base in
+# 2-13 and sigma_int in 14-25.
+GROUP_BLOCK = [' GROUP SIGMA_BASE  SIGMA_INT',
+               'X     500.000      20.000',
+               'Z                  15.000']
+
+
+def test_the_group_card_block_reads_both_shapes():
+    groups, at = rce.read_groups(GROUP_BLOCK + ['-1'])
+    assert at == 4
+    assert groups['x'].sigma_base == 500.0 and groups['x'].sigma_int == 20.0
+    # A blank SIGMA_BASE is what says the group has no measured tie to
+    # the ground level at all; an explicit zero would mean the opposite.
+    assert groups['z'].untied and groups['z'].sigma_int == 15.0
+
+
+def test_the_group_card_block_round_trips_through_its_writer():
+    groups, _ = rce.read_groups(GROUP_BLOCK)
+    again, _ = rce.read_groups(rce.group_lines(groups))
+    assert again == groups
+
+
+def test_a_deck_with_no_group_block_yields_no_groups():
+    assert rce.read_groups(['     1    0    1    0'], 0) == ({}, 0)

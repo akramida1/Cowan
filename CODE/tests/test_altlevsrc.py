@@ -510,3 +510,80 @@ def test_the_arguments_are_checked(bad, tmp_path):
     mine = prepare(tmp_path)
     assert run(mine, 'SRC', 'TGT', '--ecol', '1', '--jcol', '3',
                '--pcol', '4', *bad).returncode == 2
+
+
+# --------------------------------------------------------------------------
+# the `+x` suffix of a compilation
+# --------------------------------------------------------------------------
+
+def test_a_suffixed_energy_is_read_as_a_number_and_a_system():
+    assert altlevsrc.energy_and_suffix('12345.678+x') == (12345.678, 'x')
+    assert altlevsrc.energy_and_suffix('12345.678 -Y') == (12345.678, 'y')
+    assert altlevsrc.energy_and_suffix('1,234.5') == (1234.5, '')
+    assert altlevsrc.energy_and_suffix('not a number') == (None, '')
+
+
+def test_a_suffix_becomes_a_group_letter_with_the_marked_level_as_base(
+        tmp_path):
+    path = write(tmp_path / 'src.txt',
+                 [['energy', 'j_val', 'parity', 'base'],
+                  ['18693.65+x', '1/2', 'o', ''],
+                  ['19000.00+x', '3/2', 'o', 'yes'],
+                  ['20000.00', '1/2', 'o', '']])
+    deck, notes = read(path, ecol='energy', jcol='j_val', pcol='parity',
+                       basecol='base')
+    status = sorted(level.status for level in deck.levels())
+    assert status == [' ', 'X', 'x']
+    assert notes.groups == {'x': [(2, False), (3, True)]}
+    # The number is the energy; the letter is not part of it.
+    assert sorted(level.ee for level in deck.levels()) \
+        == pytest.approx([18.69365, 19.0, 20.0])
+
+
+def test_a_system_with_no_base_marked_is_refused_rather_than_chosen(tmp_path):
+    """Which level carries the tie to ground is a fact about the data."""
+    path = write(tmp_path / 'src.txt',
+                 [['energy', 'j_val', 'parity'],
+                  ['18693.65+x', '1/2', 'o'],
+                  ['19000.00+x', '3/2', 'o']])
+    with pytest.raises(altlevsrc.AltSourceError) as problem:
+        read(path, ecol='energy', jcol='j_val', pcol='parity')
+    assert '--basecol' in str(problem.value)
+
+
+def test_two_bases_in_one_system_are_refused(tmp_path):
+    path = write(tmp_path / 'src.txt',
+                 [['energy', 'j_val', 'parity', 'base'],
+                  ['18693.65+x', '1/2', 'o', 'yes'],
+                  ['19000.00+x', '3/2', 'o', 'yes']])
+    with pytest.raises(altlevsrc.AltSourceError) as problem:
+        read(path, ecol='energy', jcol='j_val', pcol='parity',
+             basecol='base')
+    assert '2 levels marked as its base' in str(problem.value)
+
+
+def test_a_system_of_one_level_is_its_own_base(tmp_path):
+    path = write(tmp_path / 'src.txt',
+                 [['energy', 'j_val', 'parity'],
+                  ['18693.65+x', '1/2', 'o']])
+    deck, _ = read(path, ecol='energy', jcol='j_val', pcol='parity')
+    assert [level.status for level in deck.levels()] == ['X']
+
+
+def test_an_energy_that_does_not_parse_is_reported_and_not_dropped(tmp_path):
+    """The defect `02_python_audit.md` Sec. 4 found, fixed on its own terms.
+
+    Before this the row simply vanished: `report.rows` had counted it
+    and nothing else mentioned it again, so the only symptom was that
+    the counts at the end of the run did not add up.
+    """
+    path = write(tmp_path / 'src.txt',
+                 [['energy', 'j_val', 'parity'],
+                  ['not an energy', '1/2', 'o'],
+                  ['20000.00', '1/2', 'o']])
+    # `--skip 1`: with the whole energy column unreadable on that row
+    # the header sniffer would take it for a second header line.
+    deck, notes = read(path, ecol='energy', jcol='j_val', pcol='parity',
+                       skip=1)
+    assert notes.rows == 2 and notes.levels == 1
+    assert notes.bad_energy == [(2, 'not an energy')]

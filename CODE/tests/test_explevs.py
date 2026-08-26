@@ -261,3 +261,32 @@ def test_the_arguments_are_checked(tmp_path):
     assert run(mine, 'SRC').returncode == 2
     assert run(mine, 'SRC', 'TGT', 'params=sideways').returncode == 2
     assert run(mine, 'SRC', 'TGT', 'sideways').returncode == 2
+
+
+# --------------------------------------------------------------------------
+# the relative-energy groups
+# --------------------------------------------------------------------------
+
+def test_a_group_level_is_already_taken(tmp_path):
+    """The data-loss case of `02_python_audit.md` Sec. 5.
+
+    A group level carries an observed energy, so it is as unavailable
+    as an ordinary one.  While a letter read as *not* observed, this
+    module thought the slot free and `subst_exp_levs` would have
+    overwritten the relative energy and its group with an absolute one.
+    """
+    one = explevs.Level(j='1/2', ee=1.0, ec=1.0, observed=True, status='x')
+    assert one.taken and one.group == 'x' and not one.absolute
+    starred = explevs.Level(j='1/2', ee=1.0, ec=1.0, observed=False,
+                            status='*')
+    assert not starred.taken
+
+
+def test_the_status_travels_with_the_energy_it_belongs_to():
+    source, target = explevs.Deck('src'), explevs.Deck('tgt')
+    source.add(explevs.Level(j='1/2', ee=2.0, ec=2.0, observed=True,
+                             status='X'))
+    taker = target.add(explevs.Level(j='1/2', ee=0.0, ec=2.0,
+                                     observed=False, status='*'))
+    assert explevs.identify(source, target, by='ecalc') == []
+    assert taker.assigned == 2.0 and taker.assigned_status == 'X'

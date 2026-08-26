@@ -1,0 +1,101 @@
+200-90 0 2  01.  4.0    5.E-08    1.E-11-2 00290 0 1.0  0.65  0.0 1.00   -6
+   42   15Mo14+ d10              3s2  3p6  3d10 4s0  4p0  4d0  
+   42   15Mo14+ d94s             3s2  3p6  3d9  4s   4p0  4d0  4f0
+   42   15Mo14+ d94d             3s2  3p6  3d9  4s0  4p0  4d   4f0
+   42   15Mo14+ d95s             3s2  3p6  3d9  4s0  4p0  4d0  5s
+   42   15Mo14+ d95d             3s2  3p6  3d9  4s0  4p0  4d0  5d
+   42   15Mo14+ d95g             3s2  3p6  3d9  4s0  4p0  4d0  5g
+   42   15Mo14+ d96s             3s2  3p6  3d9  4s0  4p0  4d0  6s
+   42   15Mo14+ d96d             3s2  3p6  3d9  4s0  4p0  4d0  6d
+   42   15Mo14+ d96g             3s2  3p6  3d9  4s0  4p0  4d0  6g
+   42   15Mo14+ d97s             3s2  3p6  3d9  4s0  4p0  4d0  7s
+   42   15Mo14+ d97d             3s2  3p6  3d9  4s0  4p0  4d0  7d
+   42   15Mo14+ d97g             3s2  3p6  3d9  4s0  4p0  4d0  7g
+   42   15Mo14+ d8s2             3s2  3p6  3d8  4s2  4p0  4d0  4f0
+   42   15Mo14+ d8p2             3s2  3p6  3d8  4s0  4p2  4d0  4f0
+   42   15Mo14+ d8s4d            3s2  3p6  3d8  4s   4p0  4d   4f0
+   42   15Mo14+ d8d2             3s2  3p6  3d8  4s0  4p0  4d2  4f0
+   42   15Mo14+ p54f             3s2  3p5  3d10 4s0  4p0  4d0  4f
+   42   15Mo14+ p55f             3s2  3p5  3d10 4s0  4p0  4d0  5f
+   42   15Mo14+ p56f             3s2  3p5  3d10 4s0  4p0  4d0  6f
+   42   15Mo14+ p57f             3s2  3p5  3d10 4s0  4p0  4d0  7f
+   42   15Mo14+ d94p             3s2  3p6  3d9  4s0  4p   4d0  
+   42   15Mo14+ d95p             3s2  3p6  3d9  4s0  4p0  4d0  5p 
+   42   15Mo14+ d96p             3s2  3p6  3d9  4s0  4p0  4d0  6p 
+   42   15Mo14+ d97p             3s2  3p6  3d9  4s0  4p0  4d0  7p 
+   42   15Mo14+ d98p             3s2  3p6  3d9  4s0  4p0  4d0  8p 
+   42   15Mo14+ d99p             3s2  3p6  3d9  4s0  4p0  4d0  9p 
+   42   15Mo14+ d94f             3s2  3p6  3d9  4s0  4p0  4d0  4f
+   42   15Mo14+ d95f             3s2  3p6  3d9  4s0  4p0  4d0  5f
+   42   15Mo14+ d96f             3s2  3p6  3d9  4s0  4p0  4d0  6f
+   42   15Mo14+ d97f             3s2  3p6  3d9  4s0  4p0  4d0  7f
+   42   15Mo14+ d98f             3s2  3p6  3d9  4s0  4p0  4d0  8f
+   42   15Mo14+ d99f             3s2  3p6  3d9  4s0  4p0  4d0  9f
+   42   15Mo14+ p54s             3s2  3p5  3d10 4s   4p0  4d0  
+   42   15Mo14+ p55s             3s2  3p5  3d10 4s0  4p0  4d0  5s
+   42   15Mo14+ p56s             3s2  3p5  3d10 4s0  4p0  4d0  6s
+   42   15Mo14+ p57s             3s2  3p5  3d10 4s0  4p0  4d0  7s
+   42   15Mo14+ p58s             3s2  3p5  3d10 4s0  4p0  4d0  8s
+   42   15Mo14+ p59s             3s2  3p5  3d10 4s0  4p0  4d0  9s
+   42   15Mo14+ p54d             3s2  3p5  3d10 4s0  4p0  4d   
+   42   15Mo14+ p55d             3s2  3p5  3d10 4s0  4p0  4d0  5d
+   42   15Mo14+ p56d             3s2  3p5  3d10 4s0  4p0  4d0  6d
+   42   15Mo14+ p57d             3s2  3p5  3d10 4s0  4p0  4d0  7d
+   42   15Mo14+ p58d             3s2  3p5  3d10 4s0  4p0  4d0  8d
+   42   15Mo14+ p59d             3s2  3p5  3d10 4s0  4p0  4d0  9d
+   42   15Mo14+ 3s4p             3s   3p6  3d10 4s0  4p   4d0  
+   42   15Mo14+ 3s5p             3s   3p6  3d10 4s0  4p0  4d0  5p
+   42   15Mo14+ 3s6p             3s   3p6  3d10 4s0  4p0  4d0  6p
+   42   15Mo14+ 3s7p             3s   3p6  3d10 4s0  4p0  4d0  7p
+   42   15Mo14+ 3s8p             3s   3p6  3d10 4s0  4p0  4d0  8p
+   42   15Mo14+ 3s9p             3s   3p6  3d10 4s0  4p0  4d0  9p
+   42   15Mo14+ 3s4f             3s   3p6  3d10 4s0  4p0  4d0  4f
+   42   15Mo14+ 3s5f             3s   3p6  3d10 4s0  4p0  4d0  5f
+   42   15Mo14+ 3s6f             3s   3p6  3d10 4s0  4p0  4d0  6f
+   42   15Mo14+ 3s7f             3s   3p6  3d10 4s0  4p0  4d0  7f
+   42   15Mo14+ 3s8f             3s   3p6  3d10 4s0  4p0  4d0  8f
+   42   15Mo14+ 3s9f             3s   3p6  3d10 4s0  4p0  4d0  9f
+   -1
+   -1
+   42   15Mo14+ 59s4f            3s2  3p5  3d9  4s   4p0  4d0  4f
+   42   15Mo14+ 59s5f            3s2  3p5  3d9  4s   4p0  4d0  5f
+   42   15Mo14+ d8p4f            3s2  3p6  3d8  4s0  4p   4d0  4f
+   42   15Mo14+ d8p5f            3s2  3p6  3d8  4s0  4p   4d0  5f
+   42   15Mo14+ d8s5d            3s2  3p6  3d8  4s   4p0  4d0  5d
+   42   15Mo14+ d7s2d            3s2  3p6  3d7  4s2  4p0  4d
+   42   15Mo14+ d7p2d            3s2  3p6  3d7  4s0  4p2  4d
+   42   15Mo14+ d8p6f            3s2  3p6  3d8  4s0  4p   4d0  6f
+   42   15Mo14+ 59s4p            3s2  3p5  3d9  4s   4p   4d0
+   42   15Mo14+ 59s5p            3s2  3p5  3d9  4s   4p0  4d0  5p
+   42   15Mo14+ 59s6p            3s2  3p5  3d9  4s   4p0  4d0  6p
+   42   15Mo14+ 59s6f            3s2  3p5  3d9  4s   4p0  4d0  6f
+   -1
+   42   15Mo14+ 594s2            3s2  3p5  3d9  4s2  4p0  4d0
+   42   15Mo14+ 594p2            3s2  3p5  3d9  4s0  4p2  4d0
+   42   15Mo14+ d8s4f            3s2  3p6  3d8  4s   4p0  4d0  4f
+   42   15Mo14+ d8s5f            3s2  3p6  3d8  4s   4p0  4d0  5f
+   42   15Mo14+ d8d4f            3s2  3p6  3d8  4s0  4p0  4d   4f
+   42   15Mo14+ d8d5f            3s2  3p6  3d8  4s0  4p0  4d   5f
+   42   15Mo14+ 59p4f            3s2  3p5  3d9  4s0  4p   4d0  4f
+   42   15Mo14+ 59p5f            3s2  3p5  3d9  4s0  4p   4d0  5f
+   42   15Mo14+ 59p6f            3s2  3p5  3d9  4s0  4p   4d0  6f
+   42   15Mo14+ d8s6f            3s2  3p6  3d8  4s   4p0  4d0  6f
+   42   15Mo14+ 59s4d            3s2  3p5  3d9  4s   4p0  4d
+   42   15Mo14+ 59s5d            3s2  3p5  3d9  4s   4p0  4d0  5d
+   42   15Mo14+ 59s6d            3s2  3p5  3d9  4s   4p0  4d0  6d
+   42   15Mo14+ d8p4d            3s2  3p6  3d8  4s0  4p   4d   4f0
+   42   15Mo14+ d8p5d            3s2  3p6  3d8  4s0  4p   4d0  5d
+   42   15Mo14+ d8p6d            3s2  3p6  3d8  4s0  4p   4d0  6d
+   42   15Mo14+ d8p4d            3s2  3p6  3d8  4s0  4p   4d   4f0
+   42   15Mo14+ d8p5d            3s2  3p6  3d8  4s0  4p   4d0  5d
+   42   15Mo14+ d8s4p            3s2  3p6  3d8  4s   4p
+   42   15Mo14+ d8s5p            3s2  3p6  3d8  4s   4p0  4d0  5p
+   42   15Mo14+ d8s6p            3s2  3p6  3d8  4s   4p0  4d0  6p
+   42   15Mo14+ d8d5p            3s2  3p6  3d8  4s0  4p0  4d   5p
+   42   15Mo14+ 59p5p            3s2  3p5  3d9  4s0  4p   4d0  5p
+   42   15Mo14+ 59p6p            3s2  3p5  3d9  4s0  4p   4d0  6p
+   42   15Mo14+ d7s2p            3s2  3p6  3d7  4s2  4p   4d0  4f0
+   42   15Mo14+ d7s2f            3s2  3p6  3d7  4s2  4p0  4d0  4f
+   42   15Mo14+ d7p3             3s2  3p6  3d7  4s0  4p3  4d0  4f0
+   42   15Mo14+ p55g             3s2  3p5  3d10 4s0  4p0  4d0  5g
+   -1

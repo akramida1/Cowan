@@ -74,6 +74,17 @@ _SHELL = re.compile(r'(\d*)([spdfghiklmno])(\d*?)'
 _REPEAT = re.compile(r'^(\d+[%s])\d+$' % _L, re.I)
 _ORBITALS = 'spdfghiklmno'
 
+#: The `+x` an experimental compilation writes on an energy whose
+#: system is tied to the ground level only loosely -- and the `-x` form,
+#: for a compilation that writes it that way.  One letter, at the end of
+#: the field, is the whole of it; a level whose energy is `12345.678+x`
+#: is a member of system `x` and its energy is 12345.678.
+#:
+#: Until this was recognised such a value simply failed `float()` and the
+#: row was dropped without a word, which is the defect `02_python_audit.md`
+#: Sec. 4 found.  Both halves are now read: the number, and the letter.
+_SUFFIX = re.compile(r'^(.*?)\s*[+-]\s*([A-Za-z])$')
+
 #: A subshell of a configuration spelled out in full, `4f3` or `6p`.
 _WRITTEN = re.compile(r'^(\d+)([%s])(\d*)$' % _ORBITALS)
 
@@ -99,7 +110,7 @@ class Spec:
     does it know whether there is a header at all.
     """
 
-    NAMES = ('ecol', 'jcol', 'pcol', 'excludecol', 'altcol',
+    NAMES = ('ecol', 'jcol', 'pcol', 'excludecol', 'altcol', 'basecol',
              'confcol', 'termcol', 'perccol', 'conf1col', 'term1col',
              'perc2col', 'conf2col', 'term2col',
              'perc3col', 'conf3col', 'term3col')
@@ -142,6 +153,8 @@ class Report:
         self.unknown_conf = {}      # {source configuration: rows}
         self.bad_parity = []
         self.bad_j = []
+        self.bad_energy = []        # rows whose energy does not parse
+        self.groups = {}            # {suffix letter: [(line, is base)]}
         self.parities = {}          # {parity: parity set}
         self.use_conf = False       # whether the keys name a configuration
 
@@ -184,6 +197,19 @@ class Report:
             out.write('   Warning: configuration %s (%d level%s) is in no '
                       'component of the target deck.\n'
                       % (label, count, '' if count == 1 else 's'))
+        if self.groups:
+            out.write('   relative-energy systems: %s\n'
+                      % ', '.join('+%s (%d level%s)'
+                                  % (letter, len(rows),
+                                     '' if len(rows) == 1 else 's')
+                                  for letter, rows
+                                  in sorted(self.groups.items())))
+        for number, text in self.bad_energy[:5]:
+            out.write('   Warning: line %d: %r is not an energy, so the '
+                      'level was not read.\n' % (number, text))
+        if len(self.bad_energy) > 5:
+            out.write('   Warning: %d further rows have an energy that does '
+                      'not parse.\n' % (len(self.bad_energy) - 5))
         for number, text in self.bad_parity[:5]:
             out.write('   Warning: line %d: %r is not a parity.\n'
                       % (number, text))
@@ -554,11 +580,16 @@ def read_alt_lev_src(path, spec, target):
         if _excluded(row, columns['excludecol']):
             report.excluded += 1
             continue
-        try:
-            value = float(_field(row, columns['ecol']).replace(',', '')) \
-                * spec.scale
-        except ValueError:
+        text = _field(row, columns['ecol'])
+        value, suffix = energy_and_suffix(text)
+        if value is None:
+            # Reported, never dropped in silence: until this was here a
+            # `12345.678+x` -- the very notation this feature is about
+            # -- made the row vanish and the counts at the end of the
+            # run simply failed to add up.
+            report.bad_energy.append((number, text))
             continue
+        value *= spec.scale
         parity = _parity(_field(row, columns['pcol']))
         kset = report.parities.get(parity) if parity else None
         if kset is None:
@@ -580,12 +611,52 @@ def read_alt_lev_src(path, spec, target):
         if not js:
             report.bad_j.append((number, _field(row, columns['jcol'])))
             continue
+        base = bool(_field(row, columns['basecol'])) if suffix else False
+        status = (suffix.upper() if base else suffix) if suffix else ' '
         for one in js:
             deck.add(Level(j=one, ee=value, ec=value, observed=True,
-                           vector=dict(vector), kset=kset, line=number,
-                           intensity=True))
+                           status=status, vector=dict(vector), kset=kset,
+                           line=number, intensity=True))
             report.levels += 1
+            if suffix:
+                report.groups.setdefault(suffix, []).append((number, base))
+    _settle_bases(deck, report)
     return deck, report
+
+
+def _settle_bases(deck, report):
+    """Check that each suffix group names exactly one base level.
+
+    Which level of a `+x` system carries the absolute tie to the ground
+    level is a decision about the *measurements*, and this module has no
+    way to make it: the theory in the target deck certainly must not,
+    and the lowest level of the group is a convention, not a fact.  So
+    it is asked for, with `--basecol`, and refused where it is missing
+    or given twice -- the one exception being a group of a single level,
+    where there is nothing to choose between.
+    """
+    for letter in sorted(report.groups):
+        rows = report.groups[letter]
+        bases = [number for number, base in rows if base]
+        if len(bases) > 1:
+            raise AltSourceError(
+                'the +%s system has %d levels marked as its base, on lines '
+                '%s; exactly one level of a group carries the tie to the '
+                'ground level' % (letter, len(bases),
+                                  ', '.join('%d' % n for n in bases)))
+        if bases:
+            continue
+        if len(rows) > 1:
+            raise AltSourceError(
+                'the +%s system has %d levels and none of them is marked as '
+                'its base.  Which one carries the measured tie to the ground '
+                'level is a decision about the data, not one this can make: '
+                'mark it with a column and name that column with --basecol.'
+                % (letter, len(rows)))
+        # A group of one: it is its own base, and nothing was chosen.
+        for level in deck.levels():
+            if level.status == letter:
+                level.status = letter.upper()
 
 
 def _rows(path):
@@ -615,13 +686,16 @@ def _header(rows, spec):
 
 
 def _numeric(row):
-    """Whether any field of a row is a number: a data row, not a header."""
+    """Whether any field of a row is a number: a data row, not a header.
+
+    A suffixed energy counts as one.  A file whose every energy carries
+    a `+x` would otherwise look like header all the way down, which is
+    the second place `02_python_audit.md` Sec. 4 found the same blind
+    `float()`.
+    """
     for field in row:
-        try:
-            float(field.strip().replace(',', ''))
+        if energy_and_suffix(field)[0] is not None:
             return True
-        except ValueError:
-            continue
     return False
 
 
@@ -653,6 +727,26 @@ def _field(row, index):
     if index is None or index >= len(row):
         return ''
     return row[index].strip().strip('"').strip()
+
+
+def energy_and_suffix(text):
+    """`'12345.678+x'` -> `(12345.678, 'x')`; `(None, '')` for a non-number.
+
+    The suffix is the compilation's own notation for a level system
+    known precisely inside itself and tied to the ground level only
+    loosely; it is what becomes a group letter in the deck.  Anything
+    that is not a number even after the suffix comes off gives `None`,
+    which the caller reports -- it must never be dropped in silence.
+    """
+    body = text.strip().strip('"').strip()
+    suffix = ''
+    found = _SUFFIX.match(body)
+    if found:
+        body, suffix = found.group(1), found.group(2).lower()
+    try:
+        return float(body.replace(',', '')), suffix
+    except ValueError:
+        return None, ''
 
 
 def _excluded(row, index):

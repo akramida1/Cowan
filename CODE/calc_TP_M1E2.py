@@ -294,13 +294,28 @@ class Lev:
         return self.one.level.e_obs
 
     @property
+    def group(self):
+        """The relative-energy group this level is in, or `''`."""
+        return self.one.level.group
+
+    @property
+    def absolute(self):
+        """Whether the observed energy is on the deck's absolute scale."""
+        return self.one.level.absolute
+
+    @property
     def g(self):
         return self.one.level.g
 
     def energy(self, other):
-        """The energy to compare with another level's, in the same terms."""
-        return (self.e_obs if self.observed and other.observed
-                else self.e_calc)
+        """The energy to compare with another level's, in the same terms.
+
+        Two energies are in the same terms where both are observed on
+        one scale -- both absolute, or both in one relative-energy
+        group.  Across a group boundary the offset is unknown and the
+        fitted energies are the pair that can be compared.
+        """
+        return self.e_obs if rce.comparable(self, other) else self.e_calc
 
     def decay(self, trial, rate):
         while len(self.ar_tot) <= trial:
@@ -415,7 +430,7 @@ def read_transitions(folder, mapping, of_label, wanted, store, trial,
         if not difference:
             continue
         fitted = 1e5 / difference
-        if upper.observed and lower.observed:
+        if rce.comparable(upper, lower):
             spread = abs(upper.e_obs - lower.e_obs)
             # S is held fixed and gA moved to the observed wavelength;
             # see the header of this file.
@@ -829,7 +844,7 @@ def row_text(row, options, name):
         return None
     wavelength = 1e5 / difference
     experimental = ''
-    if upper.observed and lower.observed:
+    if rce.comparable(upper, lower):
         spread = abs(upper.e_obs - lower.e_obs)
         if spread:
             difference = spread

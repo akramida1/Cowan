@@ -25,6 +25,8 @@ Usage:
         --jcol <col>       J              --skip <n>   header lines
         --pcol <col>       parity: o|odd|u|1|*, e|even|g|0
         --excludecol <col> exclude a level: anything non-blank, non-zero
+        --basecol  <col>   marks the base of a `+x` system: anything
+                           non-blank
         --parity-sets o,e  which parity each of the deck's sets is
         --confcol  <col> --termcol  <col> --perccol  <col>
         --conf1col <col> --term1col <col>
@@ -88,6 +90,24 @@ depth the source gives them, and the target's components are added up
 over the rest.  A row whose leading component gives neither an LS
 parent nor an LS term gets no composition at all and is matched on
 (parity, J, energy); the report says how many went each way.
+
+**Relative energies.**  A compilation writes `12345.678+x` for a level
+system measured precisely inside itself but tied to the ground level
+only loosely.  Such an energy is read as 12345.678 in system `x`, and
+the system becomes a group in the target deck: the letter goes in
+column 14 of every one of its level records, uppercase on the group's
+**base** -- the one level whose tie to the ground level was measured --
+and lowercase on the rest.  RCE then fits the group's internal
+differences at one weight and its tie to ground at another
+(`FOR/RCEREL.F`); the two standard deviations that say how much each is
+worth go on a card block at the end of the deck, which this tool does
+not write.
+
+Which level is the base is a decision about the measurements, so it is
+asked for rather than guessed: mark it in a column of the source and
+name that column with `--basecol`.  A system of one level is its own
+base.  Before this, an energy with a `+x` on it simply failed to parse
+and the row was dropped without a word.
 
 Three reports go to standard output when the run is done: the matches
 worth checking by hand, any two levels of one J that came out with the
@@ -383,7 +403,9 @@ def main(argv):
     for level in target.levels():
         if level.assigned is None or level.line < 0:
             continue
-        lines[level.line] = rce.set_observed(lines[level.line], level.assigned)
+        lines[level.line] = rce.set_observed(lines[level.line],
+                                             level.assigned,
+                                             level.assigned_status)
         given += 1
 
     parameters = 0

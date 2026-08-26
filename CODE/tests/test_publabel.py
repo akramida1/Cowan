@@ -306,10 +306,11 @@ def test_the_columns(named):
         'par', 'conf', 'term', 'perc',
         'perc1', 'conf1', 'term1', 'perc2', 'conf2', 'term2',
         'perc3', 'conf3', 'term3',
-        'Ee', 'Ec', 'dE_O-C', 'J', 'Lande_g']
+        'Ee', 'suffix', 'Ec', 'dE_O-C', 'J', 'Lande_g']
     assert publabel.header(1) == ['par', 'conf', 'term', 'perc',
                                   'perc1', 'conf1', 'term1',
-                                  'Ee', 'Ec', 'dE_O-C', 'J', 'Lande_g']
+                                  'Ee', 'suffix', 'Ec', 'dE_O-C', 'J',
+                                  'Lande_g']
     assert all(len(publabel.row_of(one, 3)) == len(publabel.header(3))
                for one in names)
 

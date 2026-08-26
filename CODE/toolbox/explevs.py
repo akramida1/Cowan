@@ -128,11 +128,14 @@ class Level:
     ee: float                       # observed energy, or the computed one
     ec: float                       # fitted energy
     observed: bool
+    status: str = ' '               # column 14 as the deck spells it: blank,
+                                    # '*', or a group letter -- see `rce`
     vector: dict = field(default_factory=dict)   # {'conf,term': percent}
     kset: int = 1
     position: int = 0               # its place within its J, 1-based
     line: int = -1                  # the line it was read from
     assigned: float = None          # the energy this level has been given
+    assigned_status: str = ' '      # the status character that came with it
     match: object = None            # the level of the other deck it is tied to
     mvector: dict = None            # the vector to match on, where it is not
                                     # `vector` -- see `altlevsrc`
@@ -152,6 +155,16 @@ class Level:
         reports print.
         """
         return self.vector if self.mvector is None else self.mvector
+
+    @property
+    def group(self):
+        """The heteroscedastic group this level belongs to, or `''`."""
+        return rce.group_letter(self.status)
+
+    @property
+    def absolute(self):
+        """Whether the level's observed energy is on the absolute scale."""
+        return self.observed and not self.group
 
     @property
     def taken(self):
@@ -268,6 +281,7 @@ def read_deck(path):
         for level in cset.levels:
             deck.add(Level(j=_j_text(level.j), ee=level.e_obs,
                            ec=level.e_calc, observed=level.observed,
+                           status=level.flag or ' ',
                            vector=_vector(level.components), kset=cset.index,
                            line=places.get((cset.index, level.index), -1)))
     return deck
@@ -401,6 +415,12 @@ def identify(source, target, by='heuristic', certain=CERTAIN):
             lost.append(level)
         else:
             best.assigned = level.ee
+            # The status comes across with the energy.  A group level
+            # whose letter were dropped here would be written into the
+            # target as an ordinary absolute one, which is the silent
+            # promotion `03_design.md` Sec. 7 asks `set_observed` to
+            # make impossible.
+            best.assigned_status = level.status if level.observed else ' '
             best.pvector = seen if level.intensity else None
             level.match = best
     return lost

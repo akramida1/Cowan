@@ -74,7 +74,7 @@ and nothing calls them.
 | RCN  ver. 36k         | Aug 2026 |
 | RCN2 ver. 2k          | Aug 2026 |
 | RCG  ver. 11kd        | Aug 2026 |
-| RCE  ver. 20kd        | Jan 2026 |
+| RCE  ver. 20kd        | Aug 2026 |
 | **Python utility codes:** |        |
 | printout.py                 | Aug 2026 |
 | conv_out.py                 | Aug 2026 |
@@ -211,9 +211,9 @@ the make_cfp.bat batch file:
 	- `FOR`  - the Fortran sources of the main programs.
 	- `WORK` - holds the sample input files `IN36` and `IN2`. Running the
 					 four programs in turn on them is the installation test.
-					 Its sub-directories `AI`, `AI/DIEL`, `Forbid`, `Pr3`,
-					 `W70` and `U90` hold further worked examples, listed in
-					 the addendum below.
+					 Its sub-directories `AI`, `AI/DIEL`, `Forbid`, `Mo15`,
+					 `Pr3`, `W70` and `U90` hold further worked examples,
+					 listed in the addendum below.
 
 	Besides the main programs RCN, RCN2, RCG and RCE, the package includes
 	the utility codes described below. They are written in Python and need
@@ -628,8 +628,10 @@ configurations with different cores.
       "eigenvector components squared".
 2. The iteration control line (same as in `OUTGINE`).
 3. The group of lines describing the eigenvectors resembles the format
-   of the `LEVELS1` file in *LS* coupling: the energy; an asterisk (`*`)
-   for an "unknown" level or a blank for an "experimental" one; the
+   of the `LEVELS1` file in *LS* coupling: the energy; the status
+   character -- an asterisk (`*`) for an "unknown" level, a blank for an
+   ordinary "experimental" one, or a letter naming a relative-energy
+   group (see the next section); the
    calculated (fitted) energy; the *J* value; and then one or more groups
    describing the eigenvector components, each of them the signed
    amplitude (multiplied by 100 and rounded), the configuration name and
@@ -643,7 +645,97 @@ configurations with different cores.
    the numbers occupy in the `RCEINP` file that the first run of `RCE`
    creates.
 
-The same structure (1-4) follows for the second parity, if there is one.
+5. If any level record carries a group letter, the card block giving the
+   two standard deviations of each relative-energy group follows the
+   parameter cards. See the next section.
+
+The same structure (1-5) follows for the second parity, if there is one.
+
+### RELATIVE-ENERGY GROUPS IN AN RCE FIT
+
+An experimental level list is not one measurement. A compilation carries
+systems of levels known to a hundredth of a wavenumber inside themselves
+and tied to the ground level only through one resonance transition
+measured to a few hundred -- the `+x` systems. Before this release `RCE`
+had two things to do with such a level, and both are wrong. Fitted at
+unit weight (a blank in column 14), its unknown offset is charged to the
+parameters, and since some parameters are shared between configurations
+-- ZETA of an open d shell is one linked group across every odd
+configuration of a Ni-like ion -- the error does not stay where it was
+made. Marked unknown (`*`), the accurately spaced levels inside the
+system are thrown away with it.
+
+A **relative-energy group** lets you say what is actually known: the
+levels are precise relative to one another, and the whole system sits at
+an uncertain absolute energy.
+
+**Marking the levels.** Column 14 of a level record of `RCEINP` -- the
+column that held the `*` -- now takes a letter:
+
+	blank   an ordinary experimental level, fitted at unit weight
+	*       not fitted
+	A-Z     the base of that group -- the one level whose tie to the
+	        ground level was measured
+	a-z     another member of the same group
+
+A level cannot carry both a letter and a `*`, the column being one
+character wide, so every lettered level is a fitted one.
+
+**The group cards.** The two standard deviations that say what a group is
+worth have nowhere to live on a level record, so they come on a card
+block at the end of the deck, after the parameter cards, one block per
+parity section:
+
+	 GROUP SIGMA_BASE  SIGMA_INT
+	X         500.000     20.000
+	Z                     15.000
+
+The header is any line containing `GROUP`. One card per group follows:
+the letter in column 1, `SIGMA_BASE` in columns 2-13, `SIGMA_INT` in
+columns 14-25. A blank line, a `-1` line, or end of file ends the block.
+**The sigmas are in the energy unit of the deck** -- `UENRGY` from
+`ING11`, which is 1000 cm^-1^ in most decks, so 500 cm^-1^ is punched as
+`0.500`. A blank `SIGMA_BASE` means the group has no measured tie to the
+ground level at all, and its base then contributes no residual; a blank
+`SIGMA_INT` means weight 1. Zero is not accepted for `SIGMA_BASE`,
+because zero reads as "known exactly", which is the opposite of what a
+blank field means.
+
+`RCE` writes the letters and the card block back to `RCEOUT`, so the
+usual `RCEOUT` -> `RCEINP` cycle carries the grouping forward with
+everything else.
+
+**What it does to the fit.** A member of a group contributes the
+difference `(E_exp,i - E_exp,base) - (E_calc,i - E_calc,base)` instead of
+its own residual, and the base contributes its absolute residual, so a
+group of *n* levels still gives *n* rows. Each row is weighted by
+
+	w = sigma_0^2^ / (sigma_0^2^ + sigma^2^)
+
+with `sigma_int` for the differences and `sigma_base` for the base.
+`sigma_0` is not supplied: it is the standard deviation the fit itself
+achieves, taken from the previous cycle, so the weights are fixed
+self-consistently rather than by a magic number. It never grows, and it
+is frozen once it settles to within one per cent. `OUTE` prints the raw
+`STDEV`, the adopted `sigma_0`, whether it is frozen, and the two weights
+of every group, every cycle.
+
+**Two things to know before using it.**
+
+- `AVDEV` and `STDEV` of a grouped fit are weighted quantities over
+differenced rows, and are **not** comparable with those of the same
+deck without the letters. Judge a grouped fit by the O-C of the levels
+you care about, not by the number at the foot of the page.
+- `SIGMA_INT` is **not** the experimental uncertainty. It is weighed
+against `sigma_0`, and `sigma_0` comes from the same fit those levels
+are in, so a group bad enough to need downweighting also inflates the
+quantity it is being weighed against. Set `SIGMA_INT` to ten times or
+more the `AVDEV` you expect from the rest of the fit. `WORK/Mo15/`
+is the worked example of exactly this, and its `README.txt` shows what
+happens at both settings.
+
+A deck with no letter in column 14 is read, fitted and printed exactly as
+before, to the byte. The details are in `FOR/LSJJ/README.txt`.
 
 ### THE FUNDAMENTAL CONSTANTS
 
@@ -1751,6 +1843,25 @@ flag set; a compiler without that extension will not build `RCG` or
                        fitted early in an analysis has its observed
                        energies replaced by optimized ones.
 
+                       An energy written with a `+x` on it --
+                       12345.678+x -- is a level of a system measured
+                       precisely inside itself but tied to the ground
+                       level only loosely. Such a system becomes a
+                       relative-energy group in the target deck: the
+                       letter goes into column 14 of every one of its
+                       level records, uppercase on the base and
+                       lowercase on the rest. Which level is the base
+                       is a decision about the measurements, so it is
+                       asked for rather than guessed: mark it in a
+                       column of the source and name that column with
+                       --basecol. A system of one level is its own
+                       base. The two standard deviations of the group
+                       go on a card block at the end of the deck, which
+                       this program does not write -- add it by hand,
+                       as RELATIVE-ENERGY GROUPS IN AN RCE FIT above
+                       describes. RCE will stop and name the letter if
+                       it is missing.
+
                        Running subst_exp_levs.py with no arguments, or
                        with --help, prints the whole option list with
                        the composition columns explained in full.
@@ -1958,6 +2069,15 @@ flag set; a compiler without that extension will not build `RCG` or
                        44% in JJ for one and 35% in LS for the other.
                        Writes levels_prepub.txt.
 
+                       A level belonging to a relative-energy group
+                       (see RELATIVE-ENERGY GROUPS IN AN RCE FIT above)
+                       carries the group's letter in a suffix column
+                       after Ee, written as ` +x`, and
+                       make_levels_list_pub carries that column to the
+                       published list. The level table conv_out itself
+                       writes gains a grp column when a letter is
+                       present.
+
                        Options: --levels, --choice, -o, --components,
                        --min-percent.
 
@@ -2031,6 +2151,9 @@ flag set; a compiler without that extension will not build `RCG` or
         LSJJID.F      | added to RCG and RCE in 2026
         LSJJPAR.F     |
         RCEJJ2E.F     - Include file for RCE20KD.F, true jj coupling
+        RCEREL.F      - Include file for RCE20KD.F: the state of the
+                        relative-energy groups (see RELATIVE-ENERGY
+                        GROUPS IN AN RCE FIT above).
         LSJJ/         - The record of the LS -> jj derivation: the
                         scripts that validated the coefficients against
                         Cowan's own, their logs, and the JJCFP deck. The
@@ -2074,6 +2197,20 @@ flag set; a compiler without that extension will not build `RCG` or
                        RCG prints the section headings and no lines
                        under them.
 
+        Mo15/         - Ni-like Mo XV: the relative-energy group example.
+                       Twenty-two known levels, of which the five
+                       3d9.4f and 3d9.5f ones are known to 400-600 cm-1
+                       while the 3d9.4s and 3d9.4p ones are known to
+                       under 0.1 cm-1, and ZETA(3d) is linked across
+                       every odd configuration -- so the loosely tied
+                       levels pull a parameter the well-measured ones
+                       depend on. IN36, IN2, the experimental level
+                       list, and RCEINP.example, the finished deck with
+                       its letters and group cards. Its README.txt
+                       gives the run step by step and compares the fit
+                       with and without the weighting; it is also the
+                       guidance on choosing SIGMA_INT.
+
         Pr3/          - Pr III, a real least-squares fit, and the worked
                        example of everything downstream of one: the
                        RCEOUT/RCEINP input format, the update11 cycle,
@@ -2109,7 +2246,7 @@ flag set; a compiler without that extension will not build `RCG` or
                        README.txt.
 
 
-                                  August 19, 2026
+                                  August 26, 2026
 
                                   Alexander Kramida,
                                   e-mail akramida @ umd.edu

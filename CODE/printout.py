@@ -44,15 +44,23 @@ from toolbox import case as case_mod                            # noqa: E402
 from toolbox import asd, designate, files, in36, levels, rce   # noqa: E402
 
 
-def header(options):
+def header(options, grouped=False):
     """The columns of levels.txt.
 
     `conf0` is off by default, and with it off the file is exactly what
     it has always been: nothing downstream of this script but the
     phase 12-14 pipeline wants the column, and levels.txt is read by
     hand and by spreadsheet as well as by code.
+
+    `grp` is written only when some level of the run carries a
+    relative-energy group letter.  `e_c` stays what it has always been,
+    a boolean asterisk: widening it would break every reader that tests
+    it against `'*'` (`purity.py:219`), and the letter is a second,
+    different fact about the level -- not a third value of the first.
     """
     out = ['cpl', 'par', 'Ee', 'e_c', 'Ec', 'Ee-Ec', 'J', 'Lande_g']
+    if grouped:
+        out.insert(out.index('e_c') + 1, 'grp')
     if options.dominant_config:
         out.append('conf0')
     # As many triples as `--components` asks for, not the Perl's fixed
@@ -246,7 +254,12 @@ def _components(case, coupling, kset, j, eigenvector, options):
 _NONCANONICAL = set()
 
 
-def _rows(primary, block, source, options):
+def _grouped(primary):
+    """Whether any level of the run carries a group letter."""
+    return any(one.level.group for one in getattr(primary, 'identified', []))
+
+
+def _rows(primary, block, source, options, grouped=False):
     """One coupling's block of the level list, both parities, in RCG
     eigenvalue order, as lists of column values.
 
@@ -277,6 +290,8 @@ def _rows(primary, block, source, options):
                    '%12.6f' % e_obs, observed, '%12.4f' % level.e_calc,
                    difference, '%4.1f' % one.j,
                    '' if level.g is None else '%6.3f' % level.g]
+            if grouped:
+                row.insert(4, level.group)
             if options.dominant_config:
                 row.append(_readable(primary, kset, level.conf0))
             eigenvector = one.rcg
@@ -473,9 +488,11 @@ def main(argv):
             _report_energy_order(merged)
 
     rows = []
+    grouped = _grouped(primary)
     for block in options.blocks:
-        rows.extend(_rows(primary, block, sources.get(block.name), options))
-    _write(options.levels, header(options), rows)
+        rows.extend(_rows(primary, block, sources.get(block.name), options,
+                          grouped))
+    _write(options.levels, header(options, grouped), rows)
     print('wrote %s (%d levels)' % (options.levels, len(rows)))
     if _NONCANONICAL:
         print('   %d basis states are printed in the deck\'s summation '

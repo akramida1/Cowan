@@ -116,7 +116,7 @@ def test_a_level_met_first_without_g_takes_it_from_a_later_block():
             self.coupling, self.g, self.conf0 = coupling, g, conf0
             self.parity, self.e_calc, self.j = 'e', 1.0, 0.5
             self.e_obs, self.unfitted, self.line = 1.0, False, 2
-            self.components = []
+            self.group, self.components = '', []
 
     class Table:
         path = 'x'
@@ -135,7 +135,7 @@ def test_two_blocks_of_one_level_in_one_coupling_stop_the_run():
             self.coupling, self.g, self.conf0 = 'LS', None, ''
             self.parity, self.e_calc, self.j = 'e', 1.0, 0.5
             self.e_obs, self.unfitted, self.line = 1.0, False, 2
-            self.components = []
+            self.group, self.components = '', []
 
     class Table:
         path = 'x'
@@ -388,3 +388,55 @@ def test_an_unknown_option_says_so(pr3):
     done = run('make_levels_list_prepub.py', pr3, '--couplings', 'LS')
     assert done.returncode == 2
     assert '--couplings is not an option' in done.stderr
+
+
+# --------------------------------------------------------------------------
+# the `+x` suffix of a relative-energy system
+# --------------------------------------------------------------------------
+
+def a_level(group=''):
+    return prepub.Level(parity='o', e_obs=12.345678, unfitted=False,
+                        e_calc=12.3, j=0.5, g=1.25, conf0='4f3', line=2,
+                        group=group)
+
+
+def test_the_suffix_is_a_column_of_its_own_beside_the_energy():
+    """`Ee` stays a bare number and the `+x` goes beside it.
+
+    Appending it to the energy would make `Ee` non-numeric and take
+    `dE_O-C` and every spreadsheet that reads the column with it.  The
+    leading space is what stops Excel reading `+x` as a formula.
+    """
+    at = prepub.FIXED.index('suffix')
+    assert prepub.FIXED[at - 1] == 'Ee'
+    assert prepub.row_of(a_level('x'))[at] == ' +x'
+    assert prepub.row_of(a_level())[at] == ''
+    assert prepub.row_of(a_level('x'))[at - 1] == '%12.6f' % 12.345678
+
+
+def test_an_unfitted_level_has_no_suffix_either():
+    level = a_level('x')
+    level.unfitted = True
+    at = prepub.FIXED.index('suffix')
+    assert prepub.row_of(level)[at - 1] == ''
+    assert prepub.row_of(level)[at] == ''
+
+
+def test_the_suffix_survives_the_round_trip(tmp_path):
+    path = str(tmp_path / 'levels_prepub.txt')
+    prepub.write_prepub(path, [a_level('x'), a_level()])
+    back = prepub.read_prepub(path)
+    assert [one.group for one in back] == ['x', '']
+    assert back[0].e_obs == pytest.approx(12.345678)
+
+
+def test_a_file_written_before_the_suffix_column_still_reads(tmp_path):
+    """Its absence means what a blank cell means: no level is in a system."""
+    path = tmp_path / 'levels_prepub.txt'
+    head = [name for name in prepub.header(1) if name != 'suffix']
+    row = [value for name, value in zip(prepub.header(1),
+                                        prepub.row_of(a_level()))
+           if name != 'suffix']
+    path.write_text('\t'.join(head) + '\n' + '\t'.join(row) + '\n')
+    back = prepub.read_prepub(str(path))
+    assert len(back) == 1 and back[0].group == ''

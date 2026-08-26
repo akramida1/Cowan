@@ -46,6 +46,82 @@ class RceError(Exception):
 
 
 # --------------------------------------------------------------------------
+# column 14: the status character
+# --------------------------------------------------------------------------
+
+#: What RCE puts beside a level's observed energy, and what each value
+#: means (`FOR/RCE20KD.F:626-660`):
+#:
+#:   blank   an ordinary experimental level, fitted at weight 1
+#:   `*`     no observation; the observed column holds a copy of the
+#:           fitted energy and the level is not fitted
+#:   `A`-`Z` the **base** of a heteroscedastic group
+#:   `a`-`z` another **member** of that group
+#:
+#: A group is a set of levels known precisely relative to one another
+#: but tied to the ground level only loosely -- the `+x` systems of an
+#: experimental compilation.  Every one of its levels carries an
+#: experimental energy; what the letter says is that the *offset* of
+#: that energy is uncertain, so a difference taken across a group
+#: boundary is not the well-determined quantity a difference inside one
+#: is.  `comparable` is where that distinction is asked about.
+UNFITTED = '*'
+
+_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+_LOWER = 'abcdefghijklmnopqrstuvwxyz'
+
+
+def group_letter(flag):
+    """The group a status character names, lowercased, or `''`.
+
+    Case says base from member and is asked about by `is_group_base`;
+    the letter itself is the group's identity either way, so it is
+    folded here and any two levels' groups compare as one spelling.
+    """
+    text = (flag or '')[:1]
+    if text in _UPPER:
+        return text.lower()
+    return text if text in _LOWER else ''
+
+
+def is_group_base(flag):
+    """Whether a status character is a group's base: an uppercase letter."""
+    return (flag or '')[:1] in _UPPER
+
+
+def is_experimental(flag):
+    """Whether the column-14 character says there is an observed energy.
+
+    Blank and every group letter do; `*` does not.  Anything else is
+    what RCE now rejects outright (`FOR/RCE20KD.F:649-657`), and it is
+    read here the way RCE reads a level it will not fit -- not as an
+    observation.
+    """
+    text = (flag or '').strip()
+    return text == '' or bool(group_letter(text))
+
+
+def comparable(one, other):
+    """Whether a difference of two levels' observed energies is meaningful.
+
+    Two absolute levels are on one scale, and so are two levels of one
+    group -- that difference is exactly what the group's `sigma_int`
+    makes well determined.  Across a group boundary the unknown offset
+    enters, and the caller falls back to the fitted energies, which is
+    the branch every difference site in this package already has.
+
+    Takes anything carrying `observed` and `group`, so the wrappers
+    `conv_out`, `calc_TP_M1E2` and `iden` put around a level answer it
+    as well as a `Level` does.
+    """
+    if not getattr(one, 'observed', False):
+        return False
+    if not getattr(other, 'observed', False):
+        return False
+    return getattr(one, 'group', '') == getattr(other, 'group', '')
+
+
+# --------------------------------------------------------------------------
 # the pieces
 # --------------------------------------------------------------------------
 
@@ -86,12 +162,35 @@ class Level:
 
     @property
     def observed(self):
-        """True where the level was fitted to an observed energy.
+        """True where the level carries an observed energy.
 
         RCE marks a level it had no observation for by putting the
-        computed value in the observed column and an asterisk beside it.
+        computed value in the observed column and an asterisk beside
+        it.  A group letter there is not that mark: the level has an
+        observed energy and was fitted to it, only under a weight of
+        its own.  See `is_experimental`.
         """
-        return self.flag.strip() == ''
+        return is_experimental(self.flag)
+
+    @property
+    def group(self):
+        """The heteroscedastic group this level belongs to, or `''`."""
+        return group_letter(self.flag)
+
+    @property
+    def is_base(self):
+        """Whether this level is its group's base."""
+        return is_group_base(self.flag)
+
+    @property
+    def absolute(self):
+        """Whether the observed energy is on the deck's absolute scale.
+
+        The second of the two questions `observed` used to answer on
+        its own: an ordinary experimental level is absolute, a group
+        level has an observed energy whose offset is not known.
+        """
+        return self.observed and not self.group
 
     @property
     def leading(self):
@@ -127,6 +226,39 @@ class Parameter:
         return '%-10s %12.4f' % (self.name, self.value)
 
 
+@dataclass(frozen=True)
+class Group:
+    """One heteroscedastic group, as its card in the deck gives it.
+
+    The letter lives on the level records; the two standard deviations
+    that say what the group is worth have nowhere to live there, so
+    they come on a card block of their own at the end of the section
+    (`FOR/RCE20KD.F:2492`, SUBROUTINE RELRD).
+
+    `sigma_base` is `None` where the field was left blank, which is how
+    the deck says the group has no measured tie to the ground level at
+    all -- its offset is unknown rather than poorly known, and its base
+    then contributes no residual.  That is why a blank and an explicit
+    zero are different things here, the second being rejected by RCE:
+    zero reads as "known exactly", which in the weight formula means
+    precisely that.
+    """
+
+    letter: str                     # lowercase, the group's identity
+    sigma_base: float = None        # None: no tie to ground
+    sigma_int: float = 0.0
+
+    @property
+    def untied(self):
+        return self.sigma_base is None
+
+    def __str__(self):
+        return '%s: sigma_base=%s sigma_int=%.3f' % (
+            self.letter,
+            'untied' if self.untied else '%.3f' % self.sigma_base,
+            self.sigma_int)
+
+
 @dataclass
 class Cset:
     """One parity set of an RCE run."""
@@ -136,6 +268,7 @@ class Cset:
     configurations: list = field(default_factory=list)
     levels: list = field(default_factory=list)
     parameters: list = field(default_factory=list)
+    groups: dict = field(default_factory=dict)   # {letter: Group}
 
     def by_j(self):
         """{J: [levels]}, each list in the file's own order."""
@@ -234,6 +367,7 @@ def read_rceout(path=RCEOUT, folder=None):
         i += 1                                  # RCE's scaling card
         cset.levels, i = _read_rceout_levels(lines, i, cset.index, path)
         cset.parameters, i = _read_parameters(lines, i)
+        cset.groups, i = read_groups(lines, i)
         out.append(cset)
     if not out:
         raise RceError('%s carries no parity set' % path)
@@ -361,22 +495,32 @@ def rceout_layout(line):
     return _RCEOUT_LAYOUTS.get(_point_column(line, 0, 13))
 
 
-def set_observed(line, energy):
-    """A level line carrying an observed energy, and marked as observed.
+def set_observed(line, energy, flag=' '):
+    """A level line carrying an observed energy, and its status character.
 
     RCE puts the computed value in the observed column and an asterisk
     in the column behind it where it had no observation
     (`FOR/RCE20KD.F:2074`); giving the level an energy means writing the
-    energy and clearing that mark.  Nothing else on the line moves --
-    the fitted energy, J and the whole eigenvector stay as they are,
-    which is what `subst_exp_levs.pl:385-388` rebuilds field by field
-    and can therefore only do for one of RCE's two layouts.
+    energy and putting the status the caller asks for in that column.
+    Nothing else on the line moves -- the fitted energy, J and the whole
+    eigenvector stay as they are, which is what
+    `subst_exp_levs.pl:385-388` rebuilds field by field and can
+    therefore only do for one of RCE's two layouts.
+
+    `flag` defaults to a blank, which is the ordinary absolute level
+    this has always written and is what clears an asterisk.  A group
+    letter is passed when the energy being carried in belongs to a
+    group: writing a blank there would silently promote a relative
+    energy to an absolute one in the target deck.
     """
     layout = rceout_layout(line)
     if layout is None:
         raise RceError('%r is not a level line' % line[:30])
+    if len(flag) != 1 or not (flag == ' ' or flag == UNFITTED
+                              or group_letter(flag)):
+        raise RceError('%r is not a status character for column 14' % flag)
     w1, d1, _, _ = layout
-    return write_f_wide(energy, w1, d1) + ' ' + line[w1 + 1:]
+    return write_f_wide(energy, w1, d1) + flag + line[w1 + 1:]
 
 
 def _read_parameters(lines, i):
@@ -388,7 +532,7 @@ def _read_parameters(lines, i):
         return out, i
     i += 1
     while i < len(lines) and lines[i][:10].strip() \
-            and not _is_control(lines[i]):
+            and not _is_control(lines[i]) and not is_group_heading(lines[i]):
         line = lines[i]
         pair = tuple(x for x in (line[_PAR_C1].strip(),
                                  line[_PAR_C2].strip().lstrip('-')) if x)
@@ -399,6 +543,102 @@ def _read_parameters(lines, i):
                              configurations=pair if len(pair) == 2 else ()))
         i += 1
     return out, i
+
+
+# --------------------------------------------------------------------------
+# the group card block
+# --------------------------------------------------------------------------
+
+# RCE reads it in SUBROUTINE RELRD (`FOR/RCE20KD.F:2492`) and writes it
+# in RELWR (`:2614`), immediately behind a section's parameter cards --
+# the only place it can go, the parameter cards having been the last
+# thing ever read from unit 20, so that a deck written before the
+# feature existed hits end of file here and yields no groups.
+#
+#      GROUP SIGMA_BASE  SIGMA_INT
+#     X         500.000     20.000
+#     Z                     15.000
+#
+# The heading is any line carrying 'GROUP'; a card is the letter in
+# column 1 and the two sigmas in columns 2-13 and 14-25; a blank line, a
+# '-1', a line that is not a card, or end of file closes the block.
+GROUP_HEADING = ' GROUP SIGMA_BASE  SIGMA_INT'
+
+_GROUP_LETTER = slice(0, 1)
+_GROUP_BASE, _GROUP_INT = slice(1, 13), slice(13, 25)
+
+
+def is_group_heading(line):
+    """Whether a line opens the group card block.
+
+    The same test RELRD makes -- the word alone -- so that a heading
+    written by hand in the author's own spacing is still recognised.
+    """
+    return 'GROUP' in line.upper()
+
+
+def read_groups(lines, i=0):
+    """The group card block beginning at `lines[i]`: ({letter: Group}, i).
+
+    An empty dict and an unmoved `i` where there is no block, which is
+    every deck written before the feature and every section of a
+    lettered deck that has no group of its own.  The sigmas are read
+    free-form out of their fixed columns, as RELRD reads them, so that
+    a field punched `500` means 500 and not 0.5.
+    """
+    out = {}
+    if i >= len(lines) or not is_group_heading(lines[i]):
+        return out, i
+    i += 1
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip() or line[:2] == '-1':
+            return out, i + 1
+        letter = group_letter(line[_GROUP_LETTER])
+        if not letter:
+            return out, i
+        if letter in out:
+            raise RceError('two group cards for group %s: %r'
+                           % (letter, line[:40]))
+        out[letter] = Group(letter=letter,
+                            sigma_base=_group_sigma(line[_GROUP_BASE], letter,
+                                                    'SIGMA_BASE', line),
+                            sigma_int=_group_sigma(line[_GROUP_INT], letter,
+                                                   'SIGMA_INT', line) or 0.0)
+        i += 1
+    return out, i
+
+
+def _group_sigma(field, letter, name, line):
+    """One sigma field: None where it is blank, as RELRD takes it."""
+    text = field.strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        raise RceError('the %s of group %s is not a number: %r'
+                       % (name, letter, line[:40]))
+
+
+def group_lines(groups):
+    """The group card block for `groups`, as RELWR writes it.
+
+    `(A1,2F12.3)`, or `(A1,12X,F12.3)` for an untied group, whose
+    SIGMA_BASE field comes back blank -- exactly how it was spelt on
+    input, which is what makes the block round-trip.  Nothing at all
+    where there is no group.
+    """
+    if not groups:
+        return []
+    out = [GROUP_HEADING]
+    for letter in sorted(groups):
+        group = groups[letter]
+        out.append('%s%s%12.3f'
+                   % (letter.upper(),
+                      ' ' * 12 if group.untied else '%12.3f' % group.sigma_base,
+                      group.sigma_int))
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -627,6 +867,60 @@ def _read_oute_block(lines, i):
                                  value=read_f(line[19:32], 4),
                                  sigma=read_f(line[71:84], 3)))
         i += 1
+    return out
+
+
+# `FORMAT (/' RELATIVE-ENERGY GROUPS - CYCLE',I3,':  STDEV=',F10.3,
+# '   SIGMA_0=',F10.3,A10/' GROUP      W_BASE       W_INT')` and
+# `(5X,A1,2F12.6)` at `FOR/RCE20KD.F:3148-3155`, SUBROUTINE RELSIG.
+# Both the raw STDEV and the adopted SIGMA_0 are on the page because the
+# ratchet that produces the second is irreversible, so a cycle that
+# clamped it has to be visible.
+_GROUP_CYCLE = 'RELATIVE-ENERGY GROUPS - CYCLE'
+
+
+@dataclass
+class GroupCycle:
+    """One cycle's group summary, as OUTE prints it."""
+
+    cycle: int
+    stdev: float                    # the raw value the cycle achieved
+    sigma_0: float                  # what the next cycle adopts, ratcheted
+    frozen: bool                    # the weights are held from here on
+    weights: dict = field(default_factory=dict)   # {letter: (w_base, w_int)}
+
+
+def read_oute_groups(path=OUTE, folder=None):
+    """The last group summary of OUTE, or None where there is no group.
+
+    `sigma_0` and the weights are derived, not data: they are not
+    written to RCEOUT, and a run resumed from that deck re-anneals to
+    its own fixed point.  OUTE is where they are recorded, so it is
+    where they are read.
+    """
+    if folder is not None:
+        path = files.resolve(path, folder, required=False)
+        if path is None:
+            return None
+    lines = files.read_lines(path, width=100)
+    out = None
+    for i, line in enumerate(lines):
+        if _GROUP_CYCLE not in line:
+            continue
+        head = line.partition(_GROUP_CYCLE)[2]
+        # The two labels are named rather than counted off: they are
+        # what makes the line readable, and reading it by them means a
+        # change of spacing in the FORMAT cannot silently misparse it.
+        out = GroupCycle(cycle=read_i(head[:3]),
+                         stdev=read_f(head.partition('STDEV=')[2][:10], 3),
+                         sigma_0=read_f(head.partition('SIGMA_0=')[2][:10], 3),
+                         frozen='FROZEN' in head)
+        for text in lines[i + 2:]:
+            letter = group_letter(text[5:6])
+            if not letter:
+                break
+            out.weights[letter] = (read_f(text[6:18], 6),
+                                   read_f(text[18:30], 6))
     return out
 
 

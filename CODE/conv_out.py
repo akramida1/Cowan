@@ -51,7 +51,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from toolbox import case as case_mod                               # noqa: E402
 from toolbox import (ai, asd, designate, fundconst, iden, in36,   # noqa: E402
-                     levels, parfile, radiate, spectrum, vacair)
+                     levels, parfile, radiate, rce, spectrum, vacair)
 
 #: The parameter file.  Unlike `calc_TP_M1E2.par` this one is NOT
 #: shipped in CODE/: it must be absent on a first run, or the sample
@@ -501,6 +501,20 @@ class Lev:
         return self.one.level.observed
 
     @property
+    def group(self):
+        """The relative-energy group this level is in, or `''`.
+
+        What `rce.comparable` asks about: a difference of two observed
+        energies is on one scale only inside one group.
+        """
+        return self.one.level.group
+
+    @property
+    def absolute(self):
+        """Whether the observed energy is on the deck's absolute scale."""
+        return self.one.level.absolute
+
+    @property
     def e_obs(self):
         """The observed energy where there is one, else the fitted one."""
         level = self.one.level
@@ -879,7 +893,12 @@ def _line_rows(case, transitions, coupling, options):
         upper, lower = one.upper, one.lower
         difference = abs(upper.e_calc - lower.e_calc)
         experimental = ''
-        if upper.observed and lower.observed:
+        # The observed wavelength comes from a *difference* of two
+        # observed energies, so it survives an unknown common offset --
+        # but only where the two share it.  Across a group boundary the
+        # offset does not cancel and the fitted energies are the better
+        # answer, which is the branch this already had.
+        if rce.comparable(upper, lower):
             spread = abs(upper.e_obs - lower.e_obs)
             difference = spread or difference
             if spread:
@@ -944,8 +963,12 @@ def _auger_rows(case, order, channels, coupling, options):
                '%.4f' % one.e_calc, '%.4f' % channel.energy,
                '%.3f' % kinetic, '%d' % one.number]
         if not options.no_rce:
+            # The channel energy is an external absolute, so this
+            # difference needs an absolute level energy and not merely
+            # an observed one: a group level's offset has nothing to
+            # cancel against here.
             row.extend(['' if not one.observed else '%.6f' % one.e_obs,
-                        '' if not one.observed else '%.3f'
+                        '' if not one.absolute else '%.3f'
                         % (abs(one.e_obs - channel.energy) * 1000
                            / fundconst.EV2CM)])
         row.extend(['%.0f' % intensity, '%9.2e' % rate,

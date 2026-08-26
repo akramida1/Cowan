@@ -77,6 +77,7 @@ import string
 
 from dataclasses import dataclass
 
+from . import prepub
 from .purity import PurityError
 
 
@@ -85,7 +86,11 @@ from .purity import PurityError
 NAME = ['par', 'conf', 'term', 'perc']
 
 #: What follows the groups: the energies, J and g `prepub` carries.
-TAIL = ['Ee', 'Ec', 'dE_O-C', 'J', 'Lande_g']
+#: `suffix` is the compilation's `+x` beside the energy it belongs to,
+#: carried through from `levels_prepub.txt` unchanged -- a published
+#: energy that is not on the absolute scale must say so, and this is
+#: where the reader of the finished table sees it.
+TAIL = ['Ee', 'suffix', 'Ec', 'dE_O-C', 'J', 'Lande_g']
 
 #: cm-1 per unit of the energies as RCE writes them and as every file
 #: up to `levels_prepub.txt` carries them.  This is the last file of the
@@ -521,6 +526,8 @@ def row_of(one, n_comp=3):
     # kK figures hold (6 decimals on Ee, 4 on Ec), so nothing is lost
     # and nothing invented.
     out.extend(['' if level.unfitted else '%.3f' % (level.e_obs * CM1),
+                '' if level.unfitted
+                else prepub.suffix_text(getattr(level, 'group', '')),
                 '%.3f' % (level.e_calc * CM1),
                 '' if level.unfitted
                 else '%.3f' % ((level.e_obs - level.e_calc) * CM1),

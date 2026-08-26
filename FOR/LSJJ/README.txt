@@ -5056,3 +5056,290 @@ TESTS
   the preamble kept, an orphaned `lid`, a second run reproducing the
   files byte for byte, a stale identifier cleared, and CRLF surviving.
   Full suite from CODE/: 388 passed, 286 skipped.
+
+
+RELATIVE-ENERGY GROUPS IN RCE
+=============================
+
+An experimental level list is not one measurement.  A compilation carries
+systems of levels that are known to a hundredth of a wavenumber inside
+themselves and tied to the ground level only through one resonance
+transition measured to a few hundred -- the `+x` systems.  Until now RCE
+had one way of treating a level: either it was fitted at unit weight
+against its calculated energy, or it was not fitted at all (`*` in column
+14).  Both answers are wrong for a `+x` system.  Fitted at unit weight,
+its unknown offset is charged to the parameters, and since some of those
+parameters are shared -- ZETA of an open d shell is one linked group
+across every odd configuration of a Ni-like ion -- the error does not stay
+where it was made.  Left out, the tens of accurately spaced levels inside
+the system are thrown away with it.
+
+The feature fits the system as what it is: precise internally, loose
+absolutely, with the two accuracies stated separately.
+
+THE MODEL
+
+  For a group g with base b and members i,
+
+      E_exp,k = delta_g + eps_k        for every k in g
+
+  where delta_g is the common offset -- the error of the tie to ground --
+  with standard deviation sigma_base, and eps_k is the internal error,
+  standard deviation sigma_int.  Whitening that covariance gives n
+  residuals for a group of n levels, not n-1.  The base stays in the fit;
+  it is simply the weakest constraint present:
+
+      member i      (E_exp,i - E_exp,b) - (E_calc,i - E_calc,b)   w_int
+      base b        E_exp,b - E_calc,b                            w_base
+      base of an untied group   (no residual)                     0
+      blank level k E_exp,k - E_calc,k                            1
+
+  with
+
+      w = sigma_0^2 / (sigma_0^2 + sigma^2)
+
+  for each of the two sigmas.  The form saturates at 1 as sigma -> 0 and
+  vanishes as sigma grows, so a perfectly known quantity enters the fit as
+  it always did and an unknown one does not enter at all.  Both limits are
+  special cases of one number, which is the sign that the parametrization
+  is the right one.
+
+  Two approximations are made rather than hidden.  The exact whitening of
+  sigma_base^2 * 11' + sigma_int^2 * I is not diagonal -- the base and each
+  internal difference are correlated -- and the off-diagonal terms are
+  neglected; they are O(sigma_int^2 / sigma_base^2), about 0.2% at 20
+  against 500 cm-1.  And a blank level is implicitly sigma = 0, its whole
+  error taken as model error.  This package has never carried per-level
+  experimental uncertainties and this does not introduce them.
+
+sigma_0 IS TAKEN FROM THE FIT, NOT FROM A CARD
+
+  sigma_0 is the deviation the model itself achieves, and it is read off
+  the previous cycle's STDEV.  That is an ordinary variance-component
+  argument -- the weights are fixed self-consistently by the scatter of
+  the fit -- where a constant punched on a card would be a magic number.
+  It also anneals in the safe direction: poor starting parameters give a
+  large STDEV, hence weights near 1 and the bases fully weighted, and a
+  base is released only as the fit earns the right to release it.  Before
+  the first cycle STDEV does not exist, sigma_0 is zero, and every weight
+  is 1, which is the sigma_0 -> infinity limit of the same formula and
+  needs no starting decision.
+
+  The feedback is positive in both directions, so it is guarded rather
+  than trusted.  sigma_0 never grows (the ratchet), which removes the
+  upward branch outright and makes the sequence monotone, bounded below,
+  hence convergent; and once it stops moving by more than one per cent the
+  weights are frozen for the rest of the run, which removes the slight
+  optimism that weights estimated from the same data put into SDX.  The
+  ratchet is irreversible, so an anomalously low STDEV in an early cycle
+  would lock in weights that are too small.  Nothing detects that
+  automatically, which is why both the raw STDEV and the adopted sigma_0
+  are printed every cycle -- a clamp is then on the page, and the remedy is
+  to restart from better parameters.
+
+THE INPUT
+
+  The letter goes in column 14 of a level record of `RCEINP`, the column
+  that already held `*`:
+
+      blank   an ordinary experimental level, fitted at unit weight
+      *       not fitted
+      A-Z     the base of that group
+      a-z     another member of that group
+
+  A level cannot carry both a letter and `*` -- the column is one
+  character -- so every lettered level is a fitted one and a base can never
+  also be a member, without anything having to check it.
+
+  The two sigmas have nowhere to live on a level record, so they come on a
+  card block at the end of the deck, after the parameter cards, one block
+  per configuration set:
+
+       GROUP SIGMA_BASE  SIGMA_INT
+      X         500.000     20.000
+      Z                     15.000
+
+  The header is any line containing `GROUP`; one card per group follows,
+  the letter in column 1 and the two sigmas in columns 2-13 and 14-25; a
+  blank line, a `-1` line, end of file, or anything that is not a card ends
+  the block.  The sigmas are in the deck's own energy unit, the UENRGY of
+  `ING11` -- kK in most decks, so 500 cm-1 is punched as 0.500.
+
+  They are read list-directed from those fixed columns rather than under
+  `F12.3`, so that a card punched `500` means 500 and not 0.5; a value with
+  an explicit decimal point reads the same either way.
+
+  A blank SIGMA_BASE means the group has no measured tie to the ground
+  level at all -- its offset is unknown, not merely poorly known -- and its
+  base then contributes no residual.  That is why a SIGMA_BASE of zero is
+  rejected instead of being taken for the same thing: zero reads as "known
+  exactly", which in the weight formula means precisely that.  A blank
+  SIGMA_INT is weight 1.
+
+  The block is at the end because the parameter cards were the last thing
+  ever read from unit 20, so no old deck can contain anything there.  An
+  old deck hits end of file and yields no groups, which is why the read is
+  on `IOSTAT`.  A deck with more than one configuration set has the next
+  set's control card in that position; that is not a header, so it is
+  backspaced over and left for the read that expects it.
+
+WHAT IS REJECTED, AND WHAT IS ONLY WARNED ABOUT
+
+  RELRD stops on a duplicate group card, on a sigma that is not a number,
+  on a SIGMA_BASE that is not positive, and on a negative SIGMA_INT.
+  RELCHK, which runs once per configuration set after the levels are in,
+  stops on a member letter with no base anywhere, on two bases for one
+  letter, on a letter with no group card, on a group card for a letter that
+  is on no level record, and on an untied group that leaves a parameter
+  free.  Every one of them names the group and the card or the level.
+
+  Two things are legal and are said out loud instead.  A group that is its
+  base alone downweights one absolute level and gains no internal
+  difference -- legal, rarely what was meant.  And if every fitted level
+  carries a letter, no residual enters at unit weight and nothing holds the
+  scale of the weights up from below; the fit still runs, but sigma_0 is
+  then estimated from data that is itself all downweighted.
+
+  THE GAUGE TEST is the one that needs explaining.  A group with a
+  SIGMA_BASE imposes an absolute constraint, weak but real, and needs no
+  analysis.  A group without one has a free offset, and that becomes a free
+  direction in parameter space if some parameter can shift that group alone
+  -- in practice the EAV of a configuration whose fitted levels all lie in
+  untied groups.  The fit would then be singular in that direction and
+  nothing downstream would say so: LSS catches only an exact zero pivot,
+  and the B(L,L)=0 -> 1 guard in CALCV repairs a null column silently.  So
+  it is decided by counting, before the first cycle, and RCE stops and
+  names the configuration rather than choosing a gauge on the user's
+  behalf.  A level counts as touching a configuration if any eigenvector
+  component listed for it in `RCEINP` belongs to that configuration; only
+  the largest MAXCR components are listed, so a very small admixture can be
+  missed, which errs towards not stopping -- the right direction for a test
+  that aborts a run.  An EAV that is fixed now but carries a MAX.VALUE, and
+  so may be released later in the run, is a warning rather than a stop.
+
+  The test sees an exactly free direction and not a nearly free one.  A
+  deck can therefore pass it and still oscillate, which is what the untied
+  `WORK/U90` trial did.
+
+WHAT IT PRINTS
+
+  `OUTE` gains a group summary per configuration set --
+
+       RELATIVE-ENERGY GROUPS - HETEROSCEDASTIC WEIGHTING OF THE ...
+          2 GROUP(S):
+       GROUP  LEVELS    BASE  J BLOCK    SIGMA_BASE     SIGMA_INT
+
+  -- and, every cycle, the STDEV it just achieved, the sigma_0 it adopted,
+  whether that is frozen, and the two weights of every group.  Those five
+  numbers are the whole state of the mechanism, and they are on the page so
+  that a fit that went somewhere unexpected can be read rather than guessed
+  at.
+
+  Nothing else moves.  `RCEOUT` is what it was plus the letters in column
+  14 and the group card block; copied onto `RCEINP` it reports the same
+  groups and converges to the same AVDEV.  A deck with no letter anywhere
+  gives byte-identical output, which is the acceptance standard of
+  CLAUDE.md section 1 and was verified on all six committed decks at every
+  stage of the work.
+
+TWO THINGS THAT ARE NOT TRUE
+
+  w = 1 does NOT reproduce the unweighted fit.  It reads as though it must
+  -- the weights are all 1 and the residuals are the same numbers
+  rearranged -- and it was measured not to.  Differencing is a linear map
+  on the residual vector whose A'A is not the identity: it reparametrizes
+  the residual space but not the least-squares problem.  Two internal
+  differences of one group are correlated by one half, at every weight, and
+  that correlation is the first of the two approximations above, which does
+  not vanish as sigma -> 0.  On `WORK/U90`, a group at exactly unit weight
+  converges to AVDEV = 210.160 against the letterless deck's 191.931, and
+  each solution is the minimum of its own objective and worse under the
+  other.
+
+  AVDEV and STDEV of a lettered deck are NOT comparable with those of the
+  same deck without letters.  They are weighted quantities over differenced
+  rows.  Compare two fits by the O-C of the levels you care about --
+  `WORK/Mo15/README.txt` does exactly that -- and not by the number at the
+  foot of the page.
+
+THE PYTHON SIDE
+
+  `CODE/toolbox/rce.py` keeps two questions apart that column 14 used to
+  answer at once.  `observed` means "has an experimental energy", and blank
+  and every group letter answer yes while `*` answers no.  `absolute`
+  answers "on what scale", and only a blank level is absolute.
+  `comparable(a, b)` is the one primitive the seven difference sites call:
+  two levels of one group may be differenced, because that difference is
+  what sigma_int makes well determined, while across a group boundary the
+  unknown offset makes it meaningless.
+
+  `subst_exp_levs` reads a `+x` suffix on a source energy -- `12345.678+x`
+  -- and writes the letters into column 14 of the target deck.  Which level
+  is the base is a decision about the measurements, so it is asked for with
+  `--basecol` and never guessed; a system of one level is its own base.
+  Before this, such an energy simply failed to parse and the row was
+  dropped without a word.
+
+  In the other direction, `prepub` writes the letter of every level of a
+  group into a `suffix` column after `Ee`, as ` +x` with its leading space,
+  and `pub` carries that column to the published list.  `conv_out`'s
+  `levels.txt` gains a `grp` column when a letter exists.
+
+  No Python writes the group card block.  A deck that acquires its first
+  letters from a source therefore needs one added by hand before RCE will
+  run it -- RCE stops and says which letter has no card.
+
+TWO NOTES FOR ANYONE SCRIPTING RCE
+
+  gfortran's `STOP 'string'` exits 0.  Every one of the validation stops
+  above therefore leaves the exit status at success, and a script cannot
+  tell a rejected deck from a finished one by it; it has to read what was
+  said.  This is not new with this feature -- `STOP 'NORMAL EXIT'` and
+  every other STOP in the package have always behaved this way -- but it is
+  worth writing down.
+
+  `RCEOUT` exists even after a stop.  RCE opens unit 21 with the other
+  units before it has read a card, so a stop in RELCHK still leaves an
+  empty `RCEOUT` behind.  "Did the run finish?" is therefore asked as "does
+  `RCEOUT` contain a parameter block?".
+
+THE WORKED EXAMPLE
+
+  `WORK/Mo15/` is Ni-like Mo XV: 3d10 plus 3d9.nl, with 22 known levels, of
+  which the five 3d9.4f and 3d9.5f levels are known to only 400-600 cm-1
+  while the 4s and 4p levels are known to under 0.1 cm-1.  ZETA(3d) is one
+  linked group across all the odd configurations, so fitting the f levels
+  at unit weight pulls a parameter the 4p levels depend on.  Its README.txt
+  gives the run step by step and the results; the deck itself,
+  `RCEINP.example`, is the format above in use.
+
+  One piece of guidance out of it, because it is the thing a first user
+  gets wrong.  SIGMA_INT is not the experimental uncertainty.  It is
+  weighed against sigma_0, and sigma_0 is estimated from the same fit those
+  levels are in, so a group bad enough to need downweighting also inflates
+  the sigma_0 it is being weighed against.  In Mo XV the f levels are
+  quoted at 500 cm-1; punched as 0.500 the anneal stalls, sigma_0 freezing
+  at 0.666 kK and w_int at 0.640, barely a downweight at all, and the 12
+  fitted 4p levels come out at a mean |O-C| of 148 cm-1 against 87 for the
+  unweighted fit -- worse than doing nothing.  Punched as 5.000 the anneal
+  breaks out: sigma_0 falls to 0.093 kK, w_int to 3.5e-4, and the 4p levels
+  come out at 58 cm-1, better than either.  The rule to take away is that
+  SIGMA_INT is a knob calibrated against the residual scale of the levels
+  you trust, and belongs at ten times or more the AVDEV you expect from the
+  rest of the fit.  It is not a licence to inflate every group: the
+  well-measured 3d9.4s group in the same deck is quoted honestly at
+  0.080/0.015 and behaves.
+
+TESTS
+
+  `CODE/tests/test_relgroups.py`, 25 cases, is the executable form of the
+  verification matrix and the place to look for what was checked, rather
+  than a restatement of it here.  It compiles `RCE20KD.F` itself with
+  `build.sh`'s flags and builds `TAPE2E` for `WORK/U90` from one run of
+  RCN, RCN2 and RCG, so nothing in it depends on a generated file being
+  present.  The committed pre-feature `CODE/RCE20KD.exe` serves as an
+  independent oracle for the legacy bit-exactness case, and that test skips
+  with a reason once a release replaces it.  The residual-sum case
+  recomputes R, AVDEV and STDEV from RCE's own `T-W` column and the weights
+  it reported, without being told the answer.  Full suite from CODE/: 440
+  passed, 286 skipped.

@@ -42,7 +42,20 @@ from .purity import Component, PurityError
 #: one line now carries every scheme, and the scheme a component is
 #: written in is implied by its label.  No `e_c`: an unfitted level's
 #: `Ee` is blank, which says the same thing without a second column.
-FIXED = ['par', 'Ee', 'Ec', 'dE_O-C', 'J', 'Lande_g']
+#:
+#: `suffix` is the compilation's own `+x`, published beside the energy
+#: rather than appended to it: `Ee` stays a bare number, so `dE_O-C` and
+#: every spreadsheet that reads the column keep working, and the suffix
+#: is a field of its own that a reader can sort and filter on.  It is
+#: written with a leading space -- `' +x'` -- because these files are
+#: opened in Excel, where a cell beginning `+x` is parsed as a formula
+#: referring to an undefined name.
+FIXED = ['par', 'Ee', 'suffix', 'Ec', 'dE_O-C', 'J', 'Lande_g']
+
+
+def suffix_text(letter):
+    """`'x'` -> `' +x'`; `''` -> `''`.  The leading space is required."""
+    return ' +%s' % letter if letter else ''
 
 PREPUB = 'levels_prepub.txt'
 
@@ -63,6 +76,7 @@ class Level:
     g: object
     conf0: str
     line: int                                       # of its first block
+    group: str = ''                                 # the `+x` system, or ''
     blocks: dict = field(default_factory=dict)      # coupling -> Row
     components: list = field(default_factory=list)  # the merged composition
 
@@ -99,7 +113,8 @@ def collect(table):
         if level is None:
             level = Level(parity=row.parity, e_obs=row.e_obs,
                           unfitted=row.unfitted, e_calc=row.e_calc,
-                          j=row.j, g=row.g, conf0=row.conf0, line=row.line)
+                          j=row.j, g=row.g, conf0=row.conf0, line=row.line,
+                          group=row.group)
             at[slot] = level
             levels.append(level)
         if row.coupling in level.blocks:
@@ -311,6 +326,7 @@ def row_of(level):
     """
     out = [level.parity,
            '' if level.unfitted else '%12.6f' % level.e_obs,
+           '' if level.unfitted else suffix_text(level.group),
            '%12.4f' % level.e_calc,
            '' if level.unfitted else '%.4f' % (level.e_obs - level.e_calc),
            '%4.1f' % level.j,
@@ -351,7 +367,10 @@ def read_prepub(path=PREPUB):
     head = lines[0].split('\t')
     at = {name: i for i, name in enumerate(head)}
     for name in FIXED:
-        if name not in at:
+        # `suffix` is not required: a file written before the column
+        # existed is still a levels_prepub.txt, and its absence means
+        # what a blank cell means -- no level is in a `+x` system.
+        if name not in at and name != 'suffix':
             raise PurityError('%s has no %r column; it is not a %s'
                               % (path, name, PREPUB))
     triples, n = [], 1
@@ -381,7 +400,11 @@ def read_prepub(path=PREPUB):
                       e_calc=e_calc,
                       j=_number(get('J'), path, number, 'J'),
                       g=(float(get('Lande_g')) if get('Lande_g') else None),
-                      conf0='', line=number)
+                      conf0='', line=number,
+                      # `row_of` wrote it as ' +x'; the space is for
+                      # Excel and the '+' is the compilation's, so both
+                      # come off and what is left is the letter.
+                      group=get('suffix').lstrip('+').lower())
         for percent, conf, term in triples:
             if percent >= len(cell) or not cell[percent].strip():
                 break

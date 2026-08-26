@@ -88,6 +88,9 @@ class Row:
     j: float
     g: object = None                # float, or None where RCG printed none
     conf0: str = ''                 # empty unless --dominant-config was used
+    group: str = ''                 # the `grp` column: the relative-energy
+                                    # group's letter, empty where there is
+                                    # none and where the column is absent
     components: list = field(default_factory=list)
     line: int = 0                   # 1-based line of the file
 
@@ -220,7 +223,7 @@ def read_levels_txt(path='levels.txt'):
                   e_calc=_float(get('Ec'), path, number, 'Ec'),
                   j=_float(get('J'), path, number, 'J'),
                   g=(float(get('Lande_g')) if get('Lande_g') else None),
-                  conf0=get('conf0'), line=number)
+                  conf0=get('conf0'), group=get('grp').lower(), line=number)
         for percent, conf, term in triples:
             if percent >= len(cell) or not cell[percent].strip():
                 break

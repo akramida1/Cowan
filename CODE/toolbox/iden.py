@@ -26,7 +26,7 @@ import math
 import shutil
 from dataclasses import dataclass, field
 
-from . import fortfmt, outg11
+from . import fortfmt, outg11, rce
 
 #: A line assigned to an observation keeps only the transitions within
 #: this fraction of the strongest one assigned to it: a much weaker
@@ -330,7 +330,10 @@ def _assign(transitions, lines, ranges):
     """Tie every calculated line between two observed levels to an observation."""
     out = {}
     for one in transitions:
-        if not (one.upper.observed and one.lower.observed):
+        # A difference of two observed energies, matched against an
+        # observed line list: safe inside one relative-energy group,
+        # where the common offset cancels, and not across two.
+        if not rce.comparable(one.upper, one.lower):
             continue
         spread = abs(one.upper.e_obs - one.lower.e_obs) * 1000
         if not spread:
@@ -425,7 +428,10 @@ def _write_enlev(numbered, path='ENLEV.DAT'):
     with open(path, 'w') as out:
         for one in numbered:
             lev = one.lev
-            observed = lev.observed
+            # IDEN2 fits **absolute** energies and the weight column is
+            # the lever, so a level whose offset is unknown is not one
+            # of the well-determined ones however well it is observed.
+            observed = lev.absolute
             # The three energy fields are F12.3 in `conv_out.pl`, which
             # asterisks out above 10^9 cm-1 -- U90 reaches 8x10^8 and a
             # heavier ion passes it.  `write_f_wide` drops decimals and

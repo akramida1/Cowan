@@ -311,3 +311,29 @@ def test_a_missing_rceout_is_the_no_rce_report_rather_than_an_error(tmp_path):
     assert 'RCEOUT' in out.stdout and '--no-rce' in out.stdout
     assert 'RCEINP.HF' in out.stdout
     assert rows(tmp_path / 'params.txt')
+
+
+# --------------------------------------------------------------------------
+# the relative-energy group column of levels.txt
+# --------------------------------------------------------------------------
+
+def test_the_grp_column_appears_only_where_there_is_a_letter():
+    """`e_c` stays boolean and the letter goes in a column of its own.
+
+    Widening `e_c` to carry a letter would break every reader that
+    tests it against `'*'` (`purity.py:219`); and a run with no group
+    must give the levels.txt it has always given, which is why the new
+    column is written only when some level carries a letter.
+    """
+    sys.path.insert(0, CODE)
+    import printout
+
+    class Options:
+        dominant_config = False
+        components = 5
+
+    plain = printout.header(Options())
+    grouped = printout.header(Options(), grouped=True)
+    assert 'grp' not in plain
+    assert grouped == plain[:4] + ['grp'] + plain[4:]
+    assert grouped[3:5] == ['e_c', 'grp']
