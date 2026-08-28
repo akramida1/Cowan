@@ -5343,3 +5343,378 @@ TESTS
   recomputes R, AVDEV and STDEV from RCE's own `T-W` column and the weights
   it reported, without being told the answer.  Full suite from CODE/: 440
   passed, 286 skipped.
+
+
+ONE calc_TP FOR E1, M1 AND E2
+=============================
+
+`calc_TP_M1E2` is retired.  What replaces it is `calc_TP`, the same
+program covering the allowed lines as well as the forbidden ones, and no
+alias is kept: no `.par` file for the old name exists anywhere, so there
+is nothing to be compatible with.  `CODE/calc_TP.py`, `calc_TP.bat`,
+`CODE/unix/calc_TP`, `CODE/calc_TP.par`, and the explicit lists in
+`CODE/unix/install.sh` all carry the new name.  `CODE/perl_legacy/` is
+reference and was left alone, so the Perl there still reads
+`calc_TP_M1E2.pl` and the Python still cites it by that name at the
+points where the two differ.
+
+The program answers the question Cowan's codes do not: how well is this
+transition probability known?  There is no analytic answer, so it is
+obtained by resampling -- displace the fitted Slater parameters within
+the standard deviations RCE printed, displace the radial transition
+integrals by a fractional guess, re-run RCG, and collect the spread over
+many trials.  The Perl did that for M1 and E2.  Doing it for E1 is not a
+matter of adding a third section name, and the six things below are why.
+
+WHAT THE MULTIPOLE COSTS
+
+  E1 crosses the two RCE parity sets, so both have to be read and the two
+  ends of a line looked up in different ones; M1 and E2 never leave one.
+  `SPECTRUM_OF` names RCG's three sections, `SAME_PARITY` says which stay
+  inside a set, and the `multipoles` parameter -- TEXT, default
+  `E1,M1,E2` -- chooses.  A one-parity deck asked for all three says so
+  and drops E1 rather than failing, which is what lets `WORK/Forbid` run
+  under the default.
+
+  `merged_list` and the `E2_frac` column are gated off whenever E1 is in
+  the run.  The merge adds the M1 and the E2 line of one level pair into
+  one row, and there is no third partner for it to take; generalising it
+  was possible and gating it was less risk.
+
+THE EIGENVECTORS OF A TRIAL ARE PAIRED WITH THE UNVARIED RUN'S
+
+  The Perl re-identified each trial's levels against RCE from scratch.
+  `levels.identify` matches positionally above the highest observed
+  fitted energy, and a varied trial moves the eigenvalues there, so the
+  positions are not the same list twice.  Measured: Pr III trial 2 of 5
+  died with "RCE level 62 ... falls on RCG eigenvector 62, which is
+  already taken".
+
+  `CODE/toolbox/overlap.py` pairs a trial's eigenvectors with the
+  unvaried run's instead, on |<base|trial>| within each (parity set, J)
+  block, largest overlaps assigned first, and then composes with the base
+  run's identification.  The LS basis is the deck's and is identical in
+  both runs, so a block is one matrix product.  Per trial the run reports
+  how many were paired, the median overlap, and the counts below 0.7 and
+  0.3; on Pr III, 5626 eigenvectors, median 0.995-1.000, 0-33 below 0.7,
+  none below 0.3.
+
+  numpy is a hard requirement for `calc_TP` because of this, and a
+  missing one stops the program with the pip line rather than degrading.
+  It earns it: `overlap.remap` over all 5626 eigenvectors is 0.15 s
+  against 15.7 s for the trial around it.  `make_cfp`, where numpy is
+  optional and only true jj coupling is lost without it, is unchanged.
+
+THE TRACKED QUANTITY IS S, NOT A
+
+  gA carries the trial's own eigenvalues inside it -- sigma**3 for a
+  dipole, sigma**5 for a quadrupole -- so a level the fit did not observe
+  drags its lines with the cube or the fifth power of wherever it lands
+  in that trial.  The spread of A over the trials would then be the
+  spread of the matrix element and the spread of the energy together, and
+  the second is a different question.  Each trial's printed gA is
+  therefore turned back into a line strength at THAT TRIAL'S OWN
+  calculated energies, and it is S that is accumulated; A is quoted from
+  the mean S at one fixed wavelength.
+
+  Where both levels are observed the wavelength does not move between
+  trials at all and the relative spread of S is exactly that of A.  The
+  two differ only where a level is unobserved, which is the case S was
+  chosen for.
+
+  The two level-energy columns were `E1` and `E2`; with E1 a multipole
+  name as well they are now `E_low` and `E_up`.
+
+  A line the trials printed once, or not at all, carries a BLANK standard
+  uncertainty in every column that has one.  One sample has no spread and
+  a zero there would read as a line known exactly.  `n_trials` is printed
+  beside them, and is load-bearing: a line seen in fewer trials than were
+  run was censored out of the rest.
+
+CENSORING, WHICH A FORBIDDEN RUN NEVER NOTICED
+
+  DMIN and the FLBDN/FLBDX window censor RCG's printed list, and a line
+  just above either is printed in some trials and not others.  Its mean
+  is then a mean over a censored sample -- the geometric mean of a
+  censored sample is biased high -- and 15 per cent of a real list is
+  affected.  Measured on Pr III at DMIN 8.0, 9462 lines, 5 trials: 8017
+  seen in all five, 1407 in one to four, 38 in none, and 1773 more that
+  appeared only in trials.
+
+  Three answers, and they are separate.
+
+  `trial_dmin_offset` (1.0 decade) runs the trials below the reporting
+  cut, and the reporting cut is applied at write time, so a line that
+  dips below DMIN in one trial still has that trial's value.  Whose DMIN
+  it is depends on the multipoles: with E1 in the run the forbidden lines
+  are part of the same spectrum and share it; with the forbidden lines
+  alone there is no reason for a threshold and the trial decks are
+  punched at 0.0.
+
+  The window is widened, and NOT SYMMETRICALLY.  A level energy moves by
+  a per cent or two and `trial_lambda_margin` (5 per cent) is right at
+  the short end, but a transition energy is a DIFFERENCE, and between two
+  highly excited configurations it is small, so the same absolute
+  movement is a far larger fraction of it -- and FLBDX cuts on exactly
+  those smallest transition energies.  The long end is widened by
+
+      f_long = trial_lambda_margin * (Eav_up + Eav_low) / dEav_min
+
+  over the configuration pairs the unvaried spectrum actually connects,
+  bounded by `trial_lambda_margin_max` (10.0).  The energies in it are
+  EXCITATION energies, measured from the lowest configuration average
+  energy of the run, and that is not a detail: `outg11`'s Eav is Cowan's
+  own, the total electronic energy of the configuration, about -2.026e6
+  kK on Pr III, of which 350 kK is the entire spread of the 39
+  configurations and the rest is the binding of 57 electrons no fitted
+  parameter moves.  Taken literally the formula gave 65000 and every deck
+  sat on the ceiling.  Measured from the ground configuration the same
+  Pr III pair gives 2.985 -- FLBDX 16000 -> 63760 A.  `FLBDX_FIELD_MAX`
+  (99999 A) is the other guard: the E5.0 field cannot hold more, and
+  `write_f_wide` would have punched five asterisks.
+
+  E0MAX is left alone.  It is a scope choice, not a threshold noise
+  pushes a line across.  At DMIN 3.0 that is worth qualifying: the list
+  then reaches the top of a 150 kK window, and 403 of the 1838 short
+  lines had E_up above 149 kK against 4615 of all 70428.  Whether the
+  trial decks should carry a raised E0MAX is the author's decision and
+  is not taken here.
+
+WHAT THE LIST HOLDS
+
+  The unvaried run's transitions, all of them and only those.  The wider
+  trial window brings in lines the deck's own cuts keep out, and those
+  are not results -- the reporting cut IS the unvaried run's deck, and
+  the widened window exists to complete the statistics of the lines that
+  are in it, not to add lines to it.  Membership is therefore decided by
+  the base run alone, and the gA threshold is subsumed by it.  `min_bf`
+  still drops a line: that is a physics choice the user made, not
+  censoring the trials introduced.
+
+  A trial may print a line with its two levels the OTHER WAY ROUND --
+  which end is upper is decided by energy in that run, and an unobserved
+  level moves.  The reader tries the reversed key before it calls a line
+  new, so the base transition keeps that trial in its statistics instead
+  of losing it to the membership rule.  `E_low`/`E_up` stay the unvaried
+  run's, which is the calculation being published.  Pr III shows 0
+  reversals at either DMIN, so the path is exercised by a synthetic
+  spectrum in the tests.
+
+THE LEVEL LIST, AND WHY THE JOIN IS NOT ON Lev_#
+
+  The line list names its two levels by their leading LS designation and
+  their J, which is what a reader wants and not enough to join on.  What
+  the author wanted was the uncertainties of a calc_TP run carried into
+  a conv_out line list of the same ion -- S, the energy-adjusted gA,
+  std_A% -- and the two tables had no column in common.
+
+  calc_TP now writes a level list beside its line list (`out_levels`,
+  `tp_levels.txt` by default) and puts `lid1` and `lid2` in the line
+  list, between the calculated energies and the wavelength, where
+  conv_out puts them.  The numbering is `levels.numbered`, which is the
+  rule conv_out numbers by and is now the one place it is written down:
+  conv_out's `_collect` takes its levels from it in that order and
+  `_number_levels` does nothing but drop what is above `upper_bound` and
+  count off the rest.  The sort key and the level set are unchanged, so
+  conv_out's tables are what they were.
+
+  The two files then have the shape `insert_level_ids` reads -- `Lev_#`,
+  `Ee`, `e_c`, `J`, `par` in one and `lid1`, `lid2` in the other -- so
+  the identifiers of a published analysis go onto calc_TP's lines as
+  they go onto conv_out's, and THAT is the column the two tables are
+  joined on.
+
+  Not `Lev_#`.  A level number is a position in one run's energy
+  ordering, and the measurement is on the author's Pr III pair
+  (WORK/Pr3_calc_TP): applying conv_out's own numbering rule to the
+  calc_TP run gives a different number for 121 of the 5626 levels.
+  Every one is an adjacent transposition of two levels of DIFFERENT J
+  about a thousandth of a kK apart --
+
+      position 395 -> conv_out Lev_# 396   o  J=7.5  Ec=133.0495
+      position 396 -> conv_out Lev_# 395   o  J=3.5  Ec=133.0506
+
+  -- so a join on the number would silently mispair exactly the levels
+  most easily mispaired.  The identifiers do not move, being a property
+  of the analysis rather than of the run.
+
+  What moved the eigenvalues in that pair is worth recording, because it
+  looked at first like a bug in one of the two programs.  The observed
+  energies are bit-identical in both files, all 593 of them, and both
+  files agree on which levels are observed.  What differs is 3752 of the
+  5033 UNFITTED levels, whose `Ee` column holds the calculated energy
+  and not an observed one -- their `Ee` differences are the same numbers
+  as their `Ec` differences, to the digit -- and 376 of the fitted
+  levels' `Ec`, by up to 0.0044 kK.  The two runs are different
+  calculations: the conv_out tables predate the change of the
+  fundamental constants (section 4 of CLAUDE.md), and the constants move
+  every calculated energy a little.  Two runs of one ion in one folder
+  are not the same run, and the join has to survive that.
+
+THE TOTAL DECAY RATE COMES FROM RCG
+
+  The branching fraction wants the total radiative decay rate of the
+  upper level, and summing the printed lines gets a DMIN-censored total
+  exactly where DMIN is doing the most work.  RCG's own SUMGA
+  accumulates at label 580, which the DMIN test jumps past the print and
+  into, so it counts every line of the level.  `spectrum.totals` reads it
+  from FORMAT 1059, the record that closes each `* * *` block.
+
+  Three facts about it belong with the number.  It IS censored by the
+  wavelength window, which drops a line at label 498 before it enters the
+  arrays -- the run warns once when a window is in force.  It is `E10.3`,
+  four figures, and where nothing is censored the two agree to that: on
+  `WORK/Forbid`, DMIN 0.0 and no window, all 36 records match the sum
+  over the lines they close, worst case 3.8e-4.  And a field of the
+  record can overflow into asterisks: where SUMGA itself is starred the
+  level falls back to the sum over its printed lines and the log names
+  it; where only a neighbouring SUMFI field is, SUMGA is still good and
+  is taken.  Nothing is substituted silently.
+
+  A level has a SUMGA only where it HEADS a printed block, and ISPECC
+  (column 72) chooses which sorts print.  A deck punching 2 leaves half
+  its levels without one -- 550 of Pr III's 1046.  Punching 3 gives all
+  of them, at the cost of printing every transition twice, so
+  `read_transitions` no longer refuses a repeat: the first print of a
+  transition in one OUTG11 contributes, every later print of the same
+  unordered pair and multipole is checked against it and dropped, and a
+  disagreement beyond `SAME_LINE` is a warning naming the transition.
+  One OUTG11 still contributes one value per transition.  Measured on
+  Pr III at ISPECC=3: 9462 transitions from 18924 prints, every repeat
+  consistent, 1213 SUMGA records, no level falling back.
+
+  SUMGA is not, however, the quantity this program sums.  Where both
+  levels are observed the printed line is rescaled to the observed
+  wavelength -- which `calc_TP` has always done and `conv_out`
+  deliberately does not -- and RCG summed SUMGA from its own energies.
+  On Pr III the ratio ran 0.96 to 1.05.  So the total is neither:
+
+      total = sum_rescaled * SUMGA / sum_unrescaled
+
+  the two terms of the factor both being on RCG's own scale, which makes
+  it purely what DMIN removed, applied to a sum on the reporting scale.
+  `Lev` carries the two sums side by side for it.  After this, SUMGA over
+  the un-rescaled sum runs 0.9995 to 1.0007 on Pr III, median 1.0000,
+  none outside a per cent -- the residue being the four figures of the
+  field.  It is an approximation and is documented as one: the totals
+  serve the branching fractions, the branching fractions serve as a
+  publication cut-off, and a per cent in a threshold of that kind changes
+  nothing (author).
+
+WARNINGS, AND --cleanup
+
+  A few hundred trials produce warnings by the hundred and on the
+  terminal they bury the progress lines.  They go to `calc_TP.log` in the
+  working directory, written and flushed as they happen so that a run
+  killed after six hours still says what it found, and the terminal gets
+  one line at the end.  The censoring counts, the reversed-match counts,
+  the low-overlap counts and the computed `f_long` all go there.
+
+  `calc_TP --cleanup` deletes the `trial*/` subdirectories of the working
+  directory and does nothing else -- no reading, no RCG, no output file.
+  It is a command-line flag and not a par spec.  Trials are kept by
+  default: a trial can be read again without being run again.  Because it
+  is destructive it lists what it will remove and asks once; `--yes`
+  skips the question, and it refuses to run where there is no `trial*` at
+  all.  For a run where the disk rather than the re-reading is the
+  problem there is `keep_trial_output = 0`, which deletes each trial's
+  OUTG11 as soon as it has been read and leaves the deck that made it.
+
+SCALE, MEASURED
+
+  Pr III, the author's working DMIN of 3.0, window 800-16000 A,
+  ISPECC=3, 25 trials, `keep_trial_output = 0`:
+
+    6 min 32 s total, 15.7 s a trial, of which RCG is ~11 s and Python
+    ~4 s.  Peak resident 1784 MB.
+
+    `overlap.remap` over 5626 eigenvectors is 0.15 s.  Reading the
+    eigenvectors it works on is 1.4 s and `Case.read` of the unvaried run
+    3.1 s, so the matrix products are one per cent of a trial.
+
+    2.8 GB of trial OUTG11 written and deleted as it went; the directory
+    ended at 596 MB, of which 270 MB is the unvaried run.  Peak occupancy
+    is one trial's OUTG11 above that, so the footprint is bounded by the
+    base run and does not grow with the trial count.  At 200 trials the
+    same arrangement writes and deletes ~22 GB and ends at ~2.9 GB.
+
+    120274 base transitions read from 240548 prints, 70428 written after
+    `min_bf` = 1e-4, 25172 trial-only rows dropped, 1254 SUMGA records
+    with no level falling back, 0 reversals.
+
+  1838 of the 70428 written lines (2.6 per cent) were seen in fewer than
+  25 trials, against 0.9 per cent at DMIN 8.0.  Only 64 are above 8000 A,
+  so the long-wavelength window is not the cause; 524 are within one
+  decade of the reporting cut, which `trial_dmin_offset` = 1 is exactly
+  the answer to and cannot improve on, the trials having already run at
+  `DMIN_FLOOR`.  The remaining 1275 are neither, and their median std_A%
+  is 324 per cent: these are cancellation-dominated lines whose gA swings
+  by more than a decade between trials, and no window setting reaches
+  them.  The wide spread the file quotes IS the answer for such a line.
+
+  The run itself is in `WORK/Pr3_calc_TP/`, not in `WORK/Pr3/`.  The
+  reference cases ship as inputs only and the suite looks them up by
+  name, so a run left in `WORK/Pr3` makes its tests execute against a
+  deck that is no longer the documented one -- measured, 4 failed and 32
+  errors.
+
+RCG'S OWN LINE STRENGTH, AS A CHECK ON radiate
+
+  Nothing in the flow above compares `toolbox/radiate` with RCG, because
+  the Lund layout `calc_TP` reads prints no line strength at all, for any
+  multipole.  The wide layout that the wavelength sort always prints does
+  -- `S/PMAX**2` is `S2(I)`, and the line strength is `S2*PMAX**2` from
+  `PSQ = GFCF*(PMAX**2)` and `GF = PSQ*S2(I)*ERAS1` -- and the record
+  carries LAMBDA(A) and GA(SEC-1) beside it, so the check is
+  self-contained in one OUTG11:
+
+      radiate.s_from_ga(GA, LAMBDA, multipole) == S2 * PMAX**2
+
+  It is a test, not part of the production path.  Precision: S2 is F8.3,
+  three decimals ABSOLUTE, so a line is worth 5e-4/S2 -- 5e-4 at S2 = 1,
+  half a per cent at 0.1, nothing below 1e-3, which prints as 0.000.
+  PMAX at F8.5 adds ~1e-5, doubled by the square.  So it is a part in
+  2000 on the strong lines, asserted at one per cent on S2 >= 0.1, and it
+  is not a bit-exactness check and is not to be sold as one.  Every error
+  it exists to catch -- a wrong multipole coefficient, a wrong power of
+  the wavelength, a missing 2J+1, an angstrom/cm-1 slip -- is a factor of
+  a few at least.
+
+  ONE LIMITATION, FOUND IN THE WRITING.  PMAX is printed by FORMAT 96
+  under `IPTG`, and `rcg11kd.f:13341` is
+
+        IF (II.NE.1) IPTG=0
+
+  with II the multipole flag of SPECTR -- 0 M1, 1 E1, 2 E2 -- so an M1 or
+  an E2 section prints neither PMAX nor the PMUP table it is the maximum
+  of.  The absolute check is therefore made on the E1 spectrum of
+  `WORK/`, and the two forbidden multipoles get the strongest form that
+  survives without PMAX: within one section PMAX is a single number, so
+  `S(gA)/S2` must be CONSTANT over the section, and that constant is
+  PMAX**2.  That is not weak.  The section spans a wide range of
+  wavelength and of 2J+1, and the wavelength power is exactly what
+  differs between the multipoles: reading `WORK/Forbid`'s E2 section with
+  the E1 coefficient spreads the ratio by a factor of 1860, and its M1
+  section with the E2 one by 475, against a tolerance of 1 per cent.
+  What it cannot see is a wrong constant prefactor.  Printing PMAX for
+  II /= 1 would close that, and is an additive output change nobody has
+  asked for; it is written down here rather than made.
+
+TESTS
+
+  `CODE/tests/test_calc_tp.py` and `CODE/tests/test_overlap.py`.  Between
+  them: the multipole table and the parsing of the `multipoles`
+  parameter, the parity-crossing map, the overlap matcher on a permuted
+  synthetic block and on a sign flip, the DMIN policy switch and the
+  trial window, `long_margin` including its ceiling and its measurement
+  from the ground configuration, the SUMGA parser and its starred
+  fall-back on a deliberately corrupted OUTG11, `total()` as the rescaled
+  sum times the SUMGA ratio and each of its fall-backs, the blank
+  uncertainty at n_trials <= 1, a doubly-printed transition folded and a
+  mismatched one warned about, a reversed-order line matching its base,
+  the membership rule, the log, `--cleanup`, and the S2 cross-check
+  above.  The end-to-end cases build `WORK/Forbid` from its two input
+  cards by running RCN, RCN2, RCG and RCE into a temporary directory.
+  The level list, the lid columns and the insert_level_ids round trip
+  over calc_TP's own two files are covered there too.
+  Full suite from CODE/: 503 passed, 291 skipped.

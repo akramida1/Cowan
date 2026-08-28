@@ -250,3 +250,72 @@ def test_a_card_that_does_not_match_its_configuration_is_named():
     with pytest.raises(Ing11Error) as e:
         ing11.match_shells(card, conf)
     assert '2s2' in str(e.value) and 'p2' in str(e.value)
+# --------------------------------------------------------------------------
+# the cuts that censor the printed line list
+# --------------------------------------------------------------------------
+
+def test_dmin_is_read_off_the_main_card():
+    # Columns 61-65, `E5.1`; W70 punches ` 10.0`, a gA cut at 1e10.
+    assert ing11.read_main(W70_MAIN).dmin == 10.0
+    assert ing11.read_main(W70_MAIN[:60] + ' 8.00' + W70_MAIN[65:]).dmin == 8.0
+    assert ing11.read_main(W70_MAIN[:60] + '     ' + W70_MAIN[65:]).dmin == 0.0
+
+
+def test_the_window_of_a_hand_built_kcpl3_card():
+    # `2E5.0` in columns 11-20 since 2026: a punched integer is angstrom.
+    d = ing11.Ing11(prelude=['    3 0  0  80016000'])
+    assert d.window == (800.0, 16000.0)
+    ing11.set_window(d, 761.9, 16800.0)
+    assert d.window == (761.9, 16800.0)
+    assert d.prelude[0][:10] == '    3 0  0'
+    # A blank or impossible field takes RCG own defaults at label 95.
+    assert ing11.Ing11(prelude=['    3']).window == (
+        ing11.FLBDN_DEFAULT, ing11.FLBDX_DEFAULT)
+
+
+def test_dmin_and_the_wavelength_window_are_read_off_the_deck():
+    d = deck('Pr3/JK')
+    assert d.main.dmin == 10.0                  # main card columns 61-65
+    assert d.window == (800.0, 16000.0)         # KCPL=3 card, columns 11-20
+
+
+def test_a_deck_with_no_kcpl3_card_reports_RCG_own_window():
+    d = deck('U90')
+    assert d.control(3) is None
+    assert d.window == (ing11.FLBDN_DEFAULT, ing11.FLBDX_DEFAULT)
+    with pytest.raises(Ing11Error):
+        ing11.set_window(d, 100.0, 200.0)
+
+
+def test_dmin_above_one_is_an_exponent_and_below_one_is_not():
+    # `FOR/rcg11kd.f:13294-13302`: only the integer part is taken, and
+    # the sign is the level-sort flag rather than part of the cut.
+    assert ing11.dmin_cut(8.0) == ('gA', 1e8)
+    assert ing11.dmin_cut(8.7) == ('gA', 1e8)
+    assert ing11.dmin_cut(-8.0) == ('gA', 1e8)
+    assert ing11.dmin_cut(0.5) == ('D0', 0.5)
+    assert ing11.dmin_cut(1.0) == ('D0', 1.0)
+    assert ing11.dmin_cut(60.0) == ('D0', 60.0)
+
+
+def test_a_new_dmin_and_window_read_back_as_they_were_written(tmp_path):
+    d = deck('Pr3/JK')
+    ing11.set_dmin(d, 9.0)
+    ing11.set_window(d, 800.0 / 1.05, 16000.0 * 1.05)
+    files.write_deck(tmp_path / files.ING11, ing11.write_ing11(d), chr(10))
+    back = ing11.read_ing11(folder=tmp_path)
+    assert back.main.dmin == 9.0
+    low, high = back.window
+    assert 761.0 <= low <= 762.0 and high == 16800.0
+    # Nothing else on either card moved.
+    was = deck('Pr3/JK')
+    assert back.main.raw[:60] == was.main.raw[:60]
+    assert back.main.raw[65:] == was.main.raw[65:]
+    assert back.prelude[0][:10] == was.prelude[0][:10]
+    assert back.prelude[0][20:] == was.prelude[0][20:]
+
+
+def test_writing_the_same_dmin_back_changes_nothing():
+    d = deck('Pr3/JK')
+    before = d.main.raw
+    assert ing11.set_dmin(d, d.main.dmin) == before

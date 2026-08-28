@@ -1,9 +1,9 @@
-WORK/Forbid -- a forbidden-line case for calc_TP_M1E2
-=====================================================
+WORK/Forbid -- a forbidden-line case for calc_TP
+===============================================
 
 Sn VIII 4d7, one configuration and one parity, with both forbidden
 multipoles switched on.  It is the smallest deck that exercises
-calc_TP_M1E2 end to end: an RCG run with MAG DIP and ELEC QUD spectra,
+calc_TP end to end: an RCG run with MAG DIP and ELEC QUD spectra,
 a //R2// radial-integral card in ING11 for the program to vary, and an
 RCE parameter table for it to read standard deviations from.
 
@@ -17,8 +17,14 @@ the same way on every platform.  Build it with
 
 in an empty directory holding these two files, and then
 
-    calc_TP_M1E2 --write-par
-    calc_TP_M1E2
+    calc_TP --write-par
+    calc_TP
+
+calc_TP.par is checked in here as a worked example -- M1 and E2, twenty
+trials -- so the --write-par step can be skipped.  The program covers
+E1 as well now, and this deck has one parity set and therefore no E1
+transition at all: it says so and drops E1 from the run rather than
+treating it as an error.
 
 CODE/tests/test_calc_tp.py does exactly that, into a temporary
 directory, and is the end-to-end test of the program.
@@ -30,7 +36,7 @@ magnetic-dipole and electric-quadrupole switches (`FOR/rcg11kd.f:608-609`).
 Both are 1 here, meaning "for parity set 1".  IQUAD also makes RCN2
 compute the E2 radial integrals and punch them as //R2// cards
 (`FOR/RCN2K.F:668`), which is where the E2 line strengths come from and
-what calc_TP_M1E2 displaces.
+what calc_TP displaces.
 
 RCN2 writes a same-parity //Rk// block **inside** the deck, straight
 after the parameter card of the parity set it belongs to, not at the
@@ -58,7 +64,7 @@ missing M1 spectrum was mistaken for a fault in RCG.
 default (`:836`) and it is what this deck now has.  With it the run
 prints 89 M1 lines and 131 E2 lines over 132 distinct level pairs, 88
 of which carry both.  That is what makes the M1 + E2 merge -- the whole
-point of calc_TP_M1E2 -- testable on a real run rather than on rows
+point of calc_TP -- testable on a real run rather than on rows
 built up by hand.
 
 ISPECC AND THE TWO SPECTRUM LAYOUTS
@@ -82,6 +88,17 @@ same level pairs come out of both, with the transition probabilities
 agreeing to the extra digit the wider fields carry: the wavelength sort
 prints F11.4 energies and an E11.4 gA where the Lund layout prints
 F11.3 and E10.3.
+
+The wide layout is also the only one that prints a line strength, in
+its S/PMAX**2 column, and
+`test_calc_tp.test_rcgs_own_line_strength_is_the_one_radiate_derives`
+uses this deck at ISPECC = 4 to check `toolbox/radiate` against it.
+PMAX itself is printed for the electric-dipole spectrum only
+(`FOR/rcg11kd.f:13341` sets IPTG = 0 for II /= 1), so on this deck the
+check is that S(gA)/S2 is one constant over each section -- which is
+what a single PMAX per section means, and which a wrong power of the
+wavelength or a missing 2J+1 breaks by orders of magnitude.  The
+absolute form of the check is made on the E1 spectrum of WORK/.
 
 THE FIT IS NOT A FIT
 

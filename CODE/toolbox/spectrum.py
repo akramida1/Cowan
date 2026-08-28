@@ -42,8 +42,14 @@ every deck of this package -- and are left in it.  A wavelength in
 angstroms is 1e5 / (delta E in kK), which is where the `1e5` in the
 callers comes from.
 
+Beside the transitions each `* * *` block closes with a SUMFI record
+carrying RCG's own summed decay rate for the block's level (FORMAT
+1059).  `totals()` reads those; see its docstring for why they are
+worth reading rather than summing the printed lines.
+
 This module streams.  A Pr III OUTG11 holds three million lines of
-spectrum, so `lines()` is a generator and nothing accumulates here.
+spectrum, so `lines()` and `totals()` are generators and nothing
+accumulates here.
 """
 
 from dataclasses import dataclass, replace
@@ -102,6 +108,30 @@ class Line:
     @property
     def same_parity(self):
         return self.multipole in SAME_PARITY
+
+
+@dataclass(frozen=True)
+class Total:
+    """RCG's own summed decay rate for one level, as it prints it.
+
+    The record that closes each `* * *` block of the Lund layout:
+    `SUMGA` is the total gA of that block's level -- the sum over its
+    decays to lower levels -- and `lifetime` is (2J+1)/SUMGA, the
+    radiative lifetime RCG quotes beside it.
+
+    `starred` says the record held an asterisk somewhere: a fixed-point
+    field on it overflowed.  `sumga` and `lifetime` are None when the
+    overflow was in that field itself, and the caller has to decide
+    what to do without it; `starred` with both numbers present means
+    only a neighbouring SUMFI field overflowed and the two are good.
+    """
+
+    multipole: str
+    section: int            # which printed sort of that multipole
+    level: LevelRef         # the `* * *` level the record belongs to
+    sumga: float
+    lifetime: float
+    starred: bool
 
 
 # --------------------------------------------------------------------------
@@ -236,6 +266,38 @@ def _is_wide(line):
             and line[140:146].strip().isdigit())
 
 
+#: FORMAT 1059, `rcg11kd.f:13986`, which closes every `* * *` block of
+#: the Lund layout:
+#:   /1X,6HSUMFI=,F7.4,F8.4,2H =,F8.4,2X,9HRAD.LIFE=,1PE10.3,4H SEC,
+#:   2X,6HSUMGA=,E10.3/
+#: The wide layout's FORMAT 59 and 62 carry the same two numbers but
+#: name the level by its energy alone, with neither the J-block level
+#: number nor the configuration; there is nothing to tie those to an
+#: eigenvector, so only this one is read.
+_SUMFI = ' SUMFI='
+_RADLIFE = 'RAD.LIFE='
+_SUMGA = 'SUMGA='
+
+
+def _total(line):
+    """(SUMGA, lifetime, starred) of a FORMAT 1059 record, or None.
+
+    A field of the record overflows into asterisks -- the author has
+    seen it -- and the two read here are the last two, so an overflow
+    in the SUMFI fields ahead of them does not move their columns.
+    Either is returned as None when it is the one that overflowed.
+    """
+    if not line.startswith(_SUMFI):
+        return None
+    if line[34:43] != _RADLIFE or line[59:65] != _SUMGA:
+        return None
+    return (_number(line[65:75]), _number(line[43:53]), '*' in line)
+
+
+def _number(field):
+    return None if '*' in field else float(field)
+
+
 # --------------------------------------------------------------------------
 # reading
 # --------------------------------------------------------------------------
@@ -331,6 +393,71 @@ def lines(path=files.OUTG11, folder=None, multipoles=None):
             'of which carry both level numbers (NLEVJ, NLEVJP).'
             % (path, ' and '.join(repr(one) for one in sorted(refused))
                or 'not one of them'))
+
+
+def totals(path=files.OUTG11, folder=None, multipoles=None):
+    """RCG's own total decay rate for every level of a Lund-layout run.
+
+    One `Total` per FORMAT 1059 record, in file order, carrying the
+    `* * *` level the record closes.  This is RCG's `SUMGA`, and it is
+    worth reading rather than summing the printed lines because of
+    where it accumulates: at label 580 (`rcg11kd.f:13956`), which the
+    `GO TO 578` of the DMIN test jumps *past* the print but *into*.  So
+    SUMGA counts every line of the block, printed or not, and a
+    branching fraction taken from it is not censored by DMIN.
+
+    It is censored by the FLBDN/FLBDX wavelength window, which drops a
+    line at label 498 before it ever enters the arrays; a total from a
+    run with a window in force is a total over what is in the window.
+
+    A run may print the same level twice, once in each of the two level
+    sorts, when the multipole connects a parity set to itself; the two
+    records carry the same sum, and it is the caller that must not add
+    them together.  `section` counts the sections of one multipole so
+    that they can be told apart.
+    """
+    if folder is not None:
+        path = files.resolve(path, folder)
+    wanted = set(multipoles) if multipoles else None
+    multipole = None
+    sections = {}
+    section = 0
+    layout = None
+    initial = None
+
+    with open(path, 'r', errors='replace') as fh:
+        for raw in fh:
+            line = raw.rstrip('\n').rstrip('\r')
+            found = _heading(line)
+            if found is not None:
+                multipole, _ = found
+                sections[multipole] = section = sections.get(multipole, 0) + 1
+                layout = initial = None
+                continue
+            if multipole is None:
+                continue
+            if wanted is not None and multipole not in wanted:
+                continue
+            if line == _LUND_COLUMNS:
+                layout, initial = 'lund', None
+                continue
+            if line == _WIDE_COLUMNS:
+                layout, initial = 'wide', None
+                continue
+            if layout != 'lund':
+                continue
+            if line.startswith(_STARS):
+                initial = _initial(line)
+                continue
+            if initial is None:
+                continue
+            record = _total(line)
+            if record is None:
+                continue
+            sumga, lifetime, starred = record
+            yield Total(multipole=multipole, section=section, level=initial,
+                        sumga=sumga, lifetime=lifetime, starred=starred)
+            initial = None
 
 
 def name(path=files.OUTG11, folder=None):

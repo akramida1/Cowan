@@ -168,6 +168,39 @@ def unfitted(blocks, kset):
     return out
 
 
+def numbered(case, cm=False):
+    """Every identified level of a run, in the order `Lev_#` runs in.
+
+    Returned as `(Identified, eigenvalue key)` pairs.  Within a parity
+    set the order is the RCG eigenvalue's, as everywhere else in this
+    package, and the sets follow one another, first then second, which
+    is what makes a level number tell the parity at a glance.  `cm` is
+    `conv_out`'s cascade-matrix model, whose single square matrix runs
+    in energy order across both sets instead.
+
+    Both branches carry `eigenvalue`'s own tie-break, so that two levels
+    of one set with the same printed eigenvalue -- common, RCG printing
+    it to two decimals -- fall here in the order `printout` gives them.
+
+    This is the one place the numbering is written down.  `conv_out`
+    assigns the numbers from it and `calc_TP` writes the same numbers
+    beside its lines, so that the two programs' tables can be joined;
+    `conv_out` drops the levels above its `upper_bound` first, so the
+    two agree only where that bound admits them all.
+    """
+    out = []
+    for kset in sorted({k for k, _ in case.blocks}):
+        found = [one for one in case.identified if one.kset == kset]
+        if not found:
+            found = unfitted(case.blocks, kset)
+        out.extend((one, eigenvalue(case.blocks, one)) for one in found)
+    if cm:
+        out.sort(key=lambda pair: pair[1] + (pair[0].kset,))
+    else:
+        out.sort(key=lambda pair: (pair[0].kset,) + pair[1])
+    return out
+
+
 def identify(cset, blocks, tolerance=0.005, emax=None, skipped=None):
     """Pair every level of one RCE parity set with an RCG eigenvector.
 

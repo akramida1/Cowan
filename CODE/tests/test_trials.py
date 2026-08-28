@@ -1,4 +1,4 @@
-"""The Monte-Carlo statistics of calc_TP_M1E2.
+"""The Monte-Carlo statistics of calc_TP.
 
 The two shape statistics are Excel's, because that is what the author
 checks the sampling against; they are pinned here to values computed by

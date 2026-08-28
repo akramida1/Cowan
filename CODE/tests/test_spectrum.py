@@ -171,3 +171,123 @@ def test_a_file_with_no_spectrum_says_so():
     with pytest.raises(SpectrumError) as problem:
         list(spectrum.lines(path='genealogy.txt', folder=case('W70')))
     assert 'no transition section' in str(problem.value)
+
+# --------------------------------------------------------------------------
+# the totals RCG prints for itself
+# --------------------------------------------------------------------------
+
+#: A whole MAG DIP section of WORK/Forbid in the Lund layout, verbatim:
+#: the FORMAT 55 heading and its configuration table, the FORMAT 1056
+#: column header, and two `* * *` blocks each closed by the FORMAT 1059
+#: record `totals()` reads.
+LUND = [
+    '1          MAG DIP SPECTRUM     (ENERGIES IN UNITS OF  1000.0 CM-1'
+    ' =    0.12 EV)',
+    '',
+    '    1      Sn7+  4d7            ---      Sn7+  4d7         ',
+    '',
+    '            E      J     LEVEL        DELTA E  LAMBDA(A)  LOG GF'
+    ' GA(SEC-1) CF/BR',
+    '',
+    '     * * *     -23.212  3.5   1 (4F) 4F       1 Sn7+  4d7    '
+    '      * * *',
+    '',
+    '    1    -29.947  4.5  1 (4F) 4F        6.735  14848.017  -5.582'
+    ' 7.930E+01  1.00     1',
+    '',
+    ' SUMFI= 0.0000 -0.0000 = -0.0000  RAD.LIFE= 1.009E-01 SEC '
+    ' SUMGA= 7.930E+01',
+    '',
+    '     * * *     -19.883  2.5   1 (4F) 4F       1 Sn7+  4d7    '
+    '      * * *',
+    '',
+    '    2    -23.212  3.5  1 (4F) 4F        3.329  30035.738  -5.799'
+    ' 1.174E+01  1.00     1',
+    '',
+    ' SUMFI= 0.0000 -0.0000 = -0.0000  RAD.LIFE= 5.111E-01 SEC '
+    ' SUMGA= 1.174E+01',
+]
+
+
+def lund(tmp_path, body=LUND):
+    (tmp_path / 'OUTG11').write_text('\n'.join(body) + '\n', newline='')
+    return list(spectrum.totals(folder=tmp_path))
+
+
+def test_a_total_is_read_in_its_columns(tmp_path):
+    first = lund(tmp_path)[0]
+    assert first.multipole == 'MAG DIP'
+    assert first.section == 1
+    assert (first.sumga, first.lifetime) == (79.30, 0.1009)
+    assert not first.starred
+
+
+def test_a_total_carries_the_level_of_its_block(tmp_path):
+    one, two = lund(tmp_path)
+    assert (one.level.j, one.level.level) == (3.5, 1)
+    assert (two.level.j, two.level.level) == (2.5, 1)
+    assert one.level.label == '4d7'
+
+
+def test_a_total_equals_the_sum_over_the_lines_it_closes(tmp_path):
+    # The deck of WORK/Forbid punches DMIN = 0.0 and no wavelength
+    # window, so nothing is censored and the two must agree to the four
+    # figures the E10.3 field carries.
+    (tmp_path / 'OUTG11').write_text('\n'.join(LUND) + '\n', newline='')
+    printed = {}
+    for line in spectrum.lines(folder=tmp_path):
+        key = (line.initial.j, line.initial.level)
+        printed[key] = printed.get(key, 0.0) + line.ga
+    for one in spectrum.totals(folder=tmp_path):
+        assert one.sumga == pytest.approx(
+            printed[(one.level.j, one.level.level)], rel=1e-3)
+
+
+def test_a_starred_sumga_is_read_as_absent(tmp_path):
+    # 1PE10.3 does not overflow for a positive number, but the author
+    # has seen stars in OUTG11 all the same, and a total read as 0.0 or
+    # as a fragment of the exponent would be worse than none.
+    starred = list(LUND)
+    starred[10] = starred[10].replace('SUMGA= 7.930E+01', 'SUMGA=**********')
+    one = lund(tmp_path, starred)[0]
+    assert one.sumga is None
+    assert one.starred
+    assert one.lifetime == 0.1009
+
+
+def test_a_star_in_a_neighbouring_field_leaves_sumga_alone(tmp_path):
+    # The fixed-point SUMFI fields ahead of it are the ones that
+    # overflow; they do not move the columns of the two E10.3 fields
+    # after them, so those are still good and are taken.
+    starred = list(LUND)
+    starred[10] = starred[10].replace('SUMFI= 0.0000', 'SUMFI=*******')
+    one = lund(tmp_path, starred)[0]
+    assert one.starred
+    assert (one.sumga, one.lifetime) == (79.30, 0.1009)
+
+
+def test_the_wide_layout_yields_no_total(tmp_path):
+    # FORMAT 59 names the level by its energy alone -- no J-block level
+    # number, no configuration -- so there is nothing to tie it to an
+    # eigenvector and it is not read.
+    (tmp_path / 'OUTG11').write_text('\n'.join(WIDE) + '\n', newline='')
+    assert list(spectrum.totals(folder=tmp_path)) == []
+
+
+def test_the_totals_of_a_reference_run_match_its_lines():
+    folder = case('W70')
+    printed = {}
+    for line in spectrum.lines(folder=folder, multipoles=('ELEC DIP',)):
+        key = (line.initial.j, line.initial.level)
+        printed[key] = printed.get(key, 0.0) + line.ga
+    seen = 0
+    for one in spectrum.totals(folder=folder, multipoles=('ELEC DIP',)):
+        if one.sumga is None or one.section > 1:
+            continue
+        # DMIN censors the printed lines and not SUMGA, so the sum over
+        # what was printed can only be the smaller of the two.
+        assert one.sumga >= printed.get(
+            (one.level.j, one.level.level), 0.0) * (1.0 - 1e-3)
+        seen += 1
+    assert seen, 'no total was read from the run'
+

@@ -222,7 +222,7 @@ def cowan_code():
 def cowan_rcg(cowan_code):
     """A copy of RCG beside those files, for the tools that run it.
 
-    calc_TP_M1E2 writes COWAN.CFG naming the directory the executable it
+    calc_TP writes COWAN.CFG naming the directory the executable it
     was given sits in (`run_rcg`), so a tool pointed at CODE/rcg11kd
     would put the decks back in CODE/.  Pointing it at a copy beside the
     decks is the whole arrangement in one path.

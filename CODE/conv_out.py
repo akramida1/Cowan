@@ -53,7 +53,7 @@ from toolbox import case as case_mod                               # noqa: E402
 from toolbox import (ai, asd, designate, fundconst, iden, in36,   # noqa: E402
                      levels, parfile, radiate, rce, spectrum, vacair)
 
-#: The parameter file.  Unlike `calc_TP_M1E2.par` this one is NOT
+#: The parameter file.  Unlike `calc_TP.par` this one is NOT
 #: shipped in CODE/: it must be absent on a first run, or the sample
 #: below would never be written.
 PAR_FILE = 'conv_out.par'
@@ -562,16 +562,16 @@ class Trans:
 
 
 def _collect(case, options):
-    """Every level of the run, keyed by (parity set, J, eigenvector)."""
-    out = {}
-    for kset in sorted({k for k, _ in case.blocks}):
-        found = [one for one in case.identified if one.kset == kset]
-        if not found:
-            found = levels.unfitted(case.blocks, kset)
-        for one in found:
-            out[(kset, one.j, one.rcg)] = Lev(
-                one, levels.eigenvalue(case.blocks, one))
-    return out
+    """Every level of the run, keyed by (parity set, J, eigenvector).
+
+    In Lev_# order.  `levels.numbered` is the one place that ordering is
+    written down -- `calc_TP` numbers its levels by the same rule, so
+    that its line list and this one can be joined -- and what is left
+    for `_number_levels` is to drop the levels above `upper_bound` and
+    count off the rest.
+    """
+    return {(one.kset, one.j, one.rcg): Lev(one, key)
+            for one, key in levels.numbered(case, cm=options.model == CM)}
 
 
 def _number_levels(found, options):
@@ -587,13 +587,10 @@ def _number_levels(found, options):
     Both branches carry `levels.eigenvalue`'s own tie-break, so that two
     levels of one set with the same printed eigenvalue -- common, RCG
     printing it to two decimals -- fall here in the order `printout`
-    gives them, which is `levels.order_key`.
+    gives them, which is `levels.order_key`.  `found` arrives in that
+    order from `_collect`; all that is left is the bound.
     """
-    if options.model == CM:
-        order = sorted(found, key=lambda x: x.key + (x.kset,))
-    else:
-        order = sorted(found, key=lambda x: (x.kset,) + x.key)
-    order = [one for one in order if one.e_calc <= options.upper_bound]
+    order = [one for one in found if one.e_calc <= options.upper_bound]
     for number, one in enumerate(order, 1):
         one.number = number
     return order

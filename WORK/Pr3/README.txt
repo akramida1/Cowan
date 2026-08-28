@@ -112,6 +112,36 @@ needed -- a blank field means "no limit" and permits couplings 3-7,
 where it used to forbid them (`FOR/rcg11kd.f:735-756`).  It is punched
 here because the file predates the change and because it is explicit.
 
+THE TWO PRELUDE CARDS OF JK/ING11
+
+Ahead of that main card JK/ING11 carries two cards the parent deck does
+not, and both are scope, not coupling.  They are what make the folder
+usable as a calc_TP example.
+
+    3 0  0  80016000    0.0005      0.0     0                                0.0
+    0                                                            150.0     150.0
+
+The first is the KCPL = 3 card (`FOR/rcg11kd.f:725`, FORMAT at label 7).
+Columns 11-15 are FLBDN and 16-20 FLBDX, the wavelength window RCG keeps
+its printed lines inside, here 800 to 16000 angstroms -- the observed
+range of Pr III.  Both fields are read as E5.0 and are therefore in
+angstrom; before 2026 the format read them as E5.1, which made the deck
+mean tenths of an angstrom and put the window an order of magnitude off.
+A line outside the window is dropped at label 498, before it enters the
+arrays, so it is missing from SUMGA as well as from the list -- which is
+why calc_TP warns once when a window is in force and widens the window
+in its trial decks.
+
+The second is a KCPL = 0 rescale card, and the two F10.5 fields in
+columns 61-70 and 71-80 are E0MAX(1) and E0MAX(2), 150 kK for both
+parity sets (`:101`, FORMAT 12): no line is printed whose upper level
+lies above that.  It is a scope choice rather than a threshold -- a
+fitted level does not wander across it the way a weak line wanders
+across DMIN -- so calc_TP leaves it alone in the trial decks.  At a low
+DMIN, where the list reaches the top of the window, that is worth
+remembering: a level within a per cent of 150 kK can cross it between
+trials.
+
 The parameter cards of JK/ING11 hold the same fitted values that
 update11 produces, to the last digit; only the exponent notation of the
 zero and near-zero cards differs (`0.00e+01` where RCN2 wrote
@@ -286,6 +316,43 @@ costs in size.
 
 Energies in both output files are in the unit of the run, 1000 cm-1,
 so a wavelength in angstroms is 1E5 divided by the difference.
+
+UNCERTAINTIES ON THE TRANSITION PROBABILITIES
+
+calc_TP puts an uncertainty on every line of that list by resampling:
+it displaces the fitted Slater parameters within the standard
+deviations RCE printed, re-runs RCG in a trial subdirectory, and
+collects the spread.  JK/calc_TP.par is a worked example of its
+parameter file -- E1, twenty-five trials, a fixed seed, and
+keep_trial_output = 0 so that each trial's OUTG11 is deleted once it
+has been read.
+
+The deck it wants is the fitted ING11 that update11 writes, given the
+two prelude cards described above -- the 800-16000 angstrom window and
+E0MAX = 150 kK -- and two fields of its main card changed:
+
+    columns 61-65   DMIN     10.0  ->  3.0
+    columns 72      ISPECC   2     ->  3
+
+DMIN is the reporting cut and 3.0 is the author's working value; the
+trials are run a decade below it.  ISPECC = 3 asks for both level
+sorts, which is what gives every decaying level a SUMGA of its own --
+at 2 only the levels of one parity set head a printed block and the
+rest fall back to a DMIN-censored sum over their printed lines
+(measured here: 550 of 1046).  Both sorts then print every line, and
+calc_TP folds the repeat.  The coupling flags need no edit: KCPLD is
+already 0011111, LS + true jj.
+
+Measured on this deck at DMIN = 3.0, 25 trials: 6 min 32 s, 15.7 s a
+trial, 1784 MB resident, 2.8 GB of trial output written and deleted as
+it went.  120274 base transitions were read, 70428 written after
+min_bf, and the eigenvector matcher -- the part that is new here --
+cost 0.15 s of the 15.7.
+
+The run is not left in this folder.  WORK/Pr3 is a reference case the
+test suite looks up by name and it ships as inputs only, so a run
+sitting in it makes those tests execute against a deck that is no
+longer the documented one.
 
 WHAT IT COSTS
 

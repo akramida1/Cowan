@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Transition probabilities for forbidden (M1, E2) lines.
-# The physics settings are in calc_TP_M1E2.par, not here.
+# Transition probabilities and their uncertainties, E1, M1 and E2.
+# The physics settings are in calc_TP.par, not here.
 #
-# The Unix counterpart of calc_TP_M1E2.bat.  The tool is CODE/calc_TP_M1E2.py and all
+# The Unix counterpart of calc_TP.bat.  The tool is CODE/calc_TP.py and all
 # of the work is there; this only finds an interpreter and hands over, the
 # way the batch file hands over to the `py` launcher.
 #
@@ -26,7 +26,7 @@ elif command -v python >/dev/null 2>&1 &&
     # `python` that is Python 2 is no use here and is passed over.
     py=python
 else
-    echo "calc_TP_M1E2: no Python 3 on PATH." >&2
+    echo "calc_TP: no Python 3 on PATH." >&2
     case "$(uname -s)" in
         Darwin) echo "  Install one with:  brew install python" >&2 ;;
         *)      echo "  Install one with:  sudo apt install python3     (Debian, Ubuntu)" >&2
@@ -39,4 +39,4 @@ fi
 # directory is not written to during a run -- that is what the install
 # modes are for -- and a .pyc dropped there would be the one breach of it.
 # Recompiling these few modules each run costs a few milliseconds.
-exec "$py" -B "$dir/calc_TP_M1E2.py" "$@"
+exec "$py" -B "$dir/calc_TP.py" "$@"

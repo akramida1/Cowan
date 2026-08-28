@@ -32,6 +32,16 @@ from .in36 import LBCD
 # card names a subshell with one of these, so the index is l.
 LSYMB = 'SPDFGHIKLMNOQRTUVWXYZABC'
 
+# The main card's DMIN field, columns 61-65, read as `E5.1` (`:899`),
+# and the KCPL=3 card's wavelength window, columns 11-15 and 16-20,
+# read as `2E5.0` since 2026 (`:727`).
+_DMIN = slice(60, 65)
+_FLBDN = slice(10, 15)
+_FLBDX = slice(15, 20)
+
+# What RCG supplies for a blank or impossible window, `:774-775`.
+FLBDN_DEFAULT, FLBDX_DEFAULT = 0.001, 500000.0
+
 # Subshell slots on a configuration card: 8 x (A1,I2,2X), `:3334`.
 NOSUBC_MAX = 8
 
@@ -84,6 +94,7 @@ class MainCard:
     idip: int = 0
     isenior: int = 0
     ipgen: int = 0
+    dmin: float = 0.0
     raw: str = ''
 
     @property
@@ -284,6 +295,35 @@ class Ing11:
                 return read_f(padded[65:75], 5), read_f(padded[75:85], 5)
         return 0.0, 0.0
 
+    @property
+    def window(self):
+        """(FLBDN, FLBDX), the printed wavelength window in angstrom.
+
+        The optional first control card, KCPL=3, carries them in columns
+        11-15 and 16-20; RCG reads it at `FOR/rcg11kd.f:725` and
+        supplies 0.001 and 500000.0 for a blank or impossible field at
+        label 95, which is what is returned for a deck with no such
+        card.  Since 2026 the fields are `E5.0` and read as angstrom.
+        """
+        line = self.control(3)
+        flbdn = flbdx = 0.0
+        if line is not None:
+            padded = line.ljust(20)
+            flbdn = read_f(padded[_FLBDN])
+            flbdx = read_f(padded[_FLBDX])
+        if flbdn <= 0.0:
+            flbdn = FLBDN_DEFAULT
+        if flbdx <= flbdn:
+            flbdx = FLBDX_DEFAULT
+        return flbdn, flbdx
+
+    def control(self, kcpl):
+        """The prelude card with this KCPL, or None."""
+        for line in self.prelude:
+            if line[:5].strip() and read_i(line[:5]) == kcpl:
+                return line
+        return None
+
     def by_label(self):
         """{label: ConfigCard}; a repeated label is an error, not a pick."""
         out = {}
@@ -352,6 +392,7 @@ def read_main(card):
         icpc=read_i(c[67:68]),
         icfc=read_i(c[68:69]),
         idip=read_i(c[69:70]),
+        dmin=read_f(c[60:65], 1),
         isenior=read_i(c[80:82]),
         ipgen=read_i(c[82:84]),
         raw=card)
@@ -1001,3 +1042,68 @@ def set_r_value(card, value):
     card.where[card.at] = card.raw[:38] + text + card.raw[50:]
     card.value = value
     return card.where[card.at]
+# --------------------------------------------------------------------------
+# the cuts that censor the printed line list
+# --------------------------------------------------------------------------
+
+#: The range of DMIN in which the cut is on gA rather than on the
+#: squared matrix element, `FOR/rcg11kd.f:13296`.
+DMIN_GA_FROM, DMIN_GA_TO = 1.0, 50.0
+
+
+def dmin_cut(dmin):
+    """What a DMIN value means, as `(kind, threshold)`.
+
+    RCG turns the field into a cut at `FOR/rcg11kd.f:13294-13302`.  A
+    magnitude above 1 and not above 50 is an **exponent**: the cut is
+    `gA < 10**int(|DMIN|)`, applied to the printed GA(SEC-1) column at
+    `:13764`, `:13931`, `:14118` and `:14473`.  Anything else is a cut
+    on `D0`, the squared reduced matrix element, at `:13656`.  Only the
+    integer part matters in the first case, which is why an offset in
+    decades is a whole number there.
+
+    A negative DMIN additionally deletes upward transitions from the
+    level sorts (NEGTP); the magnitude is what sets the cut, and that
+    is what is returned.
+    """
+    size = abs(dmin)
+    if DMIN_GA_FROM < size <= DMIN_GA_TO:
+        return 'gA', 10.0 ** int(size)
+    return 'D0', size
+
+
+def set_dmin(deck, value):
+    """Put a new DMIN in columns 61-65 of the main card.
+
+    Everything else on the card comes back as the bytes it arrived in,
+    the rule `set_r_value` and `format_card` are written under.  The
+    field is `E5.1`, so a value is written with its decimal point in it
+    and reads back as punched.
+    """
+    raw = deck.main.raw.ljust(65)
+    deck.main.raw = (raw[:_DMIN.start] + write_f_wide(value, 5, 1)
+                     + raw[_DMIN.stop:]).rstrip()
+    deck.main.dmin = value
+    return deck.main.raw
+
+
+def set_window(deck, flbdn, flbdx):
+    """Put a new FLBDN/FLBDX in the KCPL=3 card, columns 11-20.
+
+    The fields are `E5.0` and hold angstrom, so a widened window has to
+    fit five columns; `write_f_wide` gives up the decimal rather than
+    the number, which costs at most half an angstrom in the last digit
+    -- nothing beside the fractional margin a caller widens by.  A deck
+    with no KCPL=3 card has no window to widen and is an error here:
+    RCG's own defaults, 0.001 to 500000 A, print everything already.
+    """
+    for at, line in enumerate(deck.prelude):
+        if line[:5].strip() and read_i(line[:5]) == 3:
+            padded = line.ljust(20)
+            deck.prelude[at] = (padded[:_FLBDN.start]
+                                + write_f_wide(flbdn, 5, 1)
+                                + write_f_wide(flbdx, 5, 1)
+                                + padded[_FLBDX.stop:]).rstrip()
+            return deck.prelude[at]
+    raise Ing11Error('%s has no KCPL=3 card, so it has no wavelength window'
+                     % (deck.path or files.ING11))

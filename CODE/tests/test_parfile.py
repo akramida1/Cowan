@@ -1,8 +1,8 @@
-"""The parameter-file reader, and the file calc_TP_M1E2 ships."""
+"""The parameter-file reader, and the file calc_TP ships."""
 
 import pytest
 
-import calc_TP_M1E2
+import calc_TP
 from toolbox import parfile
 from toolbox.parfile import ParFileError, Spec
 
@@ -130,24 +130,24 @@ def test_every_description_line_of_a_written_file_is_a_comment(tmp_path):
 # --------------------------------------------------------------------------
 
 def test_the_shipped_par_file_is_the_defaults():
-    # CODE/calc_TP_M1E2.par is what a run falls back on when the working
+    # CODE/calc_TP.par is what a run falls back on when the working
     # directory has none, so it has to say exactly what SPECS says.
     from toolbox import files
-    path = files.code_dir() / calc_TP_M1E2.PAR_FILE
+    path = files.code_dir() / calc_TP.PAR_FILE
     assert path.is_file()
-    got = parfile.read(path, calc_TP_M1E2.SPECS)
-    assert got == {s.key: s.default for s in calc_TP_M1E2.SPECS}
+    got = parfile.read(path, calc_TP.SPECS)
+    assert got == {s.key: s.default for s in calc_TP.SPECS}
 
 
 def test_the_shipped_par_file_is_what_write_par_would_write():
     from toolbox import files
-    path = files.code_dir() / calc_TP_M1E2.PAR_FILE
-    fresh = parfile.template(calc_TP_M1E2.SPECS, title=calc_TP_M1E2.TITLE)
+    path = files.code_dir() / calc_TP.PAR_FILE
+    fresh = parfile.template(calc_TP.SPECS, title=calc_TP.TITLE)
     assert path.read_text().split('\n')[:len(fresh)] == fresh
 
 
 def test_every_parameter_of_the_program_is_documented():
-    for spec in calc_TP_M1E2.SPECS:
+    for spec in calc_TP.SPECS:
         assert spec.description.strip(), spec.key
 
 
@@ -170,20 +170,20 @@ def test_a_file_named_outright_that_is_not_there_is_an_error(tmp_path):
 
 
 def test_the_working_directory_comes_before_the_shipped_copy(tmp_path):
-    here = written(tmp_path, '4 ; count\n', name='calc_TP_M1E2.par')
-    assert parfile.find('calc_TP_M1E2.par', tmp_path) == here
+    here = written(tmp_path, '4 ; count\n', name='calc_TP.par')
+    assert parfile.find('calc_TP.par', tmp_path) == here
 
 
 def test_the_copy_beside_the_code_is_the_fallback(tmp_path):
     from toolbox import files
-    found = parfile.find('calc_TP_M1E2.par', tmp_path)
-    assert found == files.code_dir() / 'calc_TP_M1E2.par'
+    found = parfile.find('calc_TP.par', tmp_path)
+    assert found == files.code_dir() / 'calc_TP.par'
 
 
 def test_a_program_that_ships_nothing_gets_nothing(tmp_path):
     # conv_out must not ship a par file, or the file would never be
     # absent and the sample would never be written.
-    assert parfile.find('calc_TP_M1E2.par', tmp_path, shipped=False) is None
+    assert parfile.find('calc_TP.par', tmp_path, shipped=False) is None
     assert parfile.find('conv_out.par', tmp_path) is None
 
 

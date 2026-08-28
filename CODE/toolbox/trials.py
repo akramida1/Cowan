@@ -1,4 +1,4 @@
-"""The Monte-Carlo machinery behind `calc_TP_M1E2`.
+"""The Monte-Carlo machinery behind `calc_TP`.
 
 An uncertainty on a forbidden-line transition probability is not
 something Cowan's codes compute.  It is obtained by running RCG many

@@ -87,7 +87,7 @@ and nothing calls them.
 | scale_param.py              | Aug 2026 |
 | conf_list.py                | Aug 2026 |
 | read_aa.py                  | Aug 2026 |
-| calc_TP_M1E2.py             | Aug 2026 |
+| calc_TP.py                  | Aug 2026 |
 | config_purity.py            | Aug 2026 |
 | make_levels_list_prepub.py  | Aug 2026 |
 | make_levels_list_pub.py     | Aug 2026 |
@@ -118,10 +118,13 @@ sources with smaller dimensions. On a system other than Windows, Linux
 or macOS, see COMPILING FOR OTHER OPERATING SYSTEMS below for the
 handful of system-specific changes.
 
-Python 3 for the utility codes, and one Python package: `numpy`. It is
-needed by exactly one thing, `make_cfp`'s rebuild of the `LSJJ.DAT` deck,
-and it is optional. Without it `make_cfp` says so, builds the CFP decks
-and finishes normally; everything works except true *jj* coupling. See
+Python 3 for the utility codes, and one Python package: `numpy`. Two
+things use it. `make_cfp`'s rebuild of the `LSJJ.DAT` deck, where it is
+optional -- without it `make_cfp` says so, builds the CFP decks and
+finishes normally, and everything works except true *jj* coupling. And
+`calc_TP`, where it is not: that program pairs a trial's eigenvectors
+with the unvaried run's, which is a matrix product per *J* block, and it
+stops with the `pip install numpy` line rather than running slowly. See
 step 0 of the installation section for your system.
 
 ### INSTALLATION ON WINDOWS (Linux and macOS users should skip to the next section)
@@ -138,9 +141,10 @@ in `CODE\`. If you intend to use true *jj* coupling, add `numpy` as well:
 
         pip install numpy
 
-	It is the only Python package the package needs, it is needed by one
-	step only -- step 6 below, where `make_cfp` builds the `LSJJ.DAT`
-	deck -- and it is optional. Skip it and everything else still works.
+	It is the only Python package the package needs. It is optional for
+	step 6 below, where `make_cfp` builds the `LSJJ.DAT` deck -- skip it
+	and everything else still works, except true *jj* coupling -- but
+	`calc_TP` requires it outright.
 	Install a Fortran compiler only if you intend to recompile the
 	sources -- see RECOMPILING THE FORTRAN below.
 1. Extract all files from the COWAN.ZIP archive under directory `Cowan-main` PRESERVING THE
@@ -1629,7 +1633,7 @@ flag set; a compiler without that extension will not build `RCG` or
 
                        Better still, every setting may be written into
                        a `conv_out.par` file in the working directory,
-                       in the same layout as `calc_TP_M1E2.par`: the
+                       in the same layout as `calc_TP.par`: the
                        value first, then a semicolon, then the key,
                        then prose saying what it is for. Run conv_out
                        with no par file and no arguments and it writes
@@ -1878,6 +1882,11 @@ flag set; a compiler without that extension will not build `RCG` or
 
                        insert_level_ids <source> <levels file> [<lines file>]
 
+                       The two target files may equally be the two a
+                       calc_TP run writes -- out_levels and out_file --
+                       which carry the same Lev_#, lid1 and lid2
+                       columns for exactly this purpose.
+
                        Both target files are rewritten in place, and
                        what they held is kept as <file>.bak. The line
                        list may be left out, and then only the level
@@ -1974,21 +1983,38 @@ flag set; a compiler without that extension will not build `RCG` or
                        A test compiles FOR/fundconst.f and checks every
                        value against this module bit for bit.
 
-        calc_TP_M1E2
+        calc_TP
                      - Python program to run Monte Carlo trials for
-                       estimation of uncertainties of M1 and E2 transition
-                       rates (see A. Kramida, Atoms 2, 86–122 (2014),
+                       estimation of uncertainties of E1, M1 and E2
+                       transition rates (see A. Kramida, Atoms 2,
+                       86-122 (2014),
                        https://doi.org/10.3390/atoms2020086).
+                       This was calc_TP_M1E2, which covered the two
+                       forbidden multipoles only; the old name is
+                       retired and is not accepted as an alias.
+
                        The settings that used to be hard-coded in the
-                       Perl source are now in `calc_TP_M1E2.par`, a
+                       Perl source are now in `calc_TP.par`, a
                        commented parameter file. Run the program with
                        no par file present and it writes one into the
                        working directory and stops, so that you can
                        read it through and fill it in; `--write-par`
-                       writes a fresh one at any time.
+                       writes a fresh one at any time. `multipoles`
+                       chooses which of E1, M1 and E2 to do, and the
+                       default is all three. A deck with only one
+                       parity set has no E1 transitions, so the run
+                       says so and drops E1 rather than failing.
 
-                       The RCG run it reads must print the forbidden
-                       lines it is asked about, which needs two things
+                       `calc_TP` needs `numpy`. It pairs each trial's
+                       eigenvectors with the unvaried run's by their
+                       overlap, block by block, which is the only way
+                       the identification survives a trial that has
+                       moved the eigenvalues; that is a matrix product
+                       per *J* block, and without `numpy` the program
+                       stops and says to install it.
+
+                       The RCG run it reads must print the lines it is
+                       asked about. For M1 and E2 that needs two things
                        on the IN2 main card. IMAG and IQUAD, columns 49
                        and 50, switch the M1 and E2 spectra on. DMIN,
                        columns 61-65, must be **0.00**: a DMIN between
@@ -1997,6 +2023,47 @@ flag set; a compiler without that extension will not build `RCG` or
                        almost all weaker than the 5.00 or 10.0 that
                        suits electric-dipole work, so the spectrum
                        comes out empty. See `WORK/Forbid/README.txt`.
+
+                       For E1 the useful DMIN is whatever cut you mean
+                       to publish at, and it is worth punching ISPECC
+                       (column 72) as **3** rather than 2. Only a level
+                       that heads a printed block carries RCG's own
+                       total decay rate, SUMGA, which is where the
+                       branching fractions come from and which -- unlike
+                       a sum over the printed lines -- is not censored
+                       by DMIN. With 3 both level sorts print, so every
+                       level has one; the repeated print of each line is
+                       folded. `WORK/Pr3/README.txt` gives the deck.
+
+                       The run writes two files. `out_file` is the
+                       line list; `out_levels`, beside it, is the level
+                       list holding the `Lev_#` that the line list's
+                       `lid1` and `lid2` columns name. The numbering is
+                       the one `conv_out` uses, and the two files have
+                       the shape `insert_level_ids` reads, so the
+                       identifiers of a published analysis go onto
+                       these lines the same way they go onto
+                       `conv_out`'s -- which is what lets the two
+                       programs' tables be joined. Join them on those
+                       identifiers, not on `Lev_#`: a level number is a
+                       position in one run's energy ordering, and two
+                       runs whose eigenvalues have moved do not order
+                       their near-degenerate levels alike.
+
+                       Trial subdirectories are kept, so a trial can be
+                       read again without being run again. A long run
+                       makes a great many of them: set
+                       `keep_trial_output = 0` to delete each trial's
+                       OUTG11 once it has been read, and
+
+                           calc_TP --cleanup
+
+                       to remove the trial directories afterwards. It
+                       lists what it will delete and asks once;
+                       `--yes` skips the question. Warnings go to
+                       `calc_TP.log` in the working directory, and the
+                       terminal gets one line saying how many there
+                       were.
 
         f.2) From a fitted calculation to a published level list:
 
@@ -2190,7 +2257,7 @@ flag set; a compiler without that extension will not build `RCG` or
         Forbid/       - Sn VIII 4d7, forbidden lines: an RCG run with
                        the M1 and E2 spectra switched on (IMAG and
                        IQUAD, columns 49-50 of the IN2 main card), and
-                       the example for calc_TP_M1E2. IN36 and IN2 only.
+                       the example for calc_TP. IN36 and IN2 only.
                        Its README.txt explains why DMIN, columns 61-65,
                        must be 0.00 for forbidden transitions -- with
                        the usual electric-dipole cut of 5.00 or more,
@@ -2218,9 +2285,13 @@ flag set; a compiler without that extension will not build `RCG` or
                        folder (Pr3/JK, the same fit asked for in
                        LS + LSJK instead of LS + JJ), and the three
                        programs of section f.2. It is also the conv_out
-                       example, and carries the dlv.dat and numset.dat
-                       an IDEN run needs. Inputs only -- the run writes
-                       about 412 MB. Its README.txt gives the command
+                       and calc_TP example: Pr3/JK carries a worked
+                       calc_TP.par, and the README gives the two deck
+                       fields an uncertainty run wants changed. Inputs
+                       only -- the run writes about 412 MB, and a
+                       calc_TP run of 25 trials about 600 MB more. It
+                       also carries the dlv.dat and numset.dat an IDEN
+                       run needs. Its README.txt gives the command
                        sequence step by step, with the figures each
                        step should report.
 

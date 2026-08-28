@@ -32,7 +32,7 @@ Wavelengths are in angstroms, S in atomic units, gA in s-1.  A caller
 working from Cowan's output has energies in the section's own unit --
 1000 cm-1 in every deck here -- so a wavelength is `1e5 / delta E`.
 
-`conv_out.py` and `calc_TP_M1E2.py` both use this module; it is the one
+`conv_out.py` and `calc_TP.py` both use this module; it is the one
 copy of these conversions on the Python side.
 
 `CODE/perl_legacy/` still carries the old hard-coded table.  It is the

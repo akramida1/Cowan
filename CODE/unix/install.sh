@@ -22,7 +22,7 @@
 #   installed    the four executables; CODE/unix/ (the wrappers); the .py
 #                tools, toolbox/ and lsjj/; the data files RCG and RCN2
 #                read -- FOR072, FOR073, FOR074, SENIOR, LSJJ.DAT --
-#                plus ING11.CFP and calc_TP_M1E2.par.  The three FOR07x
+#                plus ING11.CFP and calc_TP.par.  The three FOR07x
 #                are the CFP decks and LSJJ.DAT is the LS-to-jj deck;
 #                this script builds all four first, see below.
 #
@@ -67,8 +67,13 @@
 # algebra would return a different, equally valid basis, which would no
 # longer be the deck that was validated against Cowan's own coefficients.
 # numpy is therefore the one thing in this package that has to be
-# pip-installed, and it is optional: make_cfp says so and carries on, the
-# install completes, and everything except true jj coupling works.
+# pip-installed, and it is optional here: make_cfp says so and carries on,
+# the install completes, and everything except true jj coupling works.
+#
+# calc_TP is the one tool that requires numpy outright -- it pairs a
+# trial's eigenvectors with the unvaried run's, which is a matrix product
+# per J block -- and it stops with the pip line if it is missing.  That
+# does not hold the install up either.
 #
 # make_cfp is given a scratch directory to work in.  It runs in the
 # current directory -- ING11 and OUTG11 are written there, and an existing
@@ -152,7 +157,7 @@ esac
 
 executables="RCN36K RCN2K rcg11kd RCE20KD"
 
-data="SENIOR ING11.CFP calc_TP_M1E2.par"
+data="SENIOR ING11.CFP calc_TP.par"
 
 # Kept apart from $data because they are the one thing in the source tree
 # that may legitimately be absent: they are built below rather than
@@ -170,7 +175,7 @@ cfp_decks="FOR072 FOR073 FOR074 LSJJ.DAT"
 # message about COWAN_SRC rather than with a missing file.
 wrappers="_common.sh build.sh build_debug.sh build_serial.sh
           rcn rcn2 rcg rce
-          add_eav calc_TP_M1E2 conf_list config_purity conv_out
+          add_eav calc_TP conf_list config_purity conv_out
           insert_level_ids make_cfp make_levels_list_prepub
           make_levels_list_pub printout
           read_aa reorder_ing11 s11 scale_param subst_exp_levs

@@ -81,8 +81,9 @@ What to look for in OUTG11
                                only when the gcard is present
 
 The gcard layout is rcg11kd.f statement 7:
-    FORMAT (I5,I2,I3,2E5.1,2F10.5,I5,5F5.3,F10.5)
-    KCPL=3, ILNCUV, ID2T, lambda bounds, DELEKEV, EIONRY, NPTKEV,
+    FORMAT (I5,I2,I3,2E5.0,2F10.5,I5,5F5.3,F10.5)
+    KCPL=3, ILNCUV, ID2T, lambda bounds in angstrom (columns
+    11-15 and 16-20), DELEKEV, EIONRY, NPTKEV,
     then up to five electron temperatures in keV.
 EIONRY is the ionization energy of the recombining ion in rydbergs -
 25.03 here, taken straight from the RCN output for B V 1s.  Note that

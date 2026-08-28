@@ -111,7 +111,7 @@ def comparable(one, other):
     the branch every difference site in this package already has.
 
     Takes anything carrying `observed` and `group`, so the wrappers
-    `conv_out`, `calc_TP_M1E2` and `iden` put around a level answer it
+    `conv_out`, `calc_TP` and `iden` put around a level answer it
     as well as a `Level` does.
     """
     if not getattr(one, 'observed', False):

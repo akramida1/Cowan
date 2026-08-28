@@ -1,0 +1,239 @@
+;-----------------------------------------------------------------------------
+; calc_TP.par -- input for calc_TP
+;
+; Uncertainties on E1, M1 and E2 transition probabilities, by
+; repeating the RCG calculation with the fitted parameters and
+; the radial transition integrals displaced within their
+; errors.
+;
+; The quantity the trials are collected in is the LINE STRENGTH,
+; not the transition probability: gA carries the eigenvalues of
+; the trial in it, as the cube or the fifth power of the wave
+; number, so its spread would be the matrix element and the
+; energy together.  Where both levels are observed the wavelength
+; does not move between trials and the two spreads are the same;
+; they differ only when a level is unobserved and the fit lets
+; its energy move.  See the header of calc_TP.py.
+;
+; One parameter per line, as <value> ; <key> <description>. The value is
+; everything left of the first semicolon and the key is the first word after
+; it. A blank value means "use the default". A line starting with a semicolon
+; is a comment, and so is a blank line. Order does not matter.
+;-----------------------------------------------------------------------------
+
+0          ; num_trials
+;             Number of Monte-Carlo trials. Each one is a complete RCG run in
+;             its own subdirectory trial1, trial2, ... and takes as long as
+;             the original did, so this is what sets the cost of the
+;             calculation. 0 reads the unvaried run only and writes the line
+;             list with no statistics at all. A few hundred is enough for a 1%
+;             answer. Unlike the Perl this need not be an even number.
+
+0          ; read_only
+;             Number of trial subdirectories that already hold a finished RCG
+;             run and are only to be read. Use it to add trials to a run that
+;             was interrupted, or to re-do the statistics without re-running
+;             anything: read_only = num_trials reads every trial and runs RCG
+;             not at all. Larger than num_trials is taken as num_trials.
+
+1          ; keep_trial_output
+;             1 keeps each trial's OUTG11 after it has been read; 0 deletes
+;             it. OUTG11 is by far the largest file a trial makes -- the Pr
+;             III list at the author's working DMIN = 3.0 is of the order of a
+;             gigabyte per trial, so a few hundred trials is tens of gigabytes
+;             -- and this program has no use for it once the trial has been
+;             folded into the statistics. What is deleted is the output only:
+;             the trial's ING11 and its parameter record stay, so the trial
+;             can be re-run exactly as it was made. It cannot be re-READ,
+;             though, so read_only can no longer reach it; keep the output if
+;             that is wanted. Only the trials THIS run computed are deleted --
+;             a trial that was there already and was read under read_only is
+;             left as it was found.
+
+100        ; store_trials
+;             How many individual trial values of A -- and of the cancellation
+;             factor -- are written out beside each transition. The mean and
+;             the standard deviation always use every trial; this is only what
+;             is printed, so that the distribution can be looked at. Larger
+;             than num_trials is taken as num_trials. 0 prints none.
+
+           ; random_seed
+;             Seed for the random number generator, so that a run can be
+;             repeated exactly. Any text will do. Blank draws a fresh seed
+;             from the system, which is what the Perl always did; the seed
+;             actually used is printed at the start of the run.
+
+E1,M1,E2   ; multipoles
+;             Which multipoles to read from OUTG11, as a comma-separated list
+;             of E1, M1 and E2 in any order and any case. A multipole RCG did
+;             not compute simply contributes no lines, so the default asks for
+;             all three. E1 is what columns 41-42 of the ING11 main card
+;             switch on; M1 and E2 are IMAG and IQUAD, columns 49 and 50 of
+;             the G5INP card in IN2. Note that E1 crosses the two parity sets
+;             and therefore needs both of them: asking for it sets parity_sets
+;             to `both` whatever the parameter says.
+
+0.25       ; r1_variance
+;             Fractional standard deviation of the E1 radial transition
+;             integrals -- the //R1// cards at the end of ING11. Same
+;             reasoning as r2_variance below, for the electric-dipole
+;             operator. 0 leaves them alone, and it is ignored when E1 is not
+;             among the multipoles.
+
+0.25       ; r2_variance
+;             Fractional standard deviation of the E2 radial transition
+;             integrals -- the //R2// cards at the end of ING11. These are
+;             Hartree-Fock values with no fitted uncertainty of their own, so
+;             this is an estimate of how far a single-configuration HF
+;             integral can be from the truth. 0 leaves them alone.
+;
+;             0.25 is a scope-wide estimate of that error for a
+;             single-configuration Hartree-Fock integral, not a number this
+;             deck knows: it is the same for r1_variance and it is the first
+;             thing to revisit if the spread of the trials comes out plainly
+;             too wide or too narrow against a spectrum with measured
+;             transition probabilities.
+
+1          ; vary_fitted_params
+;             1 to vary the RCE parameters that were free in the fit, each
+;             within the standard deviation OUTE gives it. 0 varies only the
+;             E2 integrals, which answers a different question: how much of
+;             the uncertainty comes from the radial integrals alone.
+
+1          ; var_grouped_params
+;             1 to respect the fit's parameter grouping: parameters tied
+;             together in RCE by a shared group flag are displaced by one
+;             common ratio, because the fit determined their ratio and not
+;             their separate values. 0 displaces every parameter on its own,
+;             which overstates the freedom the fit actually had.
+
+0          ; fixed_param_variance
+;             Fractional standard deviation applied to the parameters that
+;             were HELD FIXED in the fit (flag 100), which have no standard
+;             deviation of their own. 0 leaves them alone. Note that this
+;             setting had no effect at all in the Perl -- see the header of
+;             this program.
+
+1          ; trial_dmin_offset
+;             Decades below the deck's own DMIN at which the TRIALS are run.
+;             DMIN censors the printed list, and a line just above it drops
+;             out of some trials and not others -- which biases its mean high
+;             and gives it a trial count smaller than the number of trials.
+;             Running the trials one decade lower keeps those lines in every
+;             trial; the deck's DMIN is then applied again when the list is
+;             written, so the list is the one DMIN asked for and its
+;             statistics are complete. 0 runs the trials at the deck's own
+;             DMIN, which is what the Perl did. Only whole decades have any
+;             effect: RCG takes the integer part of DMIN as the exponent.
+
+0.05       ; trial_lambda_margin
+;             Fractional widening of the FLBDN/FLBDX wavelength window in the
+;             trial decks, for the same reason as trial_dmin_offset: a line
+;             near either end of the window leaves the printed list in some
+;             trials and not others. 0.05 runs the trials over a window 5 per
+;             cent wider at each end. 0 leaves the window alone, and it does
+;             nothing at all for a deck with no KCPL=3 card, which prints
+;             every wavelength anyway.
+;
+;             It is the SHORT-wavelength end that is widened by this fraction.
+;             The long end needs more, and how much more is worked out from
+;             the deck; see trial_lambda_margin_max.
+
+10         ; trial_lambda_margin_max
+;             The largest fractional widening allowed at the LONG-wavelength
+;             end of the trial window.
+;
+;             A level energy moves by a per cent or two between trials, but a
+;             transition energy is a difference of two of them, and between
+;             two highly excited configurations that difference is small -- so
+;             the same absolute movement is a much larger fraction of it.
+;             FLBDX cuts on exactly those smallest transition energies, so the
+;             symmetric trial_lambda_margin is far too small there. The
+;             widening actually used is
+;
+;             trial_lambda_margin * (Eav_up + Eav_low) / dEav_min
+;
+;             with dEav_min the smallest gap between the average energies of
+;             two configurations the unvaried spectrum actually connects, and
+;             Eav_up and Eav_low the average energies of that same pair
+;             measured from the LOWEST configuration average energy in the run
+;             -- excitation energies, not Cowan's total electronic energies,
+;             which are dominated by a core binding no fitted parameter moves.
+;             That ratio has no bound of its own -- two configurations can sit
+;             on top of each other -- so this is the ceiling on it. 10.0 means
+;             the long end may be widened elevenfold. Written to the log, with
+;             the pair it came from and whether this ceiling bound it.
+
+1          ; merged_list
+;             1 to write one line per transition, with the M1 and E2
+;             contributions added together and the column E2_frac saying what
+;             fraction of the total is E2. 0 writes the M1 list and then the
+;             E2 list separately, one after the other in the same file.
+;             (`$mearged_list` in the Perl.)
+
+0.02       ; min_mixed_fraction
+;             When merging, the smaller of the two multipoles is dropped from
+;             the line and the line keeps the name of the larger one if the
+;             smaller contributes less than this fraction of the total
+;             A-value, allowing two standard deviations. Has no effect when
+;             merged_list = 0.
+
+0.0001     ; min_bf
+;             Transitions with a radiative branching fraction smaller than
+;             this are left out of the list. The branching fraction is the
+;             line's A over the total radiative decay rate of its upper level,
+;             counting only the channels this run holds -- that is, only the
+;             multipoles asked for, and only the lines RCG printed.
+
+tp.txt     ; out_file
+;             Name of the tab-separated line list this program writes, in the
+;             working directory. (`$out_tr_file` in the Perl, where it was a
+;             constant in the source and had to be edited for every ion.)
+
+           ; out_levels
+;             Name of the tab-separated level list this program writes beside
+;             the line list, carrying the Lev_# the lid1 and lid2 columns of
+;             the line list refer to. Blank derives it from out_file, which
+;             turns tp_E1.txt into tp_E1_levels.txt. The two files are what
+;             insert_level_ids takes, so the identifiers of a published
+;             analysis can be put on these lines as they are put on
+;             conv_out's.
+
+1          ; print_dbf
+;             1 to print the standard deviation of the branching fraction
+;             beside each line. It needs the stored trials, so it is silent
+;             when store_trials = 0.
+
+0          ; print_cf_trials
+;             1 to print the individual trial values of the cancellation
+;             factor as well as those of A. This doubles the width of the file
+;             and is for looking at a suspect line, not for routine use.
+
+1          ; sort_trials
+;             1 to print the stored trial values in ascending order, which is
+;             what a histogram or a percentile wants. WARNING: sorting breaks
+;             the correspondence between the A values, the cancellation
+;             factors and the branching fractions of one and the same trial. 0
+;             keeps them in trial order.
+
+0          ; print_distribution
+;             1 to print, on the terminal, histograms of how far the trials
+;             strayed from the unvaried run -- in ln A, in A, in the
+;             cancellation factor and in the input parameters -- together with
+;             the kurtosis of the input deviations. This is a check that the
+;             sampling itself is sound: a normal distribution has kurtosis 0
+;             by Excel's definition, which is the one used.
+
+1          ; parity_sets
+;             Which RCE parity set to work on. M1 and E2 connect levels of the
+;             same parity, so the two sets are independent and a run may do
+;             either or both. E1 connects one set to the other and needs both,
+;             so asking for E1 among the multipoles overrides this to `both`.
+;             The Perl could only do the first, and labelled everything it
+;             read as belonging to it.
+
+           ; rcg
+;             The RCG executable to run in each trial subdirectory. Blank uses
+;             the one that sits beside this program, which is the arrangement
+;             the .bat files assume. Not used when there are no trials to run
+;             (num_trials = read_only).

@@ -22,7 +22,9 @@ Usage:
                            one level, in --units (default 1)
 
 `<levels file>` and `<lines file>` are the two files of a `conv_out`
-run.  Both are rewritten in place, with what they held kept as
+run, or the two a `calc_TP` run writes -- `out_levels` and `out_file`,
+which carry the same `Lev_#`, `lid1` and `lid2` columns for exactly
+this purpose.  Both are rewritten in place, with what they held kept as
 `<file>.bak`; the line list may be left out, and then only the level
 list is done.
 
