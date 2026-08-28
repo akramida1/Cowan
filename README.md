@@ -88,6 +88,7 @@ and nothing calls them.
 | conf_list.py                | Aug 2026 |
 | read_aa.py                  | Aug 2026 |
 | calc_TP.py                  | Aug 2026 |
+| extract_Icalc.py            | Aug 2026 |
 | config_purity.py            | Aug 2026 |
 | make_levels_list_prepub.py  | Aug 2026 |
 | make_levels_list_pub.py     | Aug 2026 |
@@ -2100,6 +2101,53 @@ flag set; a compiler without that extension will not build `RCG` or
                        Parity is the first column of all three
                        outputs: deleting a column for an article table
                        is easy, reconstructing one is not.
+
+        extract_Icalc
+                     - Python program to pull out of a calc_TP line
+                       list the few columns a line classification code
+                       needs, and, if a temperature is given, a
+                       synthetic intensity built out of them. Reads
+                       tp_E1.txt with id1 and id2 already put on it by
+                       insert_level_ids, and writes Icalc.txt.
+
+                       Usage:
+
+                       extract_Icalc [<tp file>] [<output file>]
+                                     [--T_eV <value>] [--d_off <value>]
+
+                       The columns written are id1, id2, rwn
+                       (E_up_exp - E_low_exp), gA ((2*J2+1) times the
+                       A(s-1) column), u%gA (std_A%, which is a
+                       relative standard deviation and so is the same
+                       for gA as for A) and Eup (E_up_exp).
+
+                       calc_TP carries its energies in kK and this
+                       writes cm-1, so rwn and Eup are its values
+                       times 1000.
+
+                       Given BOTH --T_eV, a temperature in eV, and
+                       --d_off, a log-offset, a seventh column follows:
+
+                       Icalc = exp(-Eup/T_cm + d_off) * gA / rwn
+
+                       with T_cm the temperature converted to cm-1 --
+                       a Boltzmann population of the upper level times
+                       its rate, per unit wavenumber. d_off is the one
+                       free normalisation, absorbing the partition
+                       function, the column density and the choice of
+                       unit for rwn together, so it is given rather
+                       than computed. One of the two options without
+                       the other is refused: the column is then not
+                       written at all rather than written empty.
+
+                       Only transitions with an identifier at both
+                       ends are taken, and of those only the ones with
+                       an experimental energy at both ends -- a line to
+                       a level the analysis does not hold has no
+                       identifier to be classified under, and one to a
+                       level the fit did not observe has no
+                       experimental energy to be classified by. The run
+                       reports how many it passed over, and why.
 
         config_purity
                      - Which coupling scheme describes each

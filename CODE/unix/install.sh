@@ -176,7 +176,7 @@ cfp_decks="FOR072 FOR073 FOR074 LSJJ.DAT"
 wrappers="_common.sh build.sh build_debug.sh build_serial.sh
           rcn rcn2 rcg rce
           add_eav calc_TP conf_list config_purity conv_out
-          insert_level_ids make_cfp make_levels_list_prepub
+          extract_Icalc insert_level_ids make_cfp make_levels_list_prepub
           make_levels_list_pub printout
           read_aa reorder_ing11 s11 scale_param subst_exp_levs
           subst_params_ing11 update11 install.sh"
