@@ -1,13 +1,43 @@
 # Line endings.
 #
-# The package is developed on Windows and run on all three systems, so
-# most files are left to git's own normalization.  The shell scripts are
-# not: a script checked out with CRLF fails on Linux with
+# Every text file in the distribution is stored and checked out with
+# Windows line endings, CRLF.  The package is authored on Windows, and a
+# user who takes a zip from the repository host, or a raw file, gets the
+# bytes that are committed -- git's own normalization would hand that user
+# LF, which is not what the rest of the package looks like.  So the files
+# are committed verbatim:
+#
+#     * -text
+#
+# means "never translate", in either direction, whatever core.autocrlf is
+# set to locally.  It is also the right rule for the binaries in CODE/ --
+# the executables and the MinGW DLLs -- which must never be touched.
+#
+# The cost of verbatim storage is that git no longer silently fixes a file
+# saved with LF by an editor on Linux or macOS.  Save as CRLF there, or run
+#
+#     unix2dos <file>            (or: sed -i 's/$/\r/' on a file with LF)
+#
+# before committing.  `git ls-files --eol` shows what is actually stored.
+#
+# CRLF is safe everywhere it is used here.  gfortran strips a trailing CR
+# both when compiling a fixed-form source and when reading a formatted
+# record at run time, so the Fortran sources and every input deck are
+# unaffected on Linux and macOS.  Python's universal-newline mode does the
+# same for the tools in CODE/, which are imported or run as `python3
+# CODE/tool.py` and never executed through their shebang -- install.sh
+# places them 644 for exactly that reason.  toolbox/files.py strips CR
+# itself, and keeps a deck's own terminator when it rewrites it.
+
+* -text
+
+# The shell scripts are the one exception, and it is a hard one: a script
+# checked out with CRLF fails on Linux with
 #
 #     /bin/bash^M: bad interpreter: No such file or directory
 #
 # which says nothing about the real cause.  They are pinned to LF, on
-# every platform, whatever core.autocrlf is set to locally.
+# every platform.
 
 *.sh text eol=lf
 CODE/unix/* text eol=lf
@@ -16,8 +46,7 @@ CODE/unix/* text eol=lf
 # `rcg`, `rcn2`, `add_eav` and so on -- so the directory rule above is
 # what covers them, and it has to stay ahead of any rule that would
 # treat an extensionless file as binary.
-
-# Windows batch files are the mirror image: cmd.exe is content with LF
-# for the most part, but a label or a goto at the end of a line without
-# CR has been known to misbehave, so these keep CRLF.
-*.bat text eol=crlf
+#
+# Windows batch files need no rule of their own any more: cmd.exe wants
+# CRLF -- a label or a goto at the end of a line without CR has been known
+# to misbehave -- and `* -text` on a CRLF working copy is what they get.

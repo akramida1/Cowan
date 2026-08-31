@@ -36,6 +36,21 @@ THRESHOLD = 0.1
 #: IDEN2's level number is I4 and its arrays are sized for this many.
 MAX_LEVELS = 9999
 
+#: A `dlv.dat` whose intensities are already logarithmic is now the
+#: common case, and `convert2log` on one of those takes the log a second
+#: time -- silently, since both scales are just numbers in an I5 field.
+#: The shapes are far apart, though: line intensities are steeply
+#: skewed, so a linear list of any size sits decades below its own
+#: maximum at the median, and 10*ln compresses both the skew and the
+#: range.  Neither number is proof on its own, so both have to say log,
+#: and the result only warns -- reinterpreting the author's own data
+#: would be the worse failure.
+LOG_MEDIAN = 0.2                #: median/max above this looks logarithmic
+LOG_RANGE = 50.0                #: max/min below this looks logarithmic
+
+#: Below this many lines the distribution says nothing either way.
+LOG_SAMPLE = 20
+
 
 class IdenError(Exception):
     """A file IDEN2 needs is missing or does not read."""
@@ -105,6 +120,21 @@ def read_dlv(path='dlv.dat'):
     return out
 
 
+def looks_logarithmic(lines):
+    """Whether the observed intensities look as though they are already logs.
+
+    See `LOG_MEDIAN`.  A short list is left alone: the shape of a
+    distribution of a dozen numbers says nothing.
+    """
+    values = sorted(one.intensity for one in lines if one.intensity > 0)
+    if len(values) < LOG_SAMPLE:
+        return False
+    biggest, smallest = values[-1], values[0]
+    median = values[len(values) // 2]
+    return (median > LOG_MEDIAN * biggest
+            and biggest < LOG_RANGE * smallest)
+
+
 def write_dlv(lines, path='dlv.dat'):
     """Rewrite the observed list with its intensities on a log scale.
 
@@ -114,13 +144,23 @@ def write_dlv(lines, path='dlv.dat'):
     it as `dlv.dat.bak`.
     """
     biggest = max(one.intensity for one in lines)
+    if biggest <= 0:
+        raise IdenError('every intensity in %s is zero; there is nothing to '
+                        'put on a log scale' % path)
     if 999 - 10 * math.log(biggest) < 0:
         raise IdenError('the largest intensity in %s, %g, is too large to put '
                         'on a log scale' % (path, biggest))
     shutil.copyfile(path, path + '.bak')
     with open(path, 'w') as out:
         for one in lines:
-            one.intensity = 10 * math.log(one.intensity)
+            # An intensity below 1 has a negative log, and `read_dlv`
+            # takes the field with abs(), which would read it back as a
+            # strong line.  Cap at zero instead, which is IDEN2's "no
+            # measured intensity" -- the truthful thing to say about a
+            # line that weak.  Choosing a scale on which the observed
+            # intensities clear 1 is the user's job.
+            one.intensity = (max(0.0, 10 * math.log(one.intensity))
+                             if one.intensity > 0 else 0.0)
             uncertainty = ('%7.4f' % one.uncertainty
                            if one.uncertainty else ' ')
             out.write('%5d%14.3f%34s%7s%s\n'
@@ -301,7 +341,15 @@ def write(case, order, transitions, options):
 
     coupling = options.couplings[0]
     lines = read_dlv()
+    # `write_dlv` replaces these with their logs, and the scale the
+    # calculated intensities are put on is set by the observed maximum
+    # *as the file gives it* -- `conv_out.pl` keeps it in $I_obs_max,
+    # which WriteDLV does not touch.  So take it before the rewrite.
+    biggest = max([one.intensity for one in lines], default=0.0)
     if options.convert2log:
+        if looks_logarithmic(lines):
+            print('   the intensities in dlv.dat already look logarithmic; '
+                  'convert2log will take their log a second time')
         write_dlv(lines)
     ranges = locate(read_numset(), lines, vacair.to_vacuum)
 
@@ -317,7 +365,7 @@ def write(case, order, transitions, options):
               % (len(numbered), MAX_LEVELS))
         truncate = True
 
-    rows = _trans_rows(printed, by_level, assigned, lines, options)
+    rows = _trans_rows(printed, by_level, assigned, lines, biggest, options)
     if truncate:
         numbered, rows = _truncate(numbered, rows)
     _write_enlev(numbered)
@@ -364,9 +412,12 @@ def _assign(transitions, lines, ranges):
     return out
 
 
-def _trans_rows(transitions, by_level, assigned, lines, options):
-    """One row per line: the two IDEN2 level numbers and the numbers IDEN2 wants."""
-    biggest = max([one.intensity for one in lines], default=0.0)
+def _trans_rows(transitions, by_level, assigned, lines, biggest, options):
+    """One row per line: the two IDEN2 level numbers and the numbers IDEN2 wants.
+
+    `biggest` is the largest observed intensity **as dlv.dat gave it**,
+    before `write_dlv` may have replaced the list with its logs.
+    """
     if options.linear:
         shift = 0.0
     else:

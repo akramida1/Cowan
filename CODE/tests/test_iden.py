@@ -8,6 +8,7 @@ come back assigned, with no residual.  The formats are the ones
 IDEN2 parses.
 """
 
+import math
 import os
 import shutil
 import subprocess
@@ -148,3 +149,69 @@ def test_the_search_runs_downward_in_wavenumber():
     assert iden.find(lines, 30000.5, 1, 0.1) == 3
     assert iden.find(lines, 35000.0, 1, 0.1) == 0
     assert iden.find(lines, 50000.0, 1, 0.1) == 1
+
+
+def _skewed(count=300):
+    """A linear observed list of the shape a real one has.
+
+    Line intensities are steeply skewed -- a few strong lines and a long
+    tail of weak ones -- and a measured list has a floor: the weakest
+    line anyone reported, not an intensity of 1.  Both matter to
+    `iden.looks_logarithmic`, and these numbers give the five decades
+    and the floor near 20 that `WORK/Pr3/dlv.dat` has.
+    """
+    return [iden.Observed(intensity=2e6 / (at * at),
+                          wavenumber=50000.0 - at, uncertainty=0.01,
+                          middle='', tail='')
+            for at in range(1, count + 1)]
+
+
+def test_an_already_logarithmic_list_is_told_from_a_linear_one():
+    linear = _skewed()
+    assert not iden.looks_logarithmic(linear)
+    logged = [iden.Observed(intensity=10 * math.log(one.intensity),
+                            wavenumber=one.wavenumber,
+                            uncertainty=one.uncertainty, middle='', tail='')
+              for one in linear]
+    assert iden.looks_logarithmic(logged)
+
+
+def test_too_few_lines_to_judge_the_scale_are_left_alone():
+    assert not iden.looks_logarithmic(_skewed(iden.LOG_SAMPLE - 1))
+
+
+def test_convert2log_warns_when_the_list_is_already_logarithmic(run_folder):
+    lines = _skewed()
+    with open(str(run_folder / 'dlv.dat'), 'w') as out:
+        for one in lines:
+            out.write('%5d%14.3f%34s%7.5f\n'
+                      % (10 * math.log(one.intensity), one.wavenumber, '',
+                         1e-5))
+    with open(str(run_folder / 'numset.dat'), 'w') as out:
+        out.write('%-5s%10.4f%7.5f\n' % ('a', 0.1, 1e-5))
+    out = conv_out(run_folder, 'IDEN', 'convert2log')
+    assert 'already look logarithmic' in out.stdout
+
+
+def test_a_log_intensity_below_one_is_capped_at_zero(tmp_path):
+    path = tmp_path / 'dlv.dat'
+    with open(str(path), 'w') as out:
+        for intensity, wavenumber in ((100, 5000.0), (1, 4000.0),
+                                      (0, 3000.0)):
+            out.write('%5d%14.3f%34s%7.4f\n' % (intensity, wavenumber, '',
+                                                0.01))
+    lines = iden.read_dlv(str(path))
+    lines[1].intensity = 0.4        # weaker than the I5 field can carry
+    iden.write_dlv(lines, str(path))
+    # 10*ln(0.4) is negative and read_dlv takes the field with abs(), so
+    # an uncapped log would read back as a line of intensity 9.
+    assert [one.intensity for one in iden.read_dlv(str(path))] \
+        == [46.0, 0.0, 0.0]
+
+
+def test_a_list_with_no_intensity_at_all_cannot_go_on_a_log_scale(tmp_path):
+    path = tmp_path / 'dlv.dat'
+    path.write_text('%5d%14.3f%34s%7.4f\n' % (0, 5000.0, '', 0.01))
+    with pytest.raises(IdenError) as problem:
+        iden.write_dlv(iden.read_dlv(str(path)), str(path))
+    assert 'every intensity' in str(problem.value)
