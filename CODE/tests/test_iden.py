@@ -102,6 +102,30 @@ def test_truncation_keeps_only_the_levels_a_line_touches(run_folder):
     assert [int(line[:4]) for line in rows] == list(range(1, len(rows) + 1))
 
 
+def test_truncation_keeps_the_ground_level(run_folder):
+    # The ground level is the zero of every energy in the analysis, so
+    # it stays whether or not a printed line happens to touch it: a
+    # wavelength window that stops short of the lowest opposite-parity
+    # level would otherwise leave IDEN2 a spectrum with no bottom.
+    observed(run_folder, LINES)
+    assert conv_out(run_folder, 'IDEN').returncode == 0
+    with open(str(run_folder / 'ENLEV.DAT')) as f:
+        ground = f.readlines()[-1]
+    assert conv_out(run_folder, 'IDEN', 'truncate').returncode == 0
+    with open(str(run_folder / 'ENLEV.DAT')) as f:
+        rows = f.readlines()
+    # Same level, and still the last one -- keeping it renumbers nothing.
+    assert rows[-1][4:] == ground[4:]
+
+
+def test_the_ground_level_survives_a_truncation_no_line_reaches():
+    levels = [iden.IdenLevel(number=at, lev=None, label='x')
+              for at in range(1, 5)]
+    kept, rows = iden._truncate(levels, [(1, 2) + ('rest',)])
+    assert [one.number for one in kept] == [1, 2, 3]
+    assert [(row[0], row[1]) for row in rows] == [(1, 2)]
+
+
 def test_convert2log_rewrites_the_observed_list_and_keeps_the_original(
         run_folder):
     observed(run_folder, LINES)

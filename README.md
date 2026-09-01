@@ -83,6 +83,8 @@ and nothing calls them.
 | subst_params_ing11.py       | Aug 2026 |
 | subst_exp_levs.py           | Aug 2026 |
 | insert_level_ids.py         | Aug 2026 |
+| write_IDEN_level_ids.py     | Aug 2026 |
+| update_IDEN.py              | Aug 2026 |
 | reorder_ing11.py            | Aug 2026 |
 | scale_param.py              | Aug 2026 |
 | conf_list.py                | Aug 2026 |
@@ -98,13 +100,13 @@ and nothing calls them.
 | CODE/unix/ (Linux, macOS)   | Aug 2026 |
 
 Each of the Python codes above, except `config_purity`, the two
-`make_levels_list` programs and `toolbox/`, replaces a Perl program of
-the same name, kept in
-`CODE/perl_legacy/`. Two Perl files have no Python namesake:
-`conv_cowan.pl` was `conv_out.pl`'s own library and moved with it, and
-`vacair.pl` is now `toolbox/vacair.py`. The `config_purity`
-and two `make_levels_list` programs, and the `toolbox` library itself,
-are new: they never had a Perl version.
+`make_levels_list` programs, the two IDEN2 programs and `toolbox/`,
+replaces a Perl program of the same name, kept in `CODE/perl_legacy/`.
+Two Perl files have no Python namesake: `conv_cowan.pl` was
+`conv_out.pl`'s own library and moved with it, and `vacair.pl` is now
+`toolbox/vacair.py`. The `config_purity` and two `make_levels_list`
+programs, `write_IDEN_level_ids` and `update_IDEN`, and the `toolbox`
+library itself, are new: they never had a Perl version.
 
 ### SYSTEM REQUIREMENTS
 
@@ -1942,6 +1944,181 @@ flag set; a compiler without that extension will not build `RCG` or
                        identifier, and any match made against a
                        calculated energy rather than an observed one.
 
+        write_IDEN_level_ids
+                     - Python program to write the table that
+                       translates level identifiers into the level
+                       numbers IDEN2 uses. It is the first half of the
+                       round trip through IDEN2; update_IDEN below is
+                       the second.
+
+                       A level of a published analysis is known by its
+                       identifier -- the key a database holds it under,
+                       and the same name in every paper and every run.
+                       IDEN2 knows nothing of it: it numbers its own
+                       levels, from the highest energy down, over
+                       whatever conv_out gave it, and that number is
+                       the only name a level has in ENLEV.DAT and
+                       TRANS.DAT. It means nothing outside one pair of
+                       those files -- rebuild them and every number
+                       moves -- so the correspondence has to be written
+                       down before it can be used.
+
+                       Usage:
+
+                       write_IDEN_level_ids <source>
+                           [--idcol <col>] [--ecol <col>] [--jcol <col>]
+                           [--pcol <col>] [--excludecol <col>]
+                           [--units cm-1|kK|eV] [--skip <n>]
+                           [--tol <value>]
+
+                       The <source> is the tab-delimited experimental
+                       level list subst_exp_levs and insert_level_ids
+                       take, and its columns are named the same way. It
+                       is the only argument: ENLEV.DAT is read from the
+                       working directory under that name, because that
+                       is the name IDEN2 gives it, and the table is
+                       written beside it as IDEN_level_ids.txt -- two
+                       columns, level_id and IDEN_id, tab separated, in
+                       level order. Neither input is touched.
+
+                       Only the FIXED levels of ENLEV.DAT are matched
+                       -- the ones carrying the star, which in IDEN2's
+                       terms are the experimental ones -- and the match
+                       is the one insert_level_ids makes, on (parity,
+                       J, energy) with every pair inside --tol offered
+                       and the closest taken first. The energy compared
+                       is the fixed one and not the calculated one: it
+                       is the observed value, and an experimental level
+                       list holds observed values.
+
+                       Parity comes from the sixth character of the
+                       IDEN2 label, `_` for even and `~` for odd. That
+                       reading is checked rather than assumed: the
+                       matching is tried a second time with the marks
+                       reversed, and the run says so if the wrong
+                       reading would tie more levels -- which is what
+                       an ENLEV.DAT from a different calculation looks
+                       like.
+
+                       A source level ENLEV.DAT has no counterpart for
+                       is reported and left out of the table. That is
+                       the usual case rather than the exception:
+                       conv_out writes at most 9999 levels and can
+                       truncate a large calculation to the levels its
+                       printed transitions touch, so a compilation
+                       reaches IDEN2 with part of itself missing.
+
+        update_IDEN
+                     - Python program to carry the result of a level
+                       optimization back into the two files IDEN2
+                       reads, so that the next look at a questionable
+                       level is taken against the current answer rather
+                       than the one the files were built with.
+
+                       Usage:
+
+                       update_IDEN <LOPT levels> [<LOPT lines>]
+                           [--ucalc <value>] [--ids <file>]
+                           [--wntol <value>]
+
+                       <LOPT levels> is the tab-delimited level table
+                       LOPT writes, read by its Designation, Energy, D1
+                       and D2tot columns; <LOPT lines> is its line
+                       table, read by L1, L2, wn_o and Weight. Leaving
+                       the line table out updates the levels only.
+                       ENLEV.DAT, TRANS.DAT and dlv.dat are taken from
+                       the working directory under the names IDEN2
+                       gives them, and what each rewritten file held is
+                       kept beside it as <name>.bak.
+
+                       Three things are done in one pass:
+
+                       1) Every FIXED level of ENLEV.DAT takes the
+                       energy LOPT gives it and, as its uncertainty,
+                       max(D1, D2tot) -- the larger of the purely
+                       statistical uncertainty and the total one
+                       relative to the ground level. That is what a
+                       level is worth when it is looked at on its own,
+                       which is what IDEN2 does with it.
+
+                       2) With --ucalc, every level that is not fixed
+                       takes that uncertainty. The calculated levels
+                       come out of conv_out at 5000 cm-1, which is a
+                       placeholder; the uncertainty is the window IDEN2
+                       searches around a level, and the point of the
+                       option is to narrow it once the fit is good
+                       enough to deserve it.
+
+                       3) TRANS.DAT takes the same energies -- the `$`
+                       record's, the `+` record's lower level, and the
+                       transition energy that is their difference --
+                       and, for a transition between two fixed levels,
+                       the assignment it should have.
+
+                       The third is the one that matters. IDEN2 reads
+                       exactly one field of a `+` record beyond the two
+                       level numbers: the assigned line's row number in
+                       dlv.dat. The set of transitions carrying one has
+                       to be the set of lines the optimization used, or
+                       the next session in IDEN2 is looking at the
+                       previous round's answer.
+
+                       A line counts as used when its Weight is above
+                       zero. That is the flag to rely on and not the F
+                       column: P, M and virt all mean a line was
+                       excluded, but the weight says so for an excluded
+                       line that carries no letter as well. Where one
+                       transition appears on several rows -- the same
+                       pair measured twice, a blend entered twice --
+                       the row with the largest weight speaks for it. A
+                       transition between two fixed levels that the
+                       optimization did not use loses its assignment,
+                       and the observed intensity, wavenumber and dwn
+                       beside it are cleared with it, so that the
+                       record does not go on quoting an observation it
+                       no longer has. A transition reaching only one
+                       fixed level, or none, was never in the fit and
+                       keeps whatever IDEN2's own session gave it.
+
+                       LOPT names a level by its identifier and IDEN2
+                       by a number of its own, so the two are tied
+                       through IDEN_level_ids.txt, which
+                       write_IDEN_level_ids writes and --ids can
+                       rename. That table must have been made from this
+                       ENLEV.DAT: a table naming levels the file has
+                       not got is refused by name, which is the one
+                       mistake this pair of programs makes easy.
+
+                       LOPT names a line by its observed wavenumber and
+                       IDEN2 by its row of dlv.dat, so those two are
+                       tied by searching the observed list. --wntol is
+                       how far apart they may be: 0.05 cm-1 by default,
+                       because LOPT prints a wavenumber rounded to the
+                       decimals its uncertainty deserves and the two
+                       then disagree in the last place and no further.
+                       The dlv.dat in the working directory has to be
+                       the one TRANS.DAT was assigned against -- the
+                       assignment is a row number of it and means
+                       nothing against another list -- so every wn_o of
+                       the line table is looked for in it before
+                       anything is written, and the count and the worst
+                       offset are reported. Nothing is refused on the
+                       strength of that: a tolerance set too tight
+                       shows as a few near misses and a mismatched file
+                       as thousands, and the two read differently.
+
+                       A line the optimization used whose transition is
+                       not in TRANS.DAT cannot be assigned there, and
+                       the count is reported. conv_out writes only the
+                       transitions above its intensity threshold and
+                       only between the levels that survived the
+                       truncation, so some of the used lines will have
+                       no record to go into. The remedy is a fuller
+                       TRANS.DAT, not a fabricated record: TRANS.DAT
+                       holds calculated transitions, and a row invented
+                       for an observation has no calculated intensity
+                       to put in it.
+
         subst_params_ing11
                      - Python program to substitute parameter values
                        from one ING11 file into another one. The
@@ -2225,9 +2402,9 @@ flag set; a compiler without that extension will not build `RCG` or
                        they are typed as `rcg`, `add_eav`, `conf_list`
                        and so on, exactly like the `.bat` files without
                        theirs. Each of the four main wrappers and each
-                       of the fourteen tool wrappers is the counterpart
-                       of the `.bat` file of the same name, and does the
-                       same thing. Three files are not counterparts of
+                       of the tool wrappers is the counterpart of the
+                       `.bat` file of the same name, and does the same
+                       thing. Three files are not counterparts of
                        anything on Windows:
 
                        build.sh    - compiles all four programs. Also

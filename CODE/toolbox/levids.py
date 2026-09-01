@@ -537,3 +537,82 @@ def insert_lines(table, by_number, report):
                 report.orphans[number] = report.orphans.get(number, 0) + 1
                 continue
             table.put(row, into[which], level.ident)
+
+
+# --------------------------------------------------------------------------
+# the IDEN2 translation table
+# --------------------------------------------------------------------------
+#
+# IDEN2 numbers its levels itself, from the highest energy down, and that
+# number is the only name a level has in `ENLEV.DAT` and `TRANS.DAT`.  It
+# means nothing outside one pair of those files -- rebuild them and every
+# number moves -- so anything that has to say the same thing to IDEN2 and
+# to the rest of the analysis needs the two names side by side.  That is
+# what this table is, and `write_IDEN_level_ids` is what writes it.
+
+#: The file the table is kept in, and what its two columns are called.
+IDEN_IDS = 'IDEN_level_ids.txt'
+IDEN_ID = 'IDEN_id'
+
+
+def write_iden_ids(pairs, path=IDEN_IDS, ending='\n'):
+    """Write the `(identifier, IDEN2 number)` pairs as a two-column table.
+
+    LF, and the tab, are what the other tab-delimited tables of the
+    package are written with -- calc_TP's line list, conv_out's two --
+    and every reader here takes either ending.
+    """
+    lines = ['%s\t%s' % (SOURCE_ID, IDEN_ID)]
+    lines.extend('%s\t%d' % (ident, number) for ident, number in pairs)
+    with open(path, 'w', newline='') as handle:
+        handle.write(''.join(line + ending for line in lines))
+    return path
+
+
+def read_iden_ids(path=IDEN_IDS):
+    """The table back as `{identifier: IDEN2 level number}`.
+
+    A repeated identifier, or a repeated level number, is an error and
+    not a last-one-wins: the table is a bijection, and a caller that
+    translates a level list through a broken one would quietly put two
+    levels' energies into one record.
+    """
+    try:
+        rows = altlevsrc._rows(path)
+    except OSError:
+        raise LevelIdError(
+            '%s is not here; run write_IDEN_level_ids to make it' % path)
+    if not rows:
+        raise LevelIdError('%s holds no rows' % path)
+
+    header = [field.strip().lower() for field in rows[0]]
+    try:
+        left = header.index(SOURCE_ID.lower())
+        right = header.index(IDEN_ID.lower())
+    except ValueError:
+        raise LevelIdError('%s has no header line naming %s and %s'
+                           % (path, SOURCE_ID, IDEN_ID))
+
+    out, taken = {}, {}
+    for at, row in enumerate(rows[1:], 2):
+        if not any(field.strip() for field in row):
+            continue
+        ident = altlevsrc._field(row, left)
+        text = altlevsrc._field(row, right)
+        if not ident and not text:
+            continue
+        try:
+            number = int(text)
+        except ValueError:
+            raise LevelIdError('%s line %d: %r is not an IDEN2 level number'
+                               % (path, at, text))
+        if ident in out:
+            raise LevelIdError('%s names %s twice' % (path, ident))
+        if number in taken:
+            raise LevelIdError('%s gives IDEN2 level %d to both %s and %s'
+                               % (path, number, taken[number], ident))
+        out[ident] = number
+        taken[number] = ident
+    if not out:
+        raise LevelIdError('%s holds no levels' % path)
+    return out

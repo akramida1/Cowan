@@ -22,11 +22,12 @@ IDEN2 numbers its levels from the top down, so the numbering here is not
 the `Lev_#` of the line list; the two are kept apart deliberately.
 """
 
+import bisect
 import math
 import shutil
 from dataclasses import dataclass, field
 
-from . import fortfmt, outg11, rce
+from . import files, fortfmt, outg11, rce
 
 #: A line assigned to an observation keeps only the transitions within
 #: this fraction of the strongest one assigned to it: a much weaker
@@ -461,6 +462,15 @@ def _truncate(numbered, rows):
     for row in rows:
         wanted.add(row[0])
         wanted.add(row[1])
+    # The ground level stays whatever the lines say.  It is the zero of
+    # every energy in the analysis and the one level IDEN2 must be able
+    # to reach; a run whose printed lines happen not to touch it -- a
+    # wavelength window that stops short of the lowest opposite-parity
+    # level, say -- would otherwise hand IDEN2 a spectrum with no
+    # bottom.  `numbered` runs from the highest energy down, so this is
+    # its last entry, and keeping it changes no other level's number.
+    if numbered:
+        wanted.add(numbered[-1].number)
     kept = [one for one in numbered if one.number in wanted]
     if len(kept) > MAX_LEVELS:
         raise IdenError('after truncation there are still %d levels, more '
@@ -532,3 +542,397 @@ def _write_trans(numbered, rows, truncate, path='TRANS.DAT'):
                          fortfmt.write_f_wide(wavenumber, 12, 3),
                          fortfmt.write_f_wide(difference, 11, 3),
                          line_number))
+
+
+# --------------------------------------------------------------------------
+# reading the two files back
+# --------------------------------------------------------------------------
+#
+# What `_write_enlev` and `_write_trans` put out is what these read in,
+# and the column spans below are the single statement of where each field
+# is: the writers above build their records with `%` formats, the readers
+# here take them apart by name, and `WORK/Pr3/IDEN2_file_formats.md` is
+# what both agree with.
+#
+# IDEN2 writes the files back after a session, so a reader has to survive
+# a record the user's own run has been through.  Only version 2 of
+# `ENLEV.DAT` -- the four-column level number -- is read: version 1 is the
+# legacy layout, IDEN2 keeps whichever it was given, and nothing in this
+# package writes version 1.
+
+ENLEV = 'ENLEV.DAT'
+TRANS = 'TRANS.DAT'
+
+#: The parity the sixth character of a label stands for.  `_label` puts
+#: it there from the configuration set's own parity, so it is the level's
+#: parity and not a set number, whatever the set numbering happens to be.
+PARITY_MARK = {'_': 'e', '~': 'o'}
+
+#: `ENLEV.DAT` version 2, 0-based [start, end) column spans.
+ENLEV_COLUMNS = {
+    'number': (0, 4), 'e_calc': (4, 16), 'uncertainty': (16, 26),
+    'e_fixed': (26, 38), 'fixed': (39, 40), 'difference': (40, 52),
+    'j': (52, 57), 'label': (59, 70),
+}
+
+#: `TRANS.DAT`, the `$` record that opens an upper level's group.
+TRANS_LEVEL_COLUMNS = {
+    'number': (1, 5), 'j': (11, 15), 'label': (17, 28),
+    'energy': (28, 41), 'fixed': (42, 43),
+}
+
+#: `TRANS.DAT`, the `+` record of one transition down from that level.
+TRANS_LINE_COLUMNS = {
+    'lower': (1, 5), 'intensity': (5, 10), 'e_lower': (10, 22),
+    'fixed': (23, 24), 'energy': (24, 37), 'obs_intensity': (37, 43),
+    'wavenumber': (43, 55), 'difference': (55, 66), 'line': (66, 72),
+}
+
+#: Both records are 72 columns wide; a version 1 ENLEV.DAT record is 71.
+CARD = 72
+
+
+def _span(card, columns, name):
+    start, end = columns[name]
+    return card[start:end]
+
+
+def _put(card, columns, name, text):
+    """Write `text` into one field, leaving every other column alone.
+
+    A rewritten record must differ from the one it came from only in the
+    fields that were changed: IDEN2 keeps columns of its own in these
+    files -- the ones the format document marks as unused here -- and a
+    record rebuilt from a `%` format would lose them.
+    """
+    start, end = columns[name]
+    width = end - start
+    text = str(text).rjust(width)
+    if len(text) > width:
+        raise IdenError('%r does not fit the %d columns of the %s field'
+                        % (text, width, name))
+    card = card.ljust(end)
+    return card[:start] + text + card[end:]
+
+
+def _number(card, columns, name, path, at, default=0.0):
+    text = _span(card, columns, name).strip()
+    if not text:
+        return default
+    try:
+        return float(text)
+    except ValueError:
+        raise IdenError('%s line %d: %r is not a number in the %s field'
+                        % (path, at, text, name))
+
+
+def _integer(card, columns, name, path, at):
+    text = _span(card, columns, name).strip()
+    if not text:
+        return 0
+    try:
+        return int(text)
+    except ValueError:
+        raise IdenError('%s line %d: %r is not a number in the %s field'
+                        % (path, at, text, name))
+
+
+def _j2(text, path, at):
+    """2J as an integer, so that no two Js are ever compared as floats."""
+    value = text.strip()
+    try:
+        doubled = int(round(2 * float(value)))
+    except ValueError:
+        raise IdenError('%s line %d: %r is not a J' % (path, at, value))
+    if doubled < 0:
+        raise IdenError('%s line %d: J is negative' % (path, at))
+    return doubled
+
+
+@dataclass
+class EnlevLevel:
+    """One record of `ENLEV.DAT`, and the columns it was read from."""
+
+    number: int
+    e_calc: float
+    uncertainty: float
+    e_fixed: float
+    fixed: bool                 # the star: an experimental level
+    j2: int                     # 2J
+    label: str
+    card: str                   # the record, with any new field written in
+    at: int = 0                 # the line it came from
+    width: int = 0              # the columns it filled in the file
+
+    @property
+    def parity(self):
+        """`'e'`, `'o'`, or `''` if the label carries no parity mark."""
+        return PARITY_MARK.get(self.label[5:6], '')
+
+    def update(self, e_fixed=None, uncertainty=None):
+        """Put a new fixed energy, a new uncertainty, or both, in place.
+
+        `Ef - Ec` goes with the energy.  IDEN2 does not read that column
+        and recomputes it, but a file left saying one thing in two places
+        is a file that misleads whoever opens it in an editor.
+        """
+        if e_fixed is not None:
+            self.e_fixed = e_fixed
+            self.card = _put(self.card, ENLEV_COLUMNS, 'e_fixed',
+                             fortfmt.write_f_wide(e_fixed, 12, 3))
+            self.card = _put(self.card, ENLEV_COLUMNS, 'difference',
+                             fortfmt.write_f_wide(e_fixed - self.e_calc,
+                                                  12, 3))
+        if uncertainty is not None:
+            self.uncertainty = uncertainty
+            self.card = _put(self.card, ENLEV_COLUMNS, 'uncertainty',
+                             fortfmt.write_f_wide(uncertainty, 10, 3))
+
+
+def enlev_version(cards, path=ENLEV):
+    """1 or 2, from where the slashes around the label fall.
+
+    The two layouts differ by one column throughout, so the level number
+    alone cannot tell them apart -- but the label is fenced by slashes
+    that no other field holds, and those are one column apart too.
+    """
+    for at, card in enumerate(cards, 1):
+        if not card.strip():
+            continue
+        if card[58:59] == '/':
+            return 2
+        if card[57:58] == '/':
+            return 1
+        raise IdenError('%s line %d is not an ENLEV.DAT record: neither '
+                        'column 58 nor column 59 holds the slash that opens '
+                        'the label' % (path, at))
+    raise IdenError('%s holds no levels' % path)
+
+
+def read_enlev(path=ENLEV):
+    """The levels of `ENLEV.DAT`, in the order the file has them."""
+    try:
+        cards = files.read_lines(path, strip=False)
+    except OSError:
+        raise IdenError('%s is not here' % path)
+    version = enlev_version([card.ljust(CARD) for card in cards], path)
+    if version != 2:
+        raise IdenError(
+            '%s is in the legacy version %d layout, which this does not read; '
+            'open it in IDEN2 and save it, or rebuild it with conv_out, for '
+            'the version 2 layout' % (path, version))
+
+    out = []
+    for at, card in enumerate(cards, 1):
+        if not card.strip():
+            continue
+        width, card = len(card), card.ljust(CARD)
+        text = _span(card, ENLEV_COLUMNS, 'number').strip()
+        try:
+            number = int(text)
+        except ValueError:
+            raise IdenError('%s line %d: %r is not a level number'
+                            % (path, at, text))
+        out.append(EnlevLevel(
+            number=number,
+            e_calc=_number(card, ENLEV_COLUMNS, 'e_calc', path, at),
+            uncertainty=_number(card, ENLEV_COLUMNS, 'uncertainty', path, at),
+            e_fixed=_number(card, ENLEV_COLUMNS, 'e_fixed', path, at),
+            fixed=_span(card, ENLEV_COLUMNS, 'fixed') == '*',
+            j2=_j2(_span(card, ENLEV_COLUMNS, 'j'), path, at),
+            label=_span(card, ENLEV_COLUMNS, 'label'),
+            card=card, at=at, width=width))
+    if not out:
+        raise IdenError('%s holds no levels' % path)
+    return out
+
+
+def _trim(one):
+    """A record back as text, no narrower than it was in the file.
+
+    Fortran pads a record to its FORMAT's full width, trailing blanks and
+    all, and IDEN2 writes the files back the same way; a record this has
+    not written into has to come back out as the bytes it went in as, so
+    the blanks the file had are kept and only what a rewrite pushed past
+    them is dropped.
+    """
+    text = one.card.rstrip()
+    return text.ljust(one.width) if len(text) < one.width else text
+
+
+def write_enlev(levels, path=ENLEV, backup=None):
+    """Write the levels back, every record keeping its own columns."""
+    return files.write_deck(path, [_trim(one) for one in levels],
+                            files.line_ending(path), backup=backup)
+
+
+def fixed_targets(levels, flip=False):
+    """The experimental levels of `ENLEV.DAT` as `levids` match targets.
+
+    Energies go over in the unit the matcher works in, 10^3 cm-1, and the
+    *fixed* energy is the one to match on: it is the observed value,
+    which is what an experimental level list holds.  `flip` reverses the
+    parity marks and is there only so that a caller can measure how much
+    worse the wrong reading of them would be.
+    """
+    from . import levids
+
+    marks = PARITY_MARK
+    if flip:
+        marks = dict((mark, 'o' if parity == 'e' else 'e')
+                     for mark, parity in PARITY_MARK.items())
+    return [levids.TargetLevel(one.number, one.e_fixed * 0.001, one.j2,
+                               marks.get(one.label[5:6], ''), False)
+            for one in levels if one.fixed]
+
+
+@dataclass
+class TransRecord:
+    """One record of `TRANS.DAT`: a `$` level or a `+` transition."""
+
+    kind: str                   # '$', '+', or '' for anything else
+    upper: int                  # the group's upper level, on both kinds
+    lower: int                  # the '+' record's lower level, else 0
+    line: int                   # the assigned observation, 0 if none
+    card: str
+    at: int = 0
+    width: int = 0
+
+    def set_level_energy(self, energy, fixed):
+        """The `$` record's energy and star.  `_write_trans` writes |E|."""
+        self.card = _put(self.card, TRANS_LEVEL_COLUMNS, 'energy',
+                         fortfmt.write_f_wide(abs(energy), 13, 3))
+        self.card = _put(self.card, TRANS_LEVEL_COLUMNS, 'fixed',
+                         '*' if fixed else ' ')
+
+    def set_lower(self, energy, fixed):
+        self.card = _put(self.card, TRANS_LINE_COLUMNS, 'e_lower',
+                         fortfmt.write_f_wide(energy, 12, 3))
+        self.card = _put(self.card, TRANS_LINE_COLUMNS, 'fixed',
+                         '*' if fixed else ' ')
+
+    def set_transition(self, energy):
+        self.card = _put(self.card, TRANS_LINE_COLUMNS, 'energy',
+                         fortfmt.write_f_wide(energy, 13, 3))
+
+    def refresh(self, computed):
+        """Recompute `dwn` against a transition energy that has moved.
+
+        The assignment itself is left as it is; this is for the record
+        whose two levels have new energies but whose observed line has
+        not changed, where the old difference would now be wrong.
+        """
+        wavenumber = 0.0
+        if self.line:
+            text = _span(self.card, TRANS_LINE_COLUMNS, 'wavenumber').strip()
+            try:
+                wavenumber = float(text or 0)
+            except ValueError:
+                return
+        self.card = _put(self.card, TRANS_LINE_COLUMNS, 'difference',
+                         fortfmt.write_f_wide(wavenumber - computed
+                                              if self.line else 0.0, 11, 3))
+
+    def assign(self, line, observation=None, computed=None):
+        """Tie this transition to an observation, or to none at all.
+
+        `line` is the row of `dlv.dat`, and it is the only one of these
+        four fields IDEN2 reads; the intensity, the wavenumber and `dwn`
+        beside it are written for the reader's sake, and are zeroed with
+        it so that an unassigned record does not go on quoting the
+        observation it has just lost.
+        """
+        self.line = line
+        keep = observation if line else None
+        intensity = keep.intensity if keep else 0.0
+        wavenumber = keep.wavenumber if keep else 0.0
+        difference = (wavenumber - computed
+                      if keep and computed is not None else 0.0)
+        self.card = _put(self.card, TRANS_LINE_COLUMNS, 'obs_intensity',
+                         '%6d' % int(round(intensity)))
+        self.card = _put(self.card, TRANS_LINE_COLUMNS, 'wavenumber',
+                         fortfmt.write_f_wide(wavenumber, 12, 3))
+        self.card = _put(self.card, TRANS_LINE_COLUMNS, 'difference',
+                         fortfmt.write_f_wide(difference, 11, 3))
+        self.card = _put(self.card, TRANS_LINE_COLUMNS, 'line', '%6d' % line)
+
+
+def read_trans(path=TRANS):
+    """The records of `TRANS.DAT`, in file order, `$` groups and all.
+
+    Every record is kept, one this does not recognise included, so that
+    the file can be written back with nothing dropped.
+    """
+    try:
+        cards = files.read_lines(path, strip=False)
+    except OSError:
+        raise IdenError('%s is not here' % path)
+
+    out, upper = [], 0
+    for at, card in enumerate(cards, 1):
+        if not card.strip():
+            continue
+        width, card = len(card), card.ljust(CARD)
+        if card[0] == '$':
+            upper = _integer(card, TRANS_LEVEL_COLUMNS, 'number', path, at)
+            out.append(TransRecord('$', upper, 0, 0, card, at, width))
+        elif card[0] == '+':
+            if not upper:
+                raise IdenError('%s line %d: a transition record before any '
+                                'level record' % (path, at))
+            out.append(TransRecord(
+                '+', upper,
+                _integer(card, TRANS_LINE_COLUMNS, 'lower', path, at),
+                _integer(card, TRANS_LINE_COLUMNS, 'line', path, at),
+                card, at, width))
+        else:
+            out.append(TransRecord('', upper, 0, 0, card, at, width))
+    if not out:
+        raise IdenError('%s holds no records' % path)
+    return out
+
+
+def write_trans(records, path=TRANS, backup=None):
+    return files.write_deck(path, [_trim(one) for one in records],
+                            files.line_ending(path), backup=backup)
+
+
+def dlv_nearest(lines):
+    """A lookup from a wavenumber to the nearest row of `dlv.dat`.
+
+    Gives back `(row, apart)` -- the row number, counting from 1, and how
+    far the row's wavenumber is from the one asked for -- or `(0, None)`
+    for an empty list.  The list runs downward in wavenumber, so it is
+    sorted once here and then bisected.
+    """
+    order = sorted(range(len(lines)), key=lambda i: lines[i].wavenumber)
+    values = [lines[i].wavenumber for i in order]
+
+    def nearest(wavenumber):
+        at = bisect.bisect_left(values, wavenumber)
+        best, chosen = None, 0
+        for i in (at - 1, at):
+            if 0 <= i < len(values):
+                apart = abs(values[i] - wavenumber)
+                if best is None or apart < best:
+                    best, chosen = apart, order[i] + 1
+        return chosen, best
+
+    return nearest
+
+
+def dlv_index(lines, tolerance):
+    """A lookup from an observed wavenumber to its row of `dlv.dat`.
+
+    The row number *is* the identifier IDEN2 uses, so this is how a line
+    named by its wavenumber somewhere else -- in the output of a level
+    optimization, say -- is found again here.  0 comes back for a
+    wavenumber no row of the list is within `tolerance` of.
+    """
+    nearest = dlv_nearest(lines)
+
+    def find(wavenumber):
+        at, apart = nearest(wavenumber)
+        return 0 if apart is None or apart > tolerance else at
+
+    return find

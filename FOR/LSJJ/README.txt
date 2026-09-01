@@ -5525,9 +5525,10 @@ THE LEVEL LIST, AND WHY THE JOIN IS NOT ON Lev_#
   joined on.
 
   Not `Lev_#`.  A level number is a position in one run's energy
-  ordering, and the measurement is on the author's Pr III pair
-  (WORK/Pr3_calc_TP): applying conv_out's own numbering rule to the
-  calc_TP run gives a different number for 121 of the 5626 levels.
+  ordering, and the measurement is on the author's Pr III pair -- a
+  calc_TP run made in a scratch folder of its own, which was not kept.
+  Applying conv_out's own numbering rule to the calc_TP run gives a
+  different number for 121 of the 5626 levels.
   Every one is an adjacent transposition of two levels of DIFFERENT J
   about a thousandth of a kK apart --
 
@@ -5652,11 +5653,12 @@ SCALE, MEASURED
   by more than a decade between trials, and no window setting reaches
   them.  The wide spread the file quotes IS the answer for such a line.
 
-  The run itself is in `WORK/Pr3_calc_TP/`, not in `WORK/Pr3/`.  The
-  reference cases ship as inputs only and the suite looks them up by
-  name, so a run left in `WORK/Pr3` makes its tests execute against a
-  deck that is no longer the documented one -- measured, 4 failed and 32
-  errors.
+  The run itself was made in a scratch folder of its own, not in
+  `WORK/Pr3/`, and was deleted afterwards rather than committed.  That
+  is the rule and not an accident of this run: the reference cases ship
+  as inputs only and the suite looks them up by name, so a run left in
+  `WORK/Pr3` makes its tests execute against a deck that is no longer
+  the documented one -- measured, 4 failed and 32 errors.
 
 RCG'S OWN LINE STRENGTH, AS A CHECK ON radiate
 
@@ -5718,3 +5720,200 @@ TESTS
   The level list, the lid columns and the insert_level_ids round trip
   over calc_TP's own two files are covered there too.
   Full suite from CODE/: 503 passed, 291 skipped.
+
+
+THE ROUND TRIP THROUGH IDEN2
+============================
+
+A questionable level is looked at in IDEN2.  Getting it there is the
+problem this pair of tools solves.
+
+The analysis runs in a circle.  conv_out writes ENLEV.DAT and TRANS.DAT
+from a finished RCG/RCE run; IDEN2 is where the observed lines are
+looked at against the calculated ones; what comes out of that goes
+through the author's line-classification suite and then through LOPT,
+which optimises the levels by least squares and says which lines it
+used.  Then the circle closes -- and it closed by hand, because the two
+ends do not speak the same language about a level.
+
+  * LOPT knows a level by its identifier, `059003.000065`, the key the
+    database holds it under.  It is the same name in every paper and
+    every run.
+  * IDEN2 knows a level by a number, and it numbers its own levels, from
+    the highest energy down, over whatever conv_out gave it.  The number
+    is a position in one pair of files.  Rebuild them -- add a
+    configuration, refit, run conv_out again -- and every number moves.
+
+So the first tool writes down the correspondence and the second uses it.
+
+  write_IDEN_level_ids <source>
+      --idcol <col>  --ecol <col>  --jcol <col>  --pcol <col>
+      --excludecol <col>  --units cm-1|kK|eV  --skip <n>  --tol <value>
+
+  update_IDEN <LOPT levels> [<LOPT lines>]
+      --ucalc <value>  --ids <file>  --wntol <value>
+
+WRITING THE TABLE
+
+  The source is the same tab-delimited experimental level list
+  subst_exp_levs and insert_level_ids take, and the columns are named
+  the same way -- WORK/Pr3/Pr3_exp_levs.txt is the reference one.  It is
+  the only argument.  ENLEV.DAT is read from the working directory under
+  that name, because that is the name IDEN2 gives it, and the table goes
+  beside it as IDEN_level_ids.txt: two columns, `level_id` and
+  `IDEN_id`, tab separated, in level order.  Neither input is touched.
+
+  Only the FIXED levels of ENLEV.DAT are matched -- the ones carrying
+  the star in column 40, which in IDEN2's terms are the experimental
+  ones -- and the match is `insert_level_ids`' own, on (parity, J,
+  energy) with every pair inside --tol offered and the closest taken
+  first.  The energy compared is the FIXED energy, not the calculated
+  one: it is the observed value, and an experimental level list holds
+  observed values.
+
+  PARITY.  IDEN2's label is eleven characters, `f25g _3H4I `, and its
+  sixth is `_` or `~`.  conv_out puts it there in `iden._label` from
+  `case.card(kset, 1).parity`, the parity of the configuration set the
+  level's block belongs to: `_` for parity 0, even, and `~` for parity
+  1, odd.  It is the level's parity and not a set number, whatever the
+  IN36 set numbering happens to be, and reading it that way is checked
+  rather than assumed -- the tool matches a second time with the marks
+  reversed and says so if the wrong reading would tie more levels, which
+  is what would happen if it were handed the ENLEV.DAT of a different
+  calculation.
+
+  A source level ENLEV.DAT has no counterpart for is reported and left
+  out of the table.  That is the usual case rather than the exception:
+  conv_out writes at most 9999 levels and truncates a large calculation
+  to the ones its printed transitions touch, so a compilation reaches
+  IDEN2 with part of itself missing.  Pr III is 593 experimental levels
+  and 492 of them are in its ENLEV.DAT.
+
+WHAT update_IDEN DOES WITH IT
+
+  Three things, in one pass, with ENLEV.DAT.bak and TRANS.DAT.bak left
+  behind:
+
+  1. Every fixed level of ENLEV.DAT takes the energy LOPT gives it and,
+     as its uncertainty, max(D1, D2tot) -- the larger of the purely
+     statistical uncertainty and the total one relative to the ground
+     level.  That is what a level is worth when it is looked at on its
+     own, which is what IDEN2 does with it.  `Ef - Ec` is carried along
+     although IDEN2 recomputes it and never reads it: a file that says
+     one thing in two places misleads whoever opens it in an editor.
+
+  2. With --ucalc, every level that is NOT fixed takes that uncertainty.
+     The calculated levels come out of conv_out at 5000 cm-1, which is a
+     placeholder; the uncertainty is the window IDEN2 searches around a
+     level, and the point of the option is to narrow it once the fit is
+     good enough to deserve it.
+
+  3. TRANS.DAT takes the same energies -- the `$` record's, the `+`
+     record's lower level, and the transition energy that is their
+     difference -- and, for a transition between two FIXED levels, the
+     assignment it should have.
+
+  THE THIRD IS THE ONE THAT MATTERS.  IDEN2 reads exactly one field of a
+  `+` record beyond the two level numbers: the assigned line's index in
+  dlv.dat, in columns 67-72.  The set of transitions that carry one has
+  to be the set of lines the optimisation used, or the next session in
+  IDEN2 is looking at the previous round's answer.
+
+  A line counts as used when its `Weight` in the LOPT line table is
+  above zero.  That is the flag to rely on and not the `F` column: `P`,
+  `M` and `virt` all mean a line was excluded, but the weight says so
+  for an excluded line that carries no letter as well, and a weight that
+  rounds to zero was worth nothing to the fit whatever it was before the
+  rounding.  Where one transition appears on several rows -- the same
+  pair measured twice, a blend entered twice -- the row with the largest
+  weight speaks for it.
+
+  LOPT names the line by its observed wavenumber and IDEN2 by its row of
+  dlv.dat, so the two are tied by bisecting the observed list, which
+  runs downward in wavenumber.  --wntol is how far apart they may be:
+  0.05 cm-1 by default, because LOPT prints a wavenumber rounded to the
+  decimals its uncertainty deserves and the two then disagree in the
+  last place and no further.  On Pr III the worst of 7612 rows is
+  0.03 cm-1 out, and none is unresolved.
+
+  That is checked over the whole line table before anything is
+  written, and the count and the worst offset are reported.  The
+  check the assignment pass makes on its own would not do: it sees
+  only the used lines whose transition TRANS.DAT lists between two
+  fixed levels, which on Pr III is 2823 of 7612 rows, so a dlv.dat
+  that is simply the wrong file -- a later, renumbered list -- would
+  show up as a handful of unassigned lines rather than as what it is.
+  dlv.dat has to be beside TRANS.DAT in any case, the assignment
+  being a row number of it, and nothing is refused on the strength
+  of the check: a tolerance set too tight is a few near misses and a
+  mismatched file is thousands, and the two read differently.
+
+  A transition between two fixed levels that the optimisation did not
+  use loses its assignment, and the observed intensity, wavenumber and
+  dwn beside it are zeroed with it, so that the record does not go on
+  quoting an observation it no longer has.  A transition that reaches
+  only one fixed level, or none, can carry no Ritz wavenumber and was
+  never in the fit; it is none of LOPT's business and keeps whatever
+  IDEN2's own session gave it.
+
+  WHAT IT CANNOT DO.  A line the optimisation used whose transition is
+  not in TRANS.DAT cannot be assigned there, and the count is reported.
+  conv_out writes only the transitions above its intensity threshold and
+  only between levels that survived the truncation, so on the Pr III
+  files of August 2026 that is 2823 of the 2954 used lines -- the tools
+  put 84 new assignments in and cleared 1, on top of the 47 conv_out's
+  own automatic matching had made.  The remedy is a fuller TRANS.DAT,
+  not a fabricated record: TRANS.DAT holds calculated transitions, and a
+  row invented for an observation has no calculated intensity to put in
+  it.
+
+THE FILES, AND WHY THE READERS ARE WHERE THEY ARE
+
+  toolbox/iden.py wrote ENLEV.DAT and TRANS.DAT and now reads them back.
+  The column spans are stated once, as ENLEV_COLUMNS, TRANS_LEVEL_COLUMNS
+  and TRANS_LINE_COLUMNS, and the `%` formats of `_write_enlev` and
+  `_write_trans` a few hundred lines above them are what they have to
+  agree with; WORK/Pr3/IDEN2_file_formats.md is the third statement of
+  the same thing and the one a user reads.  Splitting the readers into a
+  module of their own would have made three places to change a column
+  instead of two.
+
+  ENLEV.DAT has two layouts, differing by one column throughout.  Only
+  version 2 -- the four-column level number -- is read; version 1 is the
+  legacy one, IDEN2 keeps whichever it was given, and nothing in this
+  package writes it.  They are told apart by the slash that opens the
+  label, column 58 in version 1 and 59 in version 2, because no other
+  field can hold one.
+
+  A record is rewritten field by field into the text it was read as,
+  never rebuilt from a format.  Two reasons.  The format document marks
+  several fields "not used by the program", and IDEN2 writes into them;
+  and a record nothing was changed in has to come back out as the bytes
+  it went in as, trailing blanks included, or the author's diff of a run
+  is unreadable.  ENLEV.DAT records are 71 columns and TRANS.DAT's are
+  72 and 44, and each keeps the width it had.
+
+  IDEN_level_ids.txt is required to be a bijection: a repeated
+  identifier or a repeated level number is an error and not a
+  last-one-wins, because translating through a broken table would put
+  two levels' energies quietly into one record.  A table whose numbers
+  ENLEV.DAT has not got is refused by name -- it was made from a
+  different ENLEV.DAT, which is the one mistake this pair of tools makes
+  easy.
+
+TESTS
+
+  `CODE/tests/test_iden2.py`.  Neither ENLEV.DAT nor TRANS.DAT is
+  committed -- they are generated, and the Pr III pair is 1.6 MB -- so
+  every fixture is built in the documented columns.  Between them: the
+  column reader against a hand-built record, the version 1 refusal, a
+  file nothing was changed in coming back byte for byte under both line
+  endings, an update touching one field and no other, the table over a
+  spectrum whose two levels differ only in parity, a source level that
+  is not in ENLEV.DAT, a calculated level that must never be given an
+  identifier, max(D1, D2tot) resolving to each of the two in turn,
+  --ucalc reaching only the calculated levels, an assignment gained and
+  an assignment cleared in one run with its observation cleared with it,
+  the transition energies and dwn following the new levels, a second run
+  changing nothing, the backups, and each of the three ways a table or a
+  LOPT file can be wrong.

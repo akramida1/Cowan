@@ -97,6 +97,9 @@ WORK/Bi56/
 # Task reference materials
 Handbook/
 ASD_syntax_examples.txt
+WORK/Pr3/*.md
+WORK/Pr3/*.DAT
+WORK/Pr3/LOPT*
 
 # Development builds
 FOR/*.exe
