@@ -270,11 +270,19 @@ def _is_row(line, coupling):
     return line[3] == '='
 
 
-def _row(line, coupling):
+def _row(line, coupling, expected):
     at, to = _NUMBER_AT.get(coupling, (25, 28))
+    # The number is the loop index L = 1..NLS of the row within its group
+    # (rcg11kd.f SPRIN, SPRN37), so past the width of its field (999 for
+    # I3) Fortran prints asterisks.  `expected` is then the number itself.
+    text = line[at:to].strip()
     try:
+        if text and text.strip('*') == '' and expected >= 10 ** (to - at):
+            number = expected
+        else:
+            number = int(text)
         return Row(cfg=int(line[:3]), desc=line[4:at],
-                   number=int(line[at:to]),
+                   number=number,
                    amplitudes=tuple(_floats(line, _DATA)))
     except ValueError:
         raise Outg11Error('a row of the %s section will not read: %r'
@@ -689,10 +697,10 @@ def _blocks(path, configs, couplings):
                 continue
 
             if _is_row(line, section.coupling):
-                row = _row(line, section.coupling)
                 if not group_open:
                     group_open = True
                     row_at = 0
+                row = _row(line, section.coupling, row_at + 1)
                 if row_at < len(section.rows):
                     have = section.rows[row_at]
                     if have.number != row.number:

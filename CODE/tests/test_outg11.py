@@ -207,3 +207,30 @@ def test_an_absent_coupling_names_its_ing11_column():
         blocks[(1, 0.5)].section('TRUEjj')
     assert 'TRUEjj' in str(bad.value)
     assert 'column 38' in str(bad.value)     # KCPLD(8), ING11 col 38
+
+
+def test_a_state_number_past_its_field_is_counted(tmp_path):
+    # The state number of a row is the loop index L = 1..NLS, written I3
+    # in an LS row (FORMAT 26 of SPRIN), so from state 1000 on it prints
+    # as '***'.  A Gd III run with 5p5 4f8 5d has LS blocks that large.
+    # The number is recovered by counting, and a second group of the same
+    # rows must still line up with the first.
+    def row(n, amplitude):
+        number = '***' if n > 999 else '%3d' % n
+        return '%3d:%-6s%-6s(%-7s%s %9.5f' % (3, 'p55d', '', '1F) 3D3',
+                                              number, amplitude)
+    lines = ['1  EIGENVALUES      (J= 2.5)', ' ' * 28 + '%9.2f' % 1.0,
+             '   EIGENVECTORS   (    LS COUPLING)', '']
+    for amplitude in (0.5, -0.25):
+        lines += [row(n, amplitude) for n in range(1, 1003)] + ['']
+    path = tmp_path / 'OUTG11'
+    path.write_text('\n'.join(lines) + '\n')
+    block, = outg11._blocks(path, {(1, 1): None}, None)
+    rows = block.section('LS').rows
+    assert [r.number for r in rows] == list(range(1, 1003))
+    assert rows[1001].amplitudes == (0.5, -0.25)
+
+    # Asterisks where the count says the field cannot yet have overflowed
+    # are not a number to be guessed.
+    with pytest.raises(outg11.Outg11Error):
+        outg11._row(row(1000, 0.5), 'LS', 998)
