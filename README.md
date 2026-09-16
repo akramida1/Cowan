@@ -524,12 +524,64 @@ additional line included at the top of `ING11` with zero in position 5
 and floating-point numbers `E0MAX(1)` and `E0MAX(2)` in positions 66-75 and
 76-85, respectively. The values are given in units of kK (10^3^ cm^-1^).
 
-8. The parameter `ICRIT2` is disabled in `RCE`: its value has no
+8. Each configuration card of `ING11` now has its own **term cutoff** in
+columns 83-85, limiting the number of parent *LS* terms of that
+configuration's **first subshell**. It is a per-configuration version of
+`NLT11` (columns 26-27 of the main card), which is one number for the
+whole run and exempts the last configuration of each parity, and which
+therefore cannot serve two configurations whose cores differ -- Dy VIII
+with f^6^, f^7^ and f^8^ cores is the case it was written for. **A blank
+field means "use `NLT11`"**, which is what every existing deck has, so
+nothing changes for them; the field is applied with no exemption when it
+is punched. Cowan's card ends at column 80 and `RCN2` still writes it
+that way, so old records simply blank-fill -- but note that `RCN2` will
+overwrite a hand-punched field if `ING11` is regenerated, the same
+exposure hand-edited Slater parameters already have.
+
+	Only **f shells** are accepted, and only a **short list of values** for
+	each. The cut keeps the first *n* terms of the CFP deck, and deck order
+	is neither energy order nor consistent from shell to shell. Where the
+	deck lists the terms by descending multiplicity, a cut that ends on a
+	multiplicity-block boundary keeps whole blocks of the highest
+	multiplicities -- by Hund's rule the parents lying lowest, which is the
+	truncation the physics justifies. Hence:
+
+	| Shell | Accepted values |
+	|---|---|
+	| f^6^, f^8^ | 1, 17, 73, 119 |
+	| f^7^ | 1, 7, 47, 119 |
+	| f^9^ | 3, 27, 73 |
+	| f^10^ | 5, 27, 47 |
+	| f^2^, f^3^, f^4^, f^5^, f^11^, f^12^ | the full term count only (7, 17, 47, 73, 17, 7), i.e. no cut |
+
+	The last value of each row is the full count and means "no cut". For
+	f^4^, f^5^ and f^11^ the deck runs the other way and for f^2^, f^3^ and
+	f^12^ it alternates, so no leading part of them is a set of low terms:
+	a prefix of f^4^ would discard the ^5^S..^5^I block, the ground terms.
+	Anything else stops the run before any work is done, and the message
+	names the parity set, the configuration and the values that shell
+	allows.
+
+	A cutoff and **true *jj* coupling** cannot both be had: the rotation
+	needs the complete term list of the shell, and with terms missing the
+	term map is not a bijection. When both are asked for, the cutoff wins
+	-- true *jj* is switched off and a warning is written to `OUTG11` and
+	to the screen. (The earlier line announcing that true *jj* will be
+	added is printed before the configuration cards are read; the later
+	message retracts it.) Cowan's *JJ* (*J*~1~*J*~2~) output is unaffected.
+
+	The saving is what makes such cases possible at all: Dy VIII
+	(f^7^p^4^, f^8^p^3^, f^6^p^5^ / f^7^p^3^d, f^6^p^4^d, f^7^p^3^s,
+	f^6^p^4^s) on 8 threads spends about 2 hours in `CALCFC` alone with no
+	cutoff; with cutoffs of 17 / 7 / 17 the whole run takes 3 min 35 s, of
+	which `CALCFC` is 11.7 s.
+
+9. The parameter `ICRIT2` is disabled in `RCE`: its value has no
 effect. The program exits after completing the fit, whether the
 parameters were linked or unlinked, and never starts another run with
 the next value of `LSQM`.
 
-9. *Suspended* execution is not supported in `RCE`: intermediate
+10. *Suspended* execution is not supported in `RCE`: intermediate
 results cannot be saved after the *n*-th iteration and resumed from
 there. The new `RCEOUT`/`RCEINP` files (see below) achieve almost the
 same thing; the only cost is one extra initial iteration when a new run
@@ -537,7 +589,7 @@ is started from an `RCEOUT` copied into `RCEINP`. The `I216` parameter is
 disabled in `RCE`, and its position in `OUTGINE` is taken by `IW6`, which
 directs some output to the screen when it is negative.
 
-10. Earlier versions of `RCE` refused to fit when every energy level
+11. Earlier versions of `RCE` refused to fit when every energy level
 was flagged "experimental": the run printed `Iteration No 0` and stopped,
 and, worse, wrote `RCEOUT` with every level starred, so feeding it back as
 `RCEINP` also discarded the experimental energies. The 2026 revision
@@ -547,7 +599,7 @@ whatever iteration count `OUTGINE` carries. The only conditions that still
 end a run after the zeroth cycle are the two that leave nothing to fit: no
 varied parameter at all, or no known level anywhere.
 
-11. `RCE` accepts an alternative input file format. On its first run it
+12. `RCE` accepts an alternative input file format. On its first run it
 writes a new input file, `RCEINP`; on every run it also writes `RCEOUT`,
 which has the same structure. This makes it far easier to change the
 input -- to fix or free an energy level or a Slater parameter, for
@@ -919,7 +971,7 @@ coupling schemes in `RCE` output files have been fixed.
 - `RCE` gave up after the zeroth cycle whenever every energy level of a
 configuration set carried an experimental value, and starred every level
 of the `RCEOUT` it then wrote, which discarded those energies if the file
-was fed back as `RCEINP`. See item 10 of the additions to the manual
+was fed back as `RCEINP`. See item 11 of the additions to the manual
 above.
 - Gaps in the numbering of linked parameter groups in `RCE` (a group
 dropped while a fit is being developed leaves a hole) added a column to
