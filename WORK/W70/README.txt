@@ -154,6 +154,23 @@ publishing.  (Everything above levels_pub.txt is in RCE's 1000 cm-1.
 A level at Ec=132251.7250 in levels.txt is 1.32e8 cm-1, about 16 keV,
 which is the right order for an n=2 hole in W69+.)
 
+The same scale costs the ground level its lines.  RCG takes any level
+at or below -4000 in the deck's unit -- here -4 000 000 cm-1 -- for a
+continuum state, Cowan's convention for autoionization runs, and
+computes no transition to or from it.  So 2s2.2p 2P1/2, at -8391.10 kK,
+appears in OUTG11's eigenvalue print and in none of its line lists:
+every transition to the ground level is missing.  To have them, put the
+ground level near zero and run RCG on that -- after rcn2,
+
+    add_eav 8391.1026
+    rcg
+
+and the rest as above.  The ground level then has its 36 entries in the
+line lists, and every energy downstream is measured from it -- to about
+1 cm-1 here, since ING11 holds an Eav above 99999.99 only to 0.1 -- which
+also takes care of the subtraction above.  See "Levels at or below -4000" in
+DOCS/MANUAL_ADDITIONS.md.
+
 WHAT IT COSTS
 
 Seconds, and about 3 MB:

@@ -469,7 +469,9 @@ moves no eigenvector.
 - An Eav at or below -4000 is Cowan's mark of a continuum configuration
   in an autoionization run, not an energy (see the autoionization
   section of [RCG_DOC.txt](Cowan/RCG_DOC.txt)); it is not moved, and
-  neither are the continuum levels of its configuration set.
+  neither are the continuum levels of its configuration set. (RCG's own
+  treatment of such levels is described
+  [below](#levels-at-or-below--4000-no-transitions).)
 - `ING11` and `OUTG11` keep RCG's values, so `printout` run straight
   after this first RCE run shows RCG's Eav differing from those in
   `RCEOUT`, and `RCEINP.HF` holds the shifted Eav. The first `update11`
@@ -478,4 +480,36 @@ moves no eigenvector.
 `add_eav --ground [folder]` can also be run by itself. The full account,
 with the acceptance runs, is in `FOR/LSJJ/README.txt` under THE
 CALCULATED GROUND LEVEL AT ZERO FOR RCE.
+
+## Levels at or below -4000: no transitions
+
+RCG takes any level whose energy is at or below -4000, in the deck's
+energy unit (1000 cm-1 unless the `ING11` main card says otherwise, so
+-4 000 000 cm-1), for a continuum state. That is Cowan's convention for
+autoionization runs, in which the continuum configurations carry an Eav
+of -9500 or -8500 (see the autoionization section of
+[RCG_DOC.txt](Cowan/RCG_DOC.txt)). `SPECTR` computes no radiative
+transition to or from such a level, and it applies the test to every
+deck, whether or not it has a continuum configuration.
+
+RCN2 puts the Eav of the first configuration at zero, so in practice
+this touches only highly charged ions, whose ground level can lie
+thousands of kK below that average. `WORK/W70` (W69+) is one: its ground
+level, 2s2.2p 2P1/2, comes out at -8391.10 kK. It appears in the
+eigenvalue print of `OUTG11` and in none of its line lists -- every
+transition to the ground level is missing.
+
+The remedy is to put the ground level near zero and run RCG again,
+which is what a sensible output needs anyway: shift `ING11` after RCN2
+with
+
+    add_eav 8391.1026
+
+(minus the ground energy RCG printed, in kK), then run `rcg`. In
+`WORK/W70` the ground level then has its 36 line entries, and every
+energy downstream is measured from it, to about 1 cm-1 (`ING11` holds an
+Eav above 99999.99 only to 0.1). `rce --ground` shifts only
+`OUTGINE`, so it does not bring the lines back by itself; the first
+`update11` of a fit, which carries the shifted Eav into `ING11` and runs
+RCG again, does.
 

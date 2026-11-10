@@ -98,16 +98,23 @@ Windows' own -- read `cp` wherever this file says it.
 
     rcn
     rcn2
-    add_eav 5.8714
     rcg
+    rce --ground
 
-`add_eav` shifts every Eav of ING11 by the same amount, which moves the
-whole calculation along the energy scale without changing a single
-separation.  5.8714 kK is the shift that puts the calculated 3d10 1S0
-on the observed ground level, so RCG's energies come out on the
-observed scale.  It has to come after RCN2, which rewrites ING11.
+`--ground` puts the calculated ground level at zero before RCE starts.
+It takes the lowest level RCG listed in OUTGINE -- here the calculated
+3d10 1S0, at -5.8714 kK -- and shifts every Eav and every listed level
+of OUTGINE by the same amount, which moves the whole calculation along
+the energy scale without changing a single separation.  RCE then starts
+on the observed scale.  It reports
 
-    rce
+    Ground level adopted: level 1 with J = 0 of configuration set 1, E_RCG = -5.8714
+
+and keeps RCG's file as OUTGINE.RCG.  ING11 and OUTG11 are not touched:
+they keep the ground at -5.8714 until a fitted RCEOUT is carried back
+into ING11 with update11.  (Earlier editions of this file shifted ING11
+with `add_eav 5.8714` and ran RCG again; the fit below writes the same
+RCEOUT, PARVALS and LEVELS files either way, byte for byte.)
 
 This first pass fits nothing -- RCG's OUTGINE has no observed energies
 in it -- but it is the pass that writes the RCEINP the observed

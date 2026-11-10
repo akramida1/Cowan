@@ -6010,7 +6010,7 @@ THE EAV <= -4000 EXCEPTION, AND W70
   continuum level; the first version of this tool did exactly that, and
   W70 is why the rule is on the Eav.
 
-  Two things found on the way, neither changed:
+  Two things found on the way, neither changed in the code:
 
   * RCG's SPECTR skips every level at or below -4000 (rcg11kd.f:13593,
     :13600, :13613) whether or not the deck has a continuum
@@ -6018,9 +6018,15 @@ THE EAV <= -4000 EXCEPTION, AND W70
     -8391.10 appears in OUTG11's eigenvalue print and in no line list.
     Any level at or below -4000 on the deck's energy scale loses its
     lines this way -- in practice a highly charged ion, whose first Eav
-    is 0 and whose ground level lies far below it.  After the first
-    update11 of a --ground fit the ground should sit near zero and its
-    lines return (not tested); an unfitted run is affected.
+    is 0 and whose ground level lies far below it.  Shifting ING11 so
+    the ground is near zero and running RCG again brings the lines
+    back: in W70, add_eav 8391.1026 then rcg gives the ground level 36
+    line entries where it had none (2131 -> 2205 rows in all), which is
+    also what the first update11 of a --ground fit does.  The author's
+    decision: RCG stays as it is, since its output needs that shift to
+    be sensible anyway, and the behaviour is documented instead -- in
+    DOCS/MANUAL_ADDITIONS.md, "Levels at or below -4000: no
+    transitions", and in WORK/W70/README.txt.
   * add_eav <shift> on ING11 moves every Eav, a continuum one included,
     where DELEAV does not.  And ING11's Eav field holds a value past
     99999.99 only to 0.1 (F9.1 and a group digit, RCN2's own rule), so

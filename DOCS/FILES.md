@@ -164,10 +164,7 @@
                           build `LSJJ.DAT`; it is needed then and rarely
                           afterwards.
 
-        `version.txt`   - the package version, the one place it is
-                          written down, and the identity strings the
-                          Windows build compiles into the four
-                          executables. Nothing at run time reads it.
+        `version.txt`   - the package version; see c) above.
 
 	f) Utility files: described in [UTILITIES.md](UTILITIES.md).
 

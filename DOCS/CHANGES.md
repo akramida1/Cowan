@@ -34,7 +34,14 @@ Changes since version 26.2.1 of August 21, 2026:
   Linux and macOS, where it is the only record of the version.
 - **Documentation:** `README.md` is now a front page; the documentation
   it held is in `DOCS/`, and R. D. Cowan's own manuals are in
-  `DOCS/Cowan/`.
+  `DOCS/Cowan/`. `WORK/Mo15` now starts its fit with `rce --ground`.
+- **Documented, not changed:** RCG computes no transitions for a level at
+  or below -4000 in the deck's energy unit, Cowan's mark of a continuum
+  state, even in a deck with no continuum configuration. In a highly
+  charged ion that can be the ground level (`WORK/W70`); shifting `ING11`
+  so the ground is near zero and running RCG again restores its lines.
+  See
+  [MANUAL_ADDITIONS.md](MANUAL_ADDITIONS.md#levels-at-or-below--4000-no-transitions).
 
 The Fortran sources are unchanged from 26.2.1.
 
