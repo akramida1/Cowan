@@ -576,7 +576,7 @@ against the current answer rather than the one the files were built
 with. Usage:
 
     update_IDEN <LOPT levels> [<LOPT lines>]
-        [--ucalc <value>] [--ids <file>]
+        [--ucalc <value>] [--nosd] [--ids <file>]
         [--wntol <value>]
 
 `<LOPT levels>` is the tab-delimited level table LOPT writes, read by
@@ -593,11 +593,24 @@ Three things are done in one pass:
    statistical uncertainty and the total one relative to the ground
    level. That is what a level is worth when it is looked at on its own,
    which is what IDEN2 does with it.
-2. With `--ucalc`, every level that is not fixed takes that uncertainty.
-   The calculated levels come out of `conv_out` at 5000 cm-1, which is a
-   placeholder; the uncertainty is the window IDEN2 searches around a
-   level, and the point of the option is to narrow it once the fit is
-   good enough to deserve it.
+2. Every level that is not fixed -- a purely calculated one -- gets an
+   uncertainty that says how far the calculation can be wrong for a
+   level of its kind, since the uncertainty is the window IDEN2 searches
+   around a level. The measure is the root-mean-square of
+   E_fixed - E_calc over the fixed levels of the same **configuration**:
+   the first field of the `ENLEV.DAT` label, the part before the `_` or
+   `~` that opens the term. It is taken after step 1, so it measures the
+   calculation against the current energies. A configuration with at
+   least one fixed level is *known*, and all its calculated levels take
+   its rms; the report lists each with the number of levels behind it
+   and marks as `thin` an rms resting on fewer than three. A
+   configuration with no fixed level is *unknown*, and so is one whose
+   rms is zero (its only fixed levels never moved off their calculated
+   positions, and a zero window is no window): its calculated levels
+   keep the uncertainty the file gives them -- 5000 cm-1 out of
+   `conv_out`, a placeholder -- unless `--ucalc` gives one. `--nosd`
+   switches the measurement off, so every calculated level counts as
+   unknown and `--ucalc`, if given, applies to all of them.
 3. `TRANS.DAT` takes the same energies -- the `$` record's, the `+`
    record's lower level, and the transition energy that is their
    difference -- and, for a transition between two fixed levels, the

@@ -3,7 +3,8 @@
 A. Kramida, Department of Astronomy, University of Maryland, College Park,
 MD, USA -- akramida @ umd.edu
 
-**Version 26.2.2**, November 10, 2026 -- see
+**Version 26.2.3dev** -- work in progress toward the next release; the
+latest release is 26.2.2, November 10, 2026. See
 [DOCS/CHANGES.md](DOCS/CHANGES.md). Earlier versions were distributed
 from <https://doi.org/10.18434/T4/1502500>.
 

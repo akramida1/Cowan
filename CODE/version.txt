@@ -9,6 +9,14 @@
 # executables are rebuilt so that the version they carry is the release's.
 # A user reads it in Explorer, Properties > Details of the .exe, or in
 # PowerShell with  (Get-Item RCE20KD.exe).VersionInfo.FileVersion .
+#
+# Between releases VERSION is the next patch number with "dev" appended
+# (26.2.3dev after 26.2.2): what is committed then is work toward the next
+# release, and DOCS/CHANGES.md collects it under that heading.  The
+# executables are rebuilt when VERSION changes, so that one built from an
+# unreleased tree says so.  The release itself may take a different number
+# (26.3 rather than 26.2.3); COMMA_VERSION of a dev version is that of the
+# patch number, with 0 in its last field.
 # (The resource also has a second purpose: a PE with no resource directory
 # at all is what Norton's Win64:Evo-gen heuristic reacts to.)
 #
@@ -24,8 +32,8 @@
 # contradicted LICENSE.md.  Keep it in step with LICENSE.md, and keep it
 # free of ( ) < > & | ^ % -- mkverres.bat echoes it into the .rc and cmd
 # would eat those.
-VERSION=26.2.2
-COMMA_VERSION=26,2,2,0
+VERSION=26.2.3dev
+COMMA_VERSION=26,2,3,0
 COMPANY=A. Kramida
 PRODUCT=Cowan Atomic Structure Codes
 COPYRIGHT=Copyright 2022-2026 A. Kramida. Original codes by R. D. Cowan. Free to distribute, not to sell -- see LICENSE.md.

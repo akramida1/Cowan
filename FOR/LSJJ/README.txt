@@ -6142,3 +6142,33 @@ ACCEPTANCE
   as a deck with no letter in column 14 must be.  WORK/Mo15, fitting
   pass: the old RCE stops as above, the new one fits, final odd-set
   AVDEV 0.068 kK -- the 68 cm-1 Mo15's README gives for that case.
+
+
+26.2.3dev: THE VERSION BETWEEN RELEASES
+=======================================
+
+After 26.2.2 the tree is called 26.2.3dev: the next patch number with
+"dev" appended, so that work committed toward the next release has a
+heading in DOCS/CHANGES.md to go under, and an executable built from an
+unreleased tree says so.  The release it leads to is planned as 26.3,
+after the negative-ion work; it takes whatever number it is given then.
+CODE/version.txt records the convention.  COMMA_VERSION is 26,2,3,0.
+
+The four Windows executables were rebuilt to carry it, as for 26.2.2
+(same compiler, same scripts, from FOR/).  Pr III, the full sequence
+with both RCE runs, against the 26.2.2 executables: every result file
+byte-identical, and OUT36, OUT2, OUTE and OUTG11 different only in their
+timing lines, checked the same way.
+
+The first entry under it is a documentation one.  update_IDEN was
+changed in 26.2.1 (e3c3617) to give each calculated level the rms of
+E_fixed - E_calc over the fixed levels of its own configuration, with
+--ucalc for the configurations that have none and --nosd to switch the
+measurement off, but neither the README of the day nor
+CODE/tests/test_iden2.py followed.  Two tests failed from then on -- a
+calculated d2 level given 15.106, the rms of the two d2 residuals once
+LOPT has moved them (-8.5 and -19.6), where they expected 5000 and 250.
+The tests now state the new rule: the rms for a known configuration,
+--ucalc not overriding it, an unknown configuration keeping its
+uncertainty or taking --ucalc, a zero rms counting as unknown, and
+--nosd restoring the old behaviour.  DOCS/UTILITIES.md describes it.

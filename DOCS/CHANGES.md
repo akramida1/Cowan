@@ -2,6 +2,23 @@
 
 [Back to the README](../README.md)
 
+## Version 26.2.3dev -- in development
+
+Changes since version 26.2.2 of November 10, 2026, not yet released. The
+next release is planned as 26.3.
+
+- **Documentation corrected: `update_IDEN`.** Since 26.2.1 it has given
+  each calculated level the root-mean-square of E_fixed - E_calc over
+  the fixed levels of its own configuration, and applied `--ucalc` only
+  to the configurations with none; `--nosd` switches that off. The
+  documentation still described the older rule, under which `--ucalc`
+  went to every calculated level, and did not mention `--nosd`. See
+  [UTILITIES.md](UTILITIES.md#update_iden). The program is unchanged.
+- **Windows executables rebuilt** to carry 26.2.3dev in their version
+  resource, from sources unchanged since 26.2.1. On the Pr III
+  regression case every result file is byte-identical to that of the
+  26.2.2 executables.
+
 ## Version 26.2.2 -- November 10, 2026
 
 Changes since version 26.2.1 of August 21, 2026:
@@ -47,7 +64,7 @@ The Fortran sources are unchanged from 26.2.1.
 
 ## Program versions
 
-The date of the last change to each code, as of version 26.2.2.
+The date of the last change to each code, as of version 26.2.3dev.
 
 | Code                  | Date     |
 |-----------------------|----------|

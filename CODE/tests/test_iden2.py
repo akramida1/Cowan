@@ -18,6 +18,7 @@ Three things could go wrong quietly and are what these weigh:
     line LOPT threw out is the failure that would look like agreement.
 """
 
+import math
 import os
 import subprocess
 import sys
@@ -298,26 +299,98 @@ def test_the_fixed_levels_take_their_lopt_energies(spectrum):
     done = run('update_IDEN.py', spectrum, 'lev.txt', 'lin.txt')
     assert done.returncode == 0, done.stderr
 
-    levels = dict((one.number, one)
-                  for one in iden.read_enlev(str(spectrum / iden.ENLEV)))
+    levels = enlev_levels(spectrum)
     assert levels[2].e_fixed == 25001.5
     assert levels[2].uncertainty == 0.020        # D1 is the larger here
     assert levels[4].uncertainty == 0.040        # and D2tot here
-    # The calculated level was not named by LOPT and is left alone.
+    # The calculated level was not named by LOPT: its energy is left alone.
     assert levels[1].e_fixed == 30000.0
-    assert levels[1].uncertainty == 5000.0
 
 
-def test_ucalc_is_given_only_to_the_calculated_levels(spectrum):
+def enlev_levels(folder):
+    return dict((one.number, one)
+                for one in iden.read_enlev(str(folder / iden.ENLEV)))
+
+
+#: The window a calculated d2 level is given: the rms of E_fixed - E_calc
+#: over the two experimental d2 levels *after* LOPT has moved them,
+#: 25001.5 - 25010 and 20000.4 - 20020, as ENLEV.DAT prints it.
+D2_RMS = round(math.sqrt((8.5 ** 2 + 19.6 ** 2) / 2), 3)
+
+
+def test_a_calculated_level_takes_the_rms_of_its_configuration(spectrum):
+    lopt_files(spectrum, [])
+    done = run('update_IDEN.py', spectrum, 'lev.txt')
+    assert done.returncode == 0, done.stderr
+    assert enlev_levels(spectrum)[1].uncertainty == D2_RMS == 15.106
+    # Two experimental levels are fewer than THIN, and the report says so.
+    assert 'thin' in done.stdout
+
+
+def test_ucalc_leaves_a_known_configuration_alone(spectrum):
     lopt_files(spectrum, [])
     done = run('update_IDEN.py', spectrum, 'lev.txt', '--ucalc', '250')
     assert done.returncode == 0, done.stderr
-    levels = dict((one.number, one)
-                  for one in iden.read_enlev(str(spectrum / iden.ENLEV)))
+    levels = enlev_levels(spectrum)
+    assert levels[1].uncertainty == D2_RMS
+    assert levels[2].uncertainty == 0.020
+
+
+def test_with_nosd_ucalc_is_given_to_every_calculated_level(spectrum):
+    lopt_files(spectrum, [])
+    done = run('update_IDEN.py', spectrum, 'lev.txt', '--ucalc', '250',
+               '--nosd')
+    assert done.returncode == 0, done.stderr
+    levels = enlev_levels(spectrum)
     assert levels[1].uncertainty == 250.0
     assert levels[2].uncertainty == 0.020
     # Without the line table TRANS.DAT is not touched at all.
     assert not (spectrum / (iden.TRANS + '.bak')).exists()
+
+
+def test_with_nosd_alone_a_calculated_level_keeps_its_uncertainty(spectrum):
+    lopt_files(spectrum, [])
+    done = run('update_IDEN.py', spectrum, 'lev.txt', '--nosd')
+    assert done.returncode == 0, done.stderr
+    assert enlev_levels(spectrum)[1].uncertainty == 5000.0
+    assert '--nosd' in done.stdout
+
+
+def unknown_configuration(folder):
+    """Level 1 moved into a configuration no experimental level is in."""
+    enlev_file(folder / iden.ENLEV,
+               [LEVELS[0][:6] + ('p2   _3P2P ',)] + LEVELS[1:])
+
+
+def test_an_unknown_configuration_keeps_its_uncertainty(spectrum):
+    unknown_configuration(spectrum)
+    lopt_files(spectrum, [])
+    done = run('update_IDEN.py', spectrum, 'lev.txt')
+    assert done.returncode == 0, done.stderr
+    assert enlev_levels(spectrum)[1].uncertainty == 5000.0
+    assert 'p2' in done.stdout
+
+
+def test_an_unknown_configuration_takes_ucalc(spectrum):
+    unknown_configuration(spectrum)
+    lopt_files(spectrum, [])
+    done = run('update_IDEN.py', spectrum, 'lev.txt', '--ucalc', '250')
+    assert done.returncode == 0, done.stderr
+    assert enlev_levels(spectrum)[1].uncertainty == 250.0
+
+
+def test_a_zero_rms_is_no_window(spectrum):
+    # Both experimental d2 levels left exactly where RCE put them: the
+    # rms is 0, which IDEN2 would read as no window at all, so the
+    # configuration counts as unknown.
+    lopt_files(spectrum, [])
+    table(spectrum / 'lev.txt', LOPT_LEVEL_HEADER,
+          [('X.000002', 25010.0) + LOPT_LEVELS[0][2:] + ('3', ''),
+           ('X.000003', 20020.0) + LOPT_LEVELS[1][2:] + ('3', '')]
+          + [row + ('3', '') for row in LOPT_LEVELS[2:]])
+    done = run('update_IDEN.py', spectrum, 'lev.txt', '--ucalc', '250')
+    assert done.returncode == 0, done.stderr
+    assert enlev_levels(spectrum)[1].uncertainty == 250.0
 
 
 def test_ucalc_wants_a_positive_number(spectrum):
