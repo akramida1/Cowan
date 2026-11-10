@@ -120,9 +120,10 @@ both `FOR/rcg11kd.f` and `FOR/RCE20KD.F`, originated in development versions of
 the GRASP atomic-structure software and retain their original authorship
 comments. See `NOTICE.md`.
 
-**R. D. Cowan's documentation.** Everything in `DOCS/` is a verbatim copy of
-Cowan's original documentation, redistributed unaltered for historical purposes.
-It is not covered by section 3 and is not to be modified.
+**R. D. Cowan's documentation.** Everything in `DOCS/Cowan/` is a verbatim copy
+of Cowan's original documentation, redistributed unaltered for historical
+purposes. It is not covered by section 3 and is not to be modified. (The other
+files in `DOCS/` are the documentation of this package.)
 
 **GCC and MinGW-w64 runtime libraries.** The Windows distribution ships
 `libgfortran-5.dll`, `libgcc_s_seh-1.dll`, `libgomp-1.dll`, `libquadmath-0.dll`,

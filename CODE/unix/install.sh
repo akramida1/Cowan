@@ -157,7 +157,10 @@ esac
 
 executables="RCN36K RCN2K rcg11kd RCE20KD"
 
-data="SENIOR ING11.CFP calc_TP.par"
+# version.txt is read by nothing at run time.  It is installed so that an
+# installed tree says which release it is: ELF has no version resource, so
+# on Linux and macOS this file is the only record of it.
+data="SENIOR ING11.CFP calc_TP.par version.txt"
 
 # Kept apart from $data because they are the one thing in the source tree
 # that may legitimately be absent: they are built below rather than

@@ -2,11 +2,15 @@
 # VERSIONINFO resource.  CODE/mkverres.bat reads this file and writes the
 # .rc; CODE/gfortran_O3.bat and CODE/gfortran_O3_OMP.bat link the result.
 #
-# NOTHING BUMPS THIS AUTOMATICALLY AND NOTHING NEEDS IT BUMPED.  A stale
-# version string costs nothing: the resource's purpose is to exist -- a PE
-# with no resource directory at all is what Norton's Win64:Evo-gen
-# heuristic reacts to -- not to be accurate to the day.  Edit it when you
-# feel like it.
+# VERSION is the package version, and this is the only place it is written
+# down.  Users run released versions and need to tell which one they have,
+# so every release bumps it (and COMMA_VERSION with it), gets an entry in
+# DOCS/CHANGES.md and a git tag v<VERSION>, and the four Windows
+# executables are rebuilt so that the version they carry is the release's.
+# A user reads it in Explorer, Properties > Details of the .exe, or in
+# PowerShell with  (Get-Item RCE20KD.exe).VersionInfo.FileVersion .
+# (The resource also has a second purpose: a PE with no resource directory
+# at all is what Norton's Win64:Evo-gen heuristic reacts to.)
 #
 # COMMA_VERSION is the same number in the form the binary FILEVERSION
 # field requires: four 16-bit fields.  Keeping both spellings here avoids
@@ -20,8 +24,8 @@
 # contradicted LICENSE.md.  Keep it in step with LICENSE.md, and keep it
 # free of ( ) < > & | ^ % -- mkverres.bat echoes it into the .rc and cmd
 # would eat those.
-VERSION=26.2.1
-COMMA_VERSION=26,2,1,0
+VERSION=26.2.2
+COMMA_VERSION=26,2,2,0
 COMPANY=A. Kramida
 PRODUCT=Cowan Atomic Structure Codes
 COPYRIGHT=Copyright 2022-2026 A. Kramida. Original codes by R. D. Cowan. Free to distribute, not to sell -- see LICENSE.md.

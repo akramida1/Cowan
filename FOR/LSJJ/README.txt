@@ -5990,7 +5990,7 @@ THE EAV <= -4000 EXCEPTION, AND W70
 
   RCG's own Eav shift, DELEAV of the rescale card, leaves an Eav at or
   below -4000 alone (rcg11kd.f:11279) and does not rescale it.  Cowan's
-  documentation says what it is (DOCS/RCG_DOC.txt, the autoionization
+  documentation says what it is (DOCS/Cowan/RCG_DOC.txt, the autoionization
   section): not an energy but the mark of a continuum configuration.
   With 9 in column 75 of G5INP, RCN2 punches -9500 or -8500 as the Eav
   of the continuum configurations; RCG splits the basis into discrete
@@ -6075,3 +6075,64 @@ THE ING11 READER, FIXED THE SAME DAY
   parameters, then seven to a line.  The old and the new reader agree
   card for card on W70, U90, Pr3, Pr3/JK, Mo15 and Sn VIII, and each
   still writes back byte for byte.
+
+
+VERSION 26.2.2: THE WINDOWS EXECUTABLES REBUILT
+===============================================
+
+26.2.1 is commit 1e46e71 (tagged v26.2.1), the last before 2026-11-10.
+26.2.2 carries the --ground work and the ING11 reader fix above, the
+documentation moved out of README.md into DOCS/ (Cowan's manuals into
+DOCS/Cowan/), and the four Windows executables rebuilt so that their
+version resource says 26.2.2.  The repository is public now and users
+run released versions, so CODE/version.txt no longer says the number
+need not be kept current; each release bumps it, gets an entry in
+DOCS/CHANGES.md and a tag, and rebuilds the executables.
+
+WHAT THE REBUILD FOUND
+
+  The committed RCE20KD.exe was older than its source.  It was last
+  committed in e63a6c1 (2026-08-21), and the relative-energy groups went
+  into RCE20KD.F in c4e5104 (2026-08-26) without a new executable.  The
+  binary holds a message string of the pre-c4e5104 source and none of
+  the strings c4e5104 added.  Run on WORK/Mo15's RCEINP.example it stops
+  at RCE20KD.F line 361, "Bad value during integer read" -- the group
+  letter in column 14.  Windows users of 26.2.1 could not use groups at
+  all; Linux and macOS build from the sources and were not affected.
+  Keeping the pre-feature binary was deliberate while the feature was
+  developed: CODE/tests/test_relgroups.py compares a deck with no
+  letters against it, byte for byte, as the oracle for "nothing
+  changed", until a release replaces it.  26.2.1 went out without the
+  replacement.  With the rebuilt binary that test now skips, as it was
+  written to (one more skip in the suite); the Pr III comparison below
+  is the same check, made against the 26.2.1 binary itself.
+  rcg11kd.exe was committed with its last source change (a8183bc), and
+  RCN36K.exe and RCN2K.exe after theirs.
+
+  The rebuilt RCN36K.exe and RCN2K.exe are 17 KB and 5 KB smaller than
+  the ones they replace, from sources unchanged since those were built;
+  so the old two were not built exactly as gfortran_O3.bat builds now.
+  Their output is identical (below), so this was not pursued.
+
+THE BUILD
+
+  From FOR/, gfortran_O3.bat RCN36K and RCN2K, gfortran_O3_OMP.bat
+  rcg11kd and RCE20KD -- serial and OpenMP as before, checked against
+  the DLL imports of the old binaries -- with GNU Fortran 13.2.0 (WinLibs,
+  Brecht Sanders r8), the compiler DOCS/BUILDING.md pins.  The one
+  warning is the expected -fno-automatic/-frecursive one.  All four carry
+  FileVersion and ProductVersion 26.2.2 and their program's description.
+
+ACCEPTANCE
+
+  Pr III (WORK/Pr3, the full sequence of its README, both RCE runs) with
+  the 26.2.1 executables and with the rebuilt ones, same machine:
+  TAPE2N, ING11, TAPE2E, OUTGINE, genealogy.txt, RCEINP.HF, RCEINP,
+  RCEOUT, LEVELS1-3 and PARVALS byte-identical.  OUT36, OUT2, OUTE and
+  OUTG11 differ only in timing lines: every differing line, its digits
+  masked, is one of the time formats, and the AVEEIG and LEVELS FIT
+  lines that carry a time are identical with the time removed.  So the
+  new RCE source, run without groups, is bit-exact with the old binary,
+  as a deck with no letter in column 14 must be.  WORK/Mo15, fitting
+  pass: the old RCE stops as above, the new one fits, final odd-set
+  AVDEV 0.068 kK -- the 68 cm-1 Mo15's README gives for that case.

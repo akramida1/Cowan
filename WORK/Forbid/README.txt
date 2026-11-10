@@ -71,7 +71,7 @@ ISPECC AND THE TWO SPECTRUM LAYOUTS
 
 Column 72 is ISPECC, which chooses RCG's line sorts: odd values add the
 first-parity sort, bit 2 the second-parity sort, and 4 or more the
-wavelength sort (`DOCS/RCG_DOC.txt:846`).  This deck carries 2, as every
+wavelength sort (`DOCS/Cowan/RCG_DOC.txt:846`).  This deck carries 2, as every
 deck in WORK/ does.
 
 The two level sorts print the Lund layout, a `* * *` line for the

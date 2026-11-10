@@ -1088,8 +1088,8 @@ def _outgine_block(lines, first, n):
 
 #: An Eav at or below this is not an energy but RCG's mark of a continuum
 #: configuration: for an autoionization run RCN2 punches -9500 or -8500
-#: there (DOCS/RCG_DOC.txt, autoionization, steps 3-4), and RCG splits the
-#: basis into discrete and continuum states on it (`FOR/rcg11kd.f:11481`).
+#: there (DOCS/Cowan/RCG_DOC.txt, autoionization, steps 3-4), and RCG splits
+#: the basis into discrete and continuum states on it (`FOR/rcg11kd.f:11481`).
 #: RCG's own Eav shift, the DELEAV of the rescale card, leaves such an Eav
 #: alone (`:11279`), and so does this.  A section that has one also has
 #: continuum levels, which come out at or below the same value and are

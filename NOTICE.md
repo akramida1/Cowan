@@ -82,9 +82,10 @@ recognition of the contributions of the GRASP developers to this software.
 
 ## Cowan's documentation
 
-`DOCS/` contains verbatim, unaltered copies of R. D. Cowan's original
+`DOCS/Cowan/` contains verbatim, unaltered copies of R. D. Cowan's original
 documentation for the programs, preserved for historical purposes. It is
-redistributed as received and is not modified by this package.
+redistributed as received and is not modified by this package. The rest of
+`DOCS/` is the documentation of this package.
 
 ## Bundled runtime libraries
 
