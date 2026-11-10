@@ -10,6 +10,7 @@ level, or on an ionization limit, amounts to.
 Usage:
 
     add_eav <shift> [folder]
+    add_eav --ground [folder]
 
 `<shift>` is in the run's own energy unit, which is the UENRGY of the
 ING11 main card and is 1000 cm-1 in every deck here.  It may be
@@ -20,6 +21,29 @@ Only the Eav on a **parameter card** is shifted, as in the Perl.  The
 average energy in columns 59-71 of a configuration card is RCN2's
 Hartree-Fock value, which RCG does not use once a parameter card carries
 an Eav, and it is left alone.
+
+`--ground` works on **OUTGINE** instead, the file the first RCE run of
+a fit (INVECT=0) takes its starting parameters and its calculated levels
+from.  It takes the lowest level listed there for the ground and adds
+minus its energy to every Eav and every level, so that RCE starts with
+the calculated ground at zero; RCG's file is kept as `OUTGINE.RCG`.
+Nothing else needs to change: TAPE2E holds neither parameter values nor
+eigenvalues, and a common shift of the Eav moves no eigenvector.  `rce
+--ground` runs this before RCE.
+
+  * With INVECT not 0 in OUTGINE's first record RCE reads RCEINP and not
+    OUTGINE, so nothing is shifted; that is a warning, not an error.
+  * A ground already at zero is left alone, so a second `--ground` does
+    nothing.
+  * An OUTGINE whose levels are all zero (RCG made no diagonalization)
+    is an error.
+  * An Eav or level at or below -4000 is RCG's mark of a continuum
+    configuration in an autoionization run, not an energy, and is left
+    alone, as RCG's own DELEAV shift leaves it.
+
+ING11 and OUTG11 keep RCG's values, so `printout` shows RCG's Eav
+differing from RCEOUT's until the first `update11` carries the fitted,
+shifted values into ING11.
 """
 
 import os
@@ -27,9 +51,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from toolbox import files, ing11                                # noqa: E402
+from toolbox import files, genealogy, ing11, rce                # noqa: E402
 
 BACKUP = 'ING11.BAK'
+OUTGINE_BACKUP = 'OUTGINE.RCG'
 
 
 class Usage(Exception):
@@ -55,7 +80,59 @@ def shift_eav(deck, amount):
     return changed
 
 
+def ground(folder):
+    """Put the calculated ground level of OUTGINE at zero."""
+    path = files.resolve(rce.OUTGINE, folder)
+    lines = files.read_lines(path, strip=False)
+    invect = rce.outgine_invect(lines)
+    if invect != 0:
+        sys.stderr.write(
+            'add_eav: warning: INVECT=%d in the first record of %s, so RCE '
+            'takes its parameters\n  and levels from RCEINP, not from '
+            'OUTGINE.  Nothing has been shifted.\n' % (invect, path))
+        return 0
+    low = rce.outgine_ground(lines, path)
+    print('Ground level adopted: %s, E_RCG = %s'
+          % (describe(low, folder), low.text))
+    if low.energy == 0.0:
+        print('%s: the ground level is already at zero; nothing to shift.'
+              % path)
+        return 0
+    new, neav, nlev = rce.shift_outgine(lines, -low.energy, path)
+    files.write_deck(path, new, files.line_ending(path),
+                     backup=OUTGINE_BACKUP)
+    shift = low.text[1:] if low.text.startswith('-') else '-' + low.text
+    print('%s: %s added to %d Eav parameters and %d levels; RCG\'s file is '
+          'kept as %s.' % (path, shift, neav, nlev, OUTGINE_BACKUP))
+    return 0
+
+
+def describe(low, folder):
+    """Where the ground level is, with its J when genealogy.txt says.
+
+    OUTGINE lists a block's levels by position and never names its J.
+    genealogy.txt names every block in the same order; it is believed
+    only if its blocks of this set agree with OUTGINE's in number and,
+    for the block concerned, in size -- a file left over from another
+    run does not.
+    """
+    where = 'level %d of J block %d' % (low.index, low.block)
+    try:
+        path = files.resolve(files.GENEALOGY, folder, required=False)
+        heads = [h for h in genealogy.read_headings(path)
+                 if h[0] == low.cset] if path else []
+    except (genealogy.GenealogyError, OSError):
+        heads = []
+    if len(heads) == low.nblocks and heads[low.block - 1][2] == low.nlevels:
+        where = 'level %d with J = %g' % (low.index, heads[low.block - 1][1])
+    return '%s of configuration set %d' % (where, low.cset)
+
+
 def main(argv):
+    if argv and argv[0] == '--ground':
+        if len(argv) > 2:
+            raise Usage('--ground takes at most a folder')
+        return ground(argv[1] if len(argv) > 1 else '.')
     if not argv or len(argv) > 2:
         raise Usage('one or two arguments are needed, a shift and '
                     'optionally a folder')
@@ -84,6 +161,6 @@ if __name__ == '__main__':
         sys.stderr.write('add_eav: %s\n\n%s\n'
                          % (problem, __doc__.split('Usage:')[1]))
         sys.exit(2)
-    except (ing11.Ing11Error, OSError) as problem:
+    except (ing11.Ing11Error, rce.RceError, OSError) as problem:
         sys.stderr.write('add_eav: %s\n' % problem)
         sys.exit(1)

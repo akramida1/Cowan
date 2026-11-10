@@ -30,7 +30,7 @@ mixes layouts says so rather than guessing line by line.
 from dataclasses import dataclass, field
 
 from . import files
-from .fortfmt import read_f, read_i, write_f_wide
+from .fortfmt import read_f, read_i, write_e, write_f, write_f_wide
 
 OUTGINE = 'OUTGINE'
 RCEOUT = 'RCEOUT'
@@ -1064,3 +1064,229 @@ def _outgine_block(lines, first, n):
     for line in lines[first:first + n]:
         out.extend(_outgine_fields(line))
     return out
+
+
+# --------------------------------------------------------------------------
+# OUTGINE with the calculated ground level put at zero (add_eav --ground)
+# --------------------------------------------------------------------------
+#
+# The first RCE run of a fit, INVECT=0, takes its starting parameters and
+# its list of calculated levels from OUTGINE (`FOR/RCE20KD.F:390-470`).
+# Adding one amount to every Eav moves every level by that amount and
+# leaves every eigenvector as it was, and TAPE2E carries neither the
+# parameter values nor the eigenvalues (`FOR/rcg11kd.f:15390`, `:15633`).
+# Putting the calculated ground at zero therefore needs OUTGINE rewritten
+# and nothing else -- where it used to need ING11 shifted and RCG run a
+# second time for the sole purpose of writing this file again.
+#
+# Only the Eav values and the level lines change.  An Eav is re-encoded by
+# the rule RCG writes CVPAR with, and the level lines of a section by the
+# FORMAT RCG picks for them from the largest parameter, recomputed from the
+# shifted values; every other field keeps the characters it came with.  So
+# the result is a file RCG could have written, and a shift of zero gives
+# back the file it was given.
+
+#: An Eav at or below this is not an energy but RCG's mark of a continuum
+#: configuration: for an autoionization run RCN2 punches -9500 or -8500
+#: there (DOCS/RCG_DOC.txt, autoionization, steps 3-4), and RCG splits the
+#: basis into discrete and continuum states on it (`FOR/rcg11kd.f:11481`).
+#: RCG's own Eav shift, the DELEAV of the rescale card, leaves such an Eav
+#: alone (`:11279`), and so does this.  A section that has one also has
+#: continuum levels, which come out at or below the same value and are
+#: neither moved nor taken for the ground.  A section that has none has no
+#: continuum levels, whatever their energies: in a highly charged ion a
+#: real level lies below -4000 (W70's ground level is at -8391.10).
+CONTINUUM = -4000.0
+
+
+@dataclass
+class Ground:
+    """The level taken for the ground: where it is and what RCG made it."""
+    cset: int                  # section of OUTGINE, i.e. configuration set
+    block: int                 # J block within the section, from 1
+    index: int                 # level within the block, from 1
+    energy: float              # as OUTGINE lists it
+    text: str = ''             # the same, as the characters it is written in
+    nlevels: int = 0           # in its block, to check a J lookup against
+    nblocks: int = 0           # in its section, likewise
+
+
+@dataclass
+class _OutgineSection:
+    names: list                # the parameter names
+    blocks: list               # per J block: (line numbers, energies, texts)
+    values_at: int             # first record of the parameter values
+    continuum: bool = False    # an Eav at or below CONTINUUM is among them
+
+    def is_continuum(self, energy):
+        return self.continuum and energy <= CONTINUUM
+
+
+def outgine_invect(lines):
+    """INVECT, the fifth field of OUTGINE's first record (`(7I5)`).
+
+    RCE reads it from that record alone (`FOR/RCE20KD.F:338-360`), so the
+    copies at the head of the later sections do not count.
+    """
+    for line in lines:
+        if line.strip():
+            return read_i(line[20:25])
+    raise RceError('OUTGINE is empty')
+
+
+def outgine_ground(lines, path=OUTGINE):
+    """The lowest listed level of the whole file, continua aside.
+
+    RCG lists the levels of a block in increasing order, so of equal
+    lowest energies the one taken is the first met: the first level of
+    the first block, of the first section, that has it.
+    """
+    sections = _outgine_sections(lines, path)
+    energies = [e for s in sections for _, block, _ in s.blocks
+                for e in block]
+    if not any(energies):
+        raise RceError(
+            '%s: every level is zero.  That is what RCG writes when it has '
+            'made no diagonalization (IEWR=0), and there is no ground level '
+            'to put at zero.' % path)
+    best = None
+    for s, section in enumerate(sections, 1):
+        for b, (_, block, texts) in enumerate(section.blocks, 1):
+            for x, e in enumerate(block, 1):
+                if section.is_continuum(e):
+                    continue
+                if best is None or e < best.energy:
+                    best = Ground(cset=s, block=b, index=x, energy=e,
+                                  text=texts[x - 1], nlevels=len(block),
+                                  nblocks=len(section.blocks))
+    if best is None:
+        raise RceError('%s: every level is a continuum level (at or below '
+                       '%g); none can be the ground' % (path, CONTINUUM))
+    return best
+
+
+def shift_outgine(lines, amount, path=OUTGINE):
+    """`lines` with `amount` added to every Eav and every level.
+
+    Returns the new lines and the numbers of Eav values and levels moved.
+    A continuum Eav, and a continuum level, is left where it is.
+    """
+    out = list(lines)
+    neav = nlev = 0
+    for section in _outgine_sections(lines, path):
+        values = []
+        for p, name in enumerate(section.names):
+            row = section.values_at + p // _OUTGINE_PER_LINE
+            col = _OUTGINE_WIDTH * (p % _OUTGINE_PER_LINE)
+            text = out[row].ljust(col + _OUTGINE_WIDTH)
+            value = float(text[col:col + _OUTGINE_WIDTH])
+            if name.startswith('EAV') and value > CONTINUUM:
+                value += amount
+                new = _outgine_value(value, p == 0, path, name)
+                out[row] = text[:col] + new + text[col + _OUTGINE_WIDTH:]
+                neav += 1
+            values.append(value)
+        decimals = _outgine_decimals(max(abs(v) for v in values))
+        for rows, block, _ in section.blocks:
+            moved = [e if section.is_continuum(e) else e + amount
+                     for e in block]
+            nlev += sum(1 for e in block if not section.is_continuum(e))
+            fields = [write_f(e, _OUTGINE_WIDTH, decimals) for e in moved]
+            if any('*' in f for f in fields):
+                raise RceError('%s: a shifted level does not fit F10.%d'
+                               % (path, decimals))
+            for m, row in enumerate(rows):
+                out[row] = ''.join(fields[_OUTGINE_PER_LINE * m:
+                                          _OUTGINE_PER_LINE * (m + 1)])
+    return out, neav, nlev
+
+
+def _outgine_value(value, first, path, name):
+    """A parameter value as RCG writes CVPAR (`FOR/rcg11kd.f:15836-15866`).
+
+    Zero to within 1e-3 goes out as 1PE10.2 -- except the first parameter
+    of a section, always the Eav of its first configuration -- and a value
+    too large for F10.4 as F10.1 if it is that first one, F10.2 if not.
+    """
+    if -1e-3 <= value <= 1e-3 and not first:
+        text = write_e(value, _OUTGINE_WIDTH, 2)
+    elif -9999.99 <= value <= 99999.99:
+        text = write_f(value, _OUTGINE_WIDTH, 4)
+    else:
+        text = write_f(value, _OUTGINE_WIDTH, 1 if first else 2)
+    if '*' in text:
+        raise RceError('%s: the shifted %s does not fit its field'
+                       % (path, name))
+    return text
+
+
+def _outgine_decimals(gre):
+    """The level FORMAT RCG picks from GRE, the largest |parameter|.
+
+    F10.4 up to 7000, F10.3 up to 70000, F10.2 beyond, one choice for all
+    the levels of a section (`FOR/rcg11kd.f:15798-15802`).
+    """
+    if gre <= 7.0e3:
+        return 4
+    if gre <= 7.0e4:
+        return 3
+    return 2
+
+
+def _outgine_sections(lines, path):
+    """Each section's parameter names, J blocks and value records."""
+    out = []
+    i = 0
+    while i < len(lines):
+        if not _is_control(lines[i]):
+            i += 1
+            continue
+        names, i = _outgine_names(lines, i + 1)
+        end = i
+        while end < len(lines) and lines[end].strip() != '-1':
+            end += 1
+        if end >= len(lines):
+            raise RceError('%s: the section that begins with %s has no '
+                           'terminator' % (path, names[0] if names else '?'))
+        parameters = _outgine_parameters(lines, end, names, path)
+        n = -(-len(names) // _OUTGINE_PER_LINE)
+        first = end - 1 - 3 * n
+        out.append(_OutgineSection(
+            names=names, blocks=_outgine_levels(lines, i, first, path),
+            values_at=first + 2 * n,
+            continuum=any(p.name.startswith('EAV') and p.value <= CONTINUUM
+                          for p in parameters)))
+        i = end + 1
+    if not out:
+        raise RceError('%s: no section found' % path)
+    return out
+
+
+def _outgine_levels(lines, start, stop, path):
+    """The J blocks between the parameter names and MULTQQ.
+
+    A block is its energies, `7F10.x`, then their numbers 1..NLS, `7I10`
+    (`FOR/rcg11kd.f:15798-15804`).  An energy always carries a decimal
+    point and a number never does, which is what tells the two apart.
+    """
+    blocks = []
+    k = start
+    while k < stop:
+        rows = []
+        while k < stop and '.' in lines[k]:
+            rows.append(k)
+            k += 1
+        numbers = []
+        while k < stop and lines[k].strip() and '.' not in lines[k]:
+            if '*' in lines[k]:
+                raise RceError('%s: line %d: an energy field overflowed'
+                               % (path, k + 1))
+            numbers.extend(int(f) for f in _outgine_fields(lines[k]))
+            k += 1
+        texts = [f for row in rows for f in _outgine_fields(lines[row])]
+        energies = [float(f) for f in texts]
+        if not rows or numbers != list(range(1, len(energies) + 1)):
+            raise RceError('%s: line %d is not where a J block of levels '
+                           'should be' % (path, k + 1))
+        blocks.append((rows, energies, texts))
+    return blocks

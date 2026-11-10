@@ -396,6 +396,30 @@ def read_genealogy(path=files.GENEALOGY, folder=None):
     return Genealogy(path, blocks)
 
 
+def read_headings(path=files.GENEALOGY, folder=None):
+    """(set, J, basis states) of every J block, in the order RCG wrote them.
+
+    Only the block headings (format 11) are read, which is all a caller
+    needs to name the J of a block that another file -- OUTGINE -- lists
+    by position alone; the tables of a large run are not worth parsing
+    for that.  A block with a true jj table has its heading twice, and
+    the repeat is dropped as `read_genealogy` drops it.
+    """
+    if folder is not None:
+        path = files.resolve(path, folder)
+    out, seen = [], set()
+    for line in files.read_lines(path):
+        if not line.startswith(' J ='):
+            continue
+        wide = line.ljust(56)
+        j = _float(wide[4:9], 'a block J', 0.0, 0)
+        kset = _int(wide[30:32], 'a configuration set', j, 0)
+        if (kset, j) not in seen:
+            seen.add((kset, j))
+            out.append((kset, j, _int(wide[49:56], 'a state count', j, kset)))
+    return out
+
+
 def _main(argv):
     """Summarize a genealogy.txt: python -m toolbox.genealogy [path]."""
     path = argv[1] if len(argv) > 1 else files.GENEALOGY

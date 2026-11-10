@@ -9,9 +9,22 @@ set -u
 
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
 
+ground=0
+if [ "${1:-}" = "--ground" ]; then
+    ground=1
+    shift
+fi
+
 cowan_banner 34 \
 '                             Program RCE Mod 20kd' \
 '                 Least-squares fitting of atomic energy levels'
+
+# rce --ground puts the calculated ground level of OUTGINE at zero first
+# (add_eav --ground).  A warning from it, as for INVECT not 0, is no
+# reason to stop; an error is, and RCE is then not run.
+if [ $ground = 1 ]; then
+    "$cowan_dir/unix/add_eav" --ground || exit $?
+fi
 
 cowan_run "$cowan_dir/RCE20KD" "$@"
 rc=$?

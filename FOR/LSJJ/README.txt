@@ -5917,3 +5917,161 @@ TESTS
   the transition energies and dwn following the new levels, a second run
   changing nothing, the backups, and each of the three ways a table or a
   LOPT file can be wrong.
+
+
+THE CALCULATED GROUND LEVEL AT ZERO FOR RCE
+===========================================
+
+A fit with RCE is easier to start with the calculated ground level at
+zero, where the observed one is.  The first step used to be: run RCG,
+read the lowest level, `add_eav -E0` on ING11, run RCG again, then RCE.
+The second RCG run had one purpose, to write OUTGINE again with the
+shifted values, and it is no longer made:
+
+  add_eav --ground [folder]
+  rce --ground
+
+WHY OUTGINE IS ENOUGH
+
+  The first RCE run of a fit, INVECT=0, takes its starting parameters
+  and its calculated levels from OUTGINE (RCE20KD.F:390-470).  TAPE2E
+  holds the matrices, the transformation matrices and the labels, but no
+  parameter value and no eigenvalue (rcg11kd.f:15390, :15633), and a
+  shift common to every Eav moves every level by that amount and no
+  eigenvector at all.  So OUTGINE is rewritten -- every Eav and every
+  listed level moved by minus the lowest level -- and RCG's file is kept
+  as OUTGINE.RCG.  (Not OUTGINE.BAK: update11 uses that name for its own
+  save and restore.)  After the first RCE run RCE reads RCEINP
+  (INVECT=1), and update11 restores the OUTGINE it saved, so the shift
+  matters on the first run only, which is where it is wanted.
+
+  Doing it inside RCG instead was considered and rejected.  RCG does not
+  know the ground energy until both parities are diagonalized -- ENERGY
+  prints parity 1 before it reads parity 2 -- so moving OUTG11's levels
+  costs a second ENERGY pass; and RCG cannot tell a first run from a
+  later one, since the files a folder holds prove nothing about how its
+  ING11 came to be.
+
+  ING11 and OUTG11 keep RCG's values.  printout run straight after the
+  first RCE run therefore shows RCG's Eav differing from RCEOUT's, and
+  RCEINP.HF holds the shifted Eav; the first update11 carries the fitted
+  values into ING11 and from then on they agree.  An LSF/HF ratio means
+  nothing for an Eav in any case.
+
+THE RULES
+
+  * The ground is the lowest level listed, over all configuration sets;
+    of equal lowest energies, the first.  It is reported on the screen,
+    e.g. "Ground level adopted: level 1 with J = 0 of configuration set
+    1, E_RCG = -14.4602".  OUTGINE lists the levels of a J block by
+    position and never names the J.  genealogy.txt names every block, in
+    the same order, and is believed when its blocks of the set agree
+    with OUTGINE's in number and, for the block concerned, in size;
+    otherwise the block is named by its position.  Naming the level by
+    its configuration and term would mean reading OUTG11, which is not
+    worth it here.
+  * INVECT not 0 in OUTGINE's first record -- the only one RCE reads it
+    from -- means RCE reads RCEINP and not OUTGINE: a warning, nothing
+    shifted, exit 0, and rce --ground goes on to run RCE.
+  * Levels all zero is what RCG writes with no diagonalization (IEWR=0):
+    an error, exit 1, and rce --ground does not run RCE.
+  * A ground already at zero is left alone, so a second --ground writes
+    nothing: the shift is idempotent by construction.
+  * The rewritten file is one RCG could have written.  An Eav is
+    re-encoded by the rule RCG writes CVPAR with (rcg11kd.f:15836-15866):
+    1PE10.2 near zero except for the first parameter of a set, F10.4,
+    and past 99999.99 F10.1 for that first one and F10.2 for the rest.
+    The level lines of a set take the FORMAT RCG picks from the largest
+    |parameter|, recomputed from the shifted values (:15798-15802).
+    Every other field keeps its characters, and a shift of zero gives
+    the file back unchanged.
+
+THE EAV <= -4000 EXCEPTION, AND W70
+
+  RCG's own Eav shift, DELEAV of the rescale card, leaves an Eav at or
+  below -4000 alone (rcg11kd.f:11279) and does not rescale it.  Cowan's
+  documentation says what it is (DOCS/RCG_DOC.txt, the autoionization
+  section): not an energy but the mark of a continuum configuration.
+  With 9 in column 75 of G5INP, RCN2 punches -9500 or -8500 as the Eav
+  of the continuum configurations; RCG splits the basis into discrete
+  and continuum states on Eav > -4000 (:11481), zeroes the CI between
+  them, computes autoionization rates from the saved CI elements, and
+  sorts the rates into the < -8000 and < -4000 sums used for dielectronic
+  recombination.  A continuum Eav enters the free-electron kinetic
+  energy (:11302-11306) by its value, so a shift that moved it would move
+  those energies.
+
+  add_eav --ground follows RCG: an Eav at or below -4000 is not moved.
+  A level is a continuum level only in a configuration set that has
+  such an Eav, and then only at or below -4000 -- because a real level
+  can lie there.  W70 (W69+) has every Eav >= 0 and its ground level,
+  2s2 2p 2P1/2, at -8391.10: the 2p spin-orbit splitting puts it 8391 kK
+  below the average.  A test on the level energy alone took it for a
+  continuum level; the first version of this tool did exactly that, and
+  W70 is why the rule is on the Eav.
+
+  Two things found on the way, neither changed:
+
+  * RCG's SPECTR skips every level at or below -4000 (rcg11kd.f:13593,
+    :13600, :13613) whether or not the deck has a continuum
+    configuration.  In W70 the ground level gets no transitions at all:
+    -8391.10 appears in OUTG11's eigenvalue print and in no line list.
+    Any level at or below -4000 on the deck's energy scale loses its
+    lines this way -- in practice a highly charged ion, whose first Eav
+    is 0 and whose ground level lies far below it.  After the first
+    update11 of a --ground fit the ground should sit near zero and its
+    lines return (not tested); an unfitted run is affected.
+  * add_eav <shift> on ING11 moves every Eav, a continuum one included,
+    where DELEAV does not.  And ING11's Eav field holds a value past
+    99999.99 only to 0.1 (F9.1 and a group digit, RCN2's own rule), so
+    the old route lost up to 0.05 there; OUTGINE carries the digits.
+
+ACCEPTANCE
+
+  RCN, RCN2 and RCG were run in a scratch directory on U90, Sn VIII
+  (WORK/), W70 and Mo15, and add_eav --ground on each OUTGINE:
+
+  * Outside the Eav fields and the level lines no line changed, and
+    every moved value moved by the shift exactly -- in W70 to 0.0044,
+    where an Eav pushed past 99999.99 goes out as F10.2, RCG's own
+    precision there.  A second --ground changed nothing.
+  * RCE was run on the shifted and on the unshifted OUTGINE of each,
+    with the same TAPE2E.  The RCEINPs it wrote agree in every J, flag,
+    composition and non-Eav parameter; the calculated levels and the Eav
+    differ by the shift to 0.0009 (0.005 in W70, from those F10.2
+    values).
+  * Against the old route -- add_eav <shift> on ING11, RCG again -- the
+    OUTGINE is identical in Sn VIII; Mo15 differs only in the sign of a
+    zero ground (RCG's rediagonalized one is -0.0000); U90 and W70
+    differ by 0.03-0.05 in levels whose Eav the old route rounded to
+    0.1 in ING11.
+  * rce.bat --ground was run on U90: the shift, then RCE, whose own
+    message confirms the first block is J = 0.5.  The error path (exit
+    1, RCE not run) and the warning path (RCE run) were checked through
+    rce.bat and, under Git Bash, through unix/rce.
+
+TESTS
+
+  `CODE/tests/test_outgine_ground.py`.  The decks are built record by
+  record in RCG's FORMATs: the shift and the characters it leaves alone,
+  the second shift that is zero, a shift of zero giving the file back,
+  a ground in the second set moving the first, the INVECT warning, the
+  all-zero error, a continuum Eav and its levels left where they are, a
+  W70-like level below -4000 with no continuum Eav, the level FORMAT
+  following the largest parameter after the shift, 1PE10.2 for a small
+  Eav but not the first, and the J named from genealogy.txt, refused
+  from one that does not match, and replaced by the block's position
+  without one.  The reference runs' OUTGINEs are taken where they exist
+  and skipped where they do not.
+
+THE ING11 READER, FIXED THE SAME DAY
+
+  toolbox/ing11.py took every line blank in columns 71-72 after a
+  parameter card for a continuation.  The -55555555. card is blank there
+  too, and follows the last parameter card directly in a deck with no
+  radial cards -- one configuration, no transitions -- so add_eav failed
+  on it.  Continuation cards are now read by count, as RCG reads them
+  (rcg11kd.f:11267, :11344): none unless the card has more than five
+  parameters, then seven to a line.  The old and the new reader agree
+  card for card on W70, U90, Pr3, Pr3/JK, Mo15 and Sn VIII, and each
+  still writes back byte for byte.
