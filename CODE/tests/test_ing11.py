@@ -146,6 +146,41 @@ def test_the_trailer_is_kept_verbatim():
     assert d.trailer[0].strip() == '-55555555.'
 
 
+# One configuration, one parity, no transitions: RCN2 writes no radial
+# cards, so the -55555555. card follows the parameter card directly.  It
+# is blank in columns 71-72 like a continuation line and used to be read
+# as one, which failed on the '.' in its group-digit column.
+ONE_CONF = [
+    '    1   -11 1 10 0 02         0011111 1 00000000 0 1000.0000 10.0   1 '
+    '02-6 0 0     2       1  1  1  0  0',
+    'P 2  S 0  S 0  S 0  S 0  S 0  S 0  S 0  Pb0+  6p2          '
+    '-4585267.295   0.0000',
+    'Pb0+  6p2          4        00   2370961 0.00E+001    738922        '
+    '00hr75997575',
+    '                    -55555555.' + ' ' * 50,
+    '                    -99999999.' + ' ' * 50,
+    '   -1' + ' ' * 75,
+]
+
+
+def test_a_sentinel_right_after_a_short_card_is_not_a_continuation(tmp_path):
+    files.write_deck(tmp_path / files.ING11, ONE_CONF, chr(13) + chr(10))
+    d = ing11.read_ing11(folder=tmp_path)
+    card = d.parameters[0][0]
+    assert card.np == 4 and len(card.raw) == 1
+    assert card.values == [0.0, 23.7096, 0.0, 7.3892]
+    assert [t.strip() for t in d.trailer] == ['-55555555.', '-99999999.',
+                                              '-1']
+    assert ing11.write_ing11(d) == ONE_CONF
+    # A shifted Eav re-encodes that card and nothing else.
+    ing11.set_values(card, [14.4602] + card.values[1:])
+    out = ing11.write_ing11(d)
+    assert out[:2] == ONE_CONF[:2] and out[3:] == ONE_CONF[3:]
+    files.write_deck(tmp_path / files.ING11, out, chr(13) + chr(10))
+    back = ing11.read_ing11(folder=tmp_path).parameters[0][0]
+    assert back.values == [14.4602, 23.7096, 0.0, 7.3892]
+
+
 def test_the_radial_integral_cards_are_found_wherever_they_sit():
     # RCN2 writes a cross-parity block after the last parameter card of
     # the deck and a same-parity block in the middle of it, so they are

@@ -606,7 +606,20 @@ def _read_card(lines, i, cls):
     else:
         rec.values, rec.groups = _values(card, 20, 5)
         rec.fields = [card[20 + 10 * j:30 + 10 * j] for j in range(5)]
-    while i < len(lines) and lines[i].strip() and not _is_first_line(lines[i]):
+    # Continuations are taken by count, as RCG takes them: none unless the
+    # card has more than five parameters, then seven to a line (`:11267`,
+    # `:11344`).  A line blank in 71-72 is not proof of one -- Cowan's
+    # -55555555. card is too, and follows the last parameter card directly
+    # when there are no radial cards between.  A blank count keeps the old
+    # rule of reading up to the next tagged or blank line.
+    if rec.np:
+        more = max(0, -(-(rec.np - FIELDS_PER_LINE) //
+                        FIELDS_PER_CONTINUATION))
+    else:
+        more = len(lines)
+    while (more and i < len(lines) and lines[i].strip()
+           and not _is_first_line(lines[i])):
+        more -= 1
         cont = lines[i].ljust(70)
         values, groups = _values(cont, 0, 7)
         rec.values.extend(values)
