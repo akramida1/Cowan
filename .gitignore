@@ -101,6 +101,7 @@ WORK/Pr3/*.md
 WORK/Pr3/*.DAT
 WORK/Pr3/LOPT*
 WORK/Gd3/
+*.pdf
 
 # Development builds
 FOR/*.exe

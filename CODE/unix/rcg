@@ -35,6 +35,21 @@ case "$cowan_dir" in
           exit 1 ;;
 esac
 
+# RCG opens the CFP decks with STATUS='UNKNOWN', so a deck make_cfp never
+# built is created empty and the first read stops with "End of file" on
+# FOR072 -- which reads as a corrupt deck, not a missing one.  In a
+# read-only CODE/ it cannot even be created, and the error is a permission
+# one, further still from the cause.  -s is false for both.
+for deck in FOR072 FOR073 FOR074; do
+    if [ ! -s "$cowan_dir/$deck" ]; then
+        echo "rcg: $deck is missing or empty in $cowan_dir" >&2
+        echo "  RCG cannot run without the CFP decks.  Build them with make_cfp," >&2
+        echo "  in a directory with nothing in it you need: it replaces ING11" >&2
+        echo "  there and deletes TAPE2E and OUTGINE." >&2
+        exit 1
+    fi
+done
+
 trap 'rm -f COWAN.CFG' EXIT INT TERM
 printf '%s/\n' "$cowan_dir" > COWAN.CFG
 

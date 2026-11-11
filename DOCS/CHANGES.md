@@ -14,6 +14,13 @@ next release is planned as 26.3.
   documentation still described the older rule, under which `--ucalc`
   went to every calculated level, and did not mention `--nosd`. See
   [UTILITIES.md](UTILITIES.md#update_iden). The program is unchanged.
+- **`rcg` stops with a clear message when the CFP decks are missing.**
+  If `make_cfp` had never been run, RCG created FOR072, FOR073 and
+  FOR074 empty and stopped with "Fortran runtime error: End of file" on
+  FOR072, which read as a corrupt deck rather than a missing one. The
+  `rcg` wrapper (`rcg.bat`, and `rcg` on Linux and macOS) now checks
+  that the three decks exist and are not empty, and otherwise says to
+  run `make_cfp`. RCG itself is unchanged.
 - **Windows executables rebuilt** to carry 26.2.3dev in their version
   resource, from sources unchanged since 26.2.1. On the Pr III
   regression case every result file is byte-identical to that of the
