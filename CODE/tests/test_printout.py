@@ -314,6 +314,50 @@ def test_a_missing_rceout_is_the_no_rce_report_rather_than_an_error(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# --ampl: signed amplitudes in place of percentages
+# --------------------------------------------------------------------------
+
+def test_ampl_prints_the_same_components_signed(tmp_path):
+    """The components --ampl prints are the ones the percentages show,
+    in the same places, each the signed amplitude whose rounded square
+    is the percentage -- and some of them are negative, or the sign
+    would not have been kept at all."""
+    folder = case('U90')
+    for name, extra in (('pct', []), ('amp', ['--ampl'])):
+        out = run(folder, str(tmp_path / (name + '.txt')),
+                  str(tmp_path / (name + '_p.txt')),
+                  '--couplings', 'LS,JJ', *extra)
+        assert out.returncode == 0, out.stderr
+    with open(tmp_path / 'amp.txt') as f:
+        header = f.readline().rstrip('\n').split('\t')
+    assert 'amp1' in header and '%1' not in header
+    first = header.index('amp1')
+    percent, amplitude = rows(tmp_path / 'pct.txt'), rows(tmp_path / 'amp.txt')
+    assert len(percent) == len(amplitude)
+    negative = 0
+    for p, a in zip(percent, amplitude):
+        assert p[:first] == a[:first]
+        assert len(p) == len(a)
+        for at in range(first, len(a), 3):
+            assert p[at + 1:at + 3] == a[at + 1:at + 3]
+            assert re.fullmatch(r'-?[01]\.\d{5}', a[at]), a[at]
+            value = float(a[at])
+            assert int(value * value * 100 + 0.5) == int(p[at])
+            negative += value < 0
+    assert negative
+
+
+def test_a_levels_file_written_with_ampl_is_refused_downstream(tmp_path):
+    from toolbox import purity
+    out = run(case('U90'), str(tmp_path / 'levels.txt'),
+              str(tmp_path / 'p.txt'), '--ampl')
+    assert out.returncode == 0, out.stderr
+    with pytest.raises(purity.PurityError) as problem:
+        purity.read_levels_txt(str(tmp_path / 'levels.txt'))
+    assert '--ampl' in str(problem.value)
+
+
+# --------------------------------------------------------------------------
 # the relative-energy group column of levels.txt
 # --------------------------------------------------------------------------
 
@@ -331,6 +375,7 @@ def test_the_grp_column_appears_only_where_there_is_a_letter():
     class Options:
         dominant_config = False
         components = 5
+        ampl = False
 
     plain = printout.header(Options())
     grouped = printout.header(Options(), grouped=True)

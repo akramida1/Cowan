@@ -4,8 +4,8 @@
 #
 # The Unix counterpart of insert_level_ids.bat.  The tool is
 # CODE/insert_level_ids.py and all of the work is there; this only finds an
-# interpreter and hands over, the way the batch file hands over to the `py`
-# launcher.
+# interpreter and hands over, the way the batch file hands over to the
+# Python findpy.bat chooses.
 #
 # $0 is not resolved through symlinks, so do not symlink this into ~/bin --
 # put CODE/unix on PATH instead, as the author has C:\cowan\code on PATH

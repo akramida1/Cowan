@@ -19,6 +19,26 @@ cowan_banner 34 \
 '                             Program RCE Mod 20kd' \
 '                 Least-squares fitting of atomic energy levels'
 
+# Every file RCE writes must be writable before it starts.  gfortran opens
+# a file it cannot write -- a read-only one here; under Windows also one
+# another program holds open -- for reading instead, without a word, and
+# fails only at the first WRITE.  For LEVELS2 and LEVELS3 that is the very
+# end of the run, after LEVELS1, OUTE and RCEOUT are complete: the run
+# looks finished and leaves the two sorted lists of the previous run
+# behind.  RCEINP is not tested: RCE writes it only when INVECT is 0.
+locked=
+for f in OUTE PARVALS RCEOUT LEVELS1 LEVELS2 LEVELS3 \
+         LEVELS1J LEVELS2J LEVELS3J; do
+    if [ -e "$f" ] && [ ! -w "$f" ]; then
+        locked="$locked $f"
+    fi
+done
+if [ -n "$locked" ]; then
+    echo "RCE not run: cannot write$locked." >&2
+    echo "Make the file writable (chmod u+w) and run rce again." >&2
+    exit 1
+fi
+
 # rce --ground puts the calculated ground level of OUTGINE at zero first
 # (add_eav --ground).  A warning from it, as for INVECT not 0, is no
 # reason to stop; an error is, and RCE is then not run.

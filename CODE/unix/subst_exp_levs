@@ -4,7 +4,7 @@
 #
 # The Unix counterpart of subst_exp_levs.bat.  The tool is CODE/subst_exp_levs.py and all
 # of the work is there; this only finds an interpreter and hands over, the
-# way the batch file hands over to the `py` launcher.
+# way the batch file hands over to the Python findpy.bat chooses.
 #
 # $0 is not resolved through symlinks, so do not symlink this into ~/bin --
 # put CODE/unix on PATH instead, as the author has C:\cowan\code on PATH

@@ -67,6 +67,17 @@ parameters, this does some additional useful things (see `update11` in
 	File `RCEINP` can be created by `RCE` or can be used by `RCE` as an
 	input file, depending on the flag `INVECT` in the OUTGINE file (see below).
 
+	`LEVELS2` and `LEVELS3` are `LEVELS1` sorted by energy and grouped by
+	configuration, and are written last, when RCE finishes. A file RCE
+	cannot write -- open in Excel, or read-only -- is opened for reading
+	instead without a message, and the run fails only when it first
+	writes to it; for those two files that is after everything else is
+	complete, so the run looks finished and the sorted lists of the
+	previous run are left in place. The `rce` wrapper therefore checks
+	before starting that each of RCE's output files that exists is
+	writable (`OUTE`, `PARVALS`, `RCEOUT`, `LEVELS1`-`3` and
+	`LEVELS1J`-`3J`), and if one is not, names it and does not run RCE.
+
 2. Compared to Cowan's original version, the `RCG` program
 has two more input parameters that must be specified in the
 "first control card" (usually, the first line in the file `ING11`).

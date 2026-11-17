@@ -21,6 +21,25 @@ next release is planned as 26.3.
   `rcg` wrapper (`rcg.bat`, and `rcg` on Linux and macOS) now checks
   that the three decks exist and are not empty, and otherwise says to
   run `make_cfp`. RCG itself is unchanged.
+- **New: `printout --ampl`** prints the eigenvector components as signed
+  amplitudes, five decimals, as RCG printed them in `OUTG11`, instead
+  of percentages. See [UTILITIES.md](UTILITIES.md#printout).
+- **`rce` refuses to start when it cannot write one of its output
+  files.** A file open in another program (Excel) or marked read-only
+  was opened by RCE for reading only, without a message, and the run
+  failed at the end, on `LEVELS2`, after `LEVELS1`, `OUTE` and `RCEOUT`
+  were complete -- which left `LEVELS2` and `LEVELS3` from the previous
+  run in place, in a run that looked finished. The wrapper (`rce.bat`,
+  and `rce` on Linux and macOS) now checks first and names the file.
+  See [MANUAL_ADDITIONS.md](MANUAL_ADDITIONS.md#additions-to-the-manual).
+  RCE itself is unchanged.
+- **The Windows wrappers find conda's Python.** They called the `py`
+  launcher, which a conda installation does not provide and which,
+  where it is installed, ignores conda. A new `findpy.bat` uses the
+  active conda environment's Python where conda is installed (the base
+  installation's when none is active), the `py` launcher otherwise, and
+  `python` as the last resort. `make_cfp` uses the same interpreter and
+  names it when `numpy` is missing. See [INSTALL.md](INSTALL.md).
 - **Windows executables rebuilt** to carry 26.2.3dev in their version
   resource, from sources unchanged since 26.2.1. On the Pr III
   regression case every result file is byte-identical to that of the

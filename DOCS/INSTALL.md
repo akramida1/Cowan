@@ -19,8 +19,13 @@
 - **Python 3**, on the PATH, for the utility codes. They use the standard
   library only, except `calc_TP` (below). They were developed and tested
   on Python 3.14 and use no syntax newer than 3.8. On Windows the `.bat`
-  files call the `py` launcher; on Linux and macOS the wrappers look for
-  `python3`, falling back to a `python` that is Python 3.
+  files take the interpreter from `findpy.bat`: where conda is installed
+  (`conda` found on the PATH), the active conda environment's Python, or
+  the base installation's when no environment is active; otherwise the
+  `py` launcher that a python.org install provides; otherwise `python`.
+  On Linux and macOS the wrappers look for `python3`, falling back to a
+  `python` that is Python 3 -- which is the active conda environment's,
+  where there is one.
 - **`numpy`**, the only Python package the package uses, for two things.
   `make_cfp` builds the `LSJJ.DAT` deck with `CODE/lsjj/mkdeck.py`, which
   needs it; there it is optional -- without it `make_cfp` says so, builds
@@ -54,6 +59,10 @@ need; the four main programs need nothing at all beyond the DLLs shipped
 in `CODE\`. If you intend to use true *jj* coupling, add `numpy` as well:
 
         pip install numpy
+
+	Anaconda or Miniconda will do instead: the utilities then run under
+	conda's Python (see Requirements above), and `numpy` is installed
+	there with `conda install numpy`.
 
 	It is the only Python package the package needs. It is optional for
 	step 6 below, where `make_cfp` builds the `LSJJ.DAT` deck -- skip it

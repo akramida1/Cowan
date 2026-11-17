@@ -239,8 +239,13 @@ class Case:
         self._designations[key] = found
         return found
 
-    def amplitudes(self, coupling, kset, j, eigenvector):
+    def amplitudes(self, coupling, kset, j, eigenvector, signed=False):
         """(|amplitude|, basis state) of one eigenvector, largest first.
+
+        With `signed` the amplitude keeps the sign RCG printed, in the
+        same order -- by magnitude, then by basis number, as the unsigned
+        list has always been sorted -- so that the two lists name the
+        same components in the same places.
 
         RCG used to print no section for a block of one basis state
         in any coupling but LS: there is nothing to transform, so TMX
@@ -261,11 +266,13 @@ class Case:
             if block.nlevels != 1:
                 raise
             return [(1.0, 1)]
-        weights = [(abs(row.amplitudes[eigenvector - 1]), row.number)
+        weights = [(row.amplitudes[eigenvector - 1], row.number)
                    for row in section.rows
                    if eigenvector <= len(row.amplitudes)]
-        weights.sort(reverse=True)
-        return weights
+        weights.sort(key=lambda w: (abs(w[0]), w[1]), reverse=True)
+        if signed:
+            return weights
+        return [(abs(a), number) for a, number in weights]
 
     def parameters(self, kset):
         """The parameters of one parity set, under readable names."""

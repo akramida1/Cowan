@@ -200,6 +200,13 @@ def read_levels_txt(path='levels.txt'):
         if name not in at:
             raise PurityError('%s has no %r column; it is not a levels.txt'
                               % (path, name))
+    if 'amp1' in at:
+        # `printout --ampl` names the columns so that this is caught
+        # here: a signed amplitude read as a percentage is wrong by its
+        # square and its sign, and nothing downstream would notice.
+        raise PurityError('%s was written with printout --ampl and holds '
+                          'signed amplitudes, not percentages; write it '
+                          'again without --ampl' % path)
     triples = []
     n = 1
     while ('%%%d' % n) in at:

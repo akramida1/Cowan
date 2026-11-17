@@ -25,12 +25,24 @@ Usage:
              [--drop-full-shells 5p,4d] drop these where they are closed
              [--match eigenvector|energy-order]
              [--components 5] [--min-percent 1.5]
+             [--ampl]                   signed amplitudes, not percentages
              [--no-rce]                 RCG only, no fitted energies
 
 IN36 is read from the folder above where the run's own folder has none,
 which is what the `JK/` arrangement looks like from the inside.  --no-rce
 is assumed where there is no RCEOUT to read, so a folder RCG has run in
 and RCE has not needs no option at all.
+
+--ampl prints each component as the signed amplitude RCG printed in
+OUTG11 (F9.5, so five decimals) instead of its rounded square, under the
+column names amp1, amp2, ... in place of %1, %2, ...  The components are
+the ones the percentages would have shown, in the same order, and
+--min-percent still cuts on the square.  The overall sign of an
+eigenvector is RCG's own and means nothing by itself; the signs of the
+components relative to each other are what carry the information, and
+they are those of the vectors RCG computed its transitions with.  As for
+the percentages, OUTG11 holds the fitted eigenvectors only after
+`update11` -- the fitted parameters into ING11 and RCG run again.
 
 Defaults are the Perl's: levels.txt, params.txt, five components, 1.5%.
 """
@@ -63,13 +75,17 @@ def header(options, grouped=False):
         out.insert(out.index('e_c') + 1, 'grp')
     if options.dominant_config:
         out.append('conf0')
+    # --ampl renames the first column of each triple, so that a reader
+    # looking for `%1` -- `purity.read_levels_txt` -- cannot take a
+    # signed amplitude for a percentage.
+    first = 'amp%d' if options.ampl else '%%%d'
     # As many triples as `--components` asks for, not the Perl's fixed
     # five: the header is what tells a reader -- and `purity.py` --
     # where the components are, so five names over ten written triples
     # would silently hide the last five.  With the default it is the
     # same header it has always been.
     return out + [c % n for n in range(1, options.components + 1)
-                  for c in ('%%%d', 'conf%d', 'term%d')]
+                  for c in (first, 'conf%d', 'term%d')]
 
 
 PARAM_HEADER = ['parity', 'Configuration', '', 'parameter', 'LSF', 'Uncert.',
@@ -120,6 +136,7 @@ class Options:
         self.min_percent = 1.5
         self.no_rce = False
         self.dominant_config = False
+        self.ampl = False
 
         positional = []
         rest = list(argv)
@@ -138,6 +155,9 @@ class Options:
                 continue
             if name == 'dominant_config':
                 self.dominant_config = True
+                continue
+            if name == 'ampl':
+                self.ampl = True
                 continue
             if not value:
                 if not rest:
@@ -235,8 +255,13 @@ def _percent(amplitude):
 
 
 def _components(case, coupling, kset, j, eigenvector, options):
-    """The largest components of one eigenvector, as report columns."""
-    weights = case.amplitudes(coupling, kset, j, eigenvector)
+    """The largest components of one eigenvector, as report columns.
+
+    With --ampl the amplitude is printed signed, as OUTG11 has it; which
+    components are printed is decided on the percentage either way.
+    """
+    weights = case.amplitudes(coupling, kset, j, eigenvector,
+                              signed=options.ampl)
     out = []
     for rank, (amplitude, state) in enumerate(weights[:options.components], 1):
         percent = _percent(amplitude)
@@ -245,7 +270,8 @@ def _components(case, coupling, kset, j, eigenvector, options):
         found = case.designation(coupling, kset, j, state)
         if not found.canonical:
             _NONCANONICAL.add((kset, j, state))
-        out.extend(['%d' % percent, found.configuration, found.term])
+        value = '%.5f' % amplitude if options.ampl else '%d' % percent
+        out.extend([value, found.configuration, found.term])
     return out
 
 

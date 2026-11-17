@@ -68,11 +68,14 @@ set "LSJJOK="
 rem  Three outcomes are distinguished, and none of them is fatal: built,
 rem  no numpy, and anything else.  ERRORLEVEL is saved before the first
 rem  `if` because a false `if` clears it.
-py -c "import numpy" 2>nul
+rem  findpy.bat chooses the interpreter: a conda one where conda is
+rem  installed, the py launcher otherwise.
+call "%SYS%findpy.bat"
+"%PY%" -c "import numpy" 2>nul
 set "_rc=%errorlevel%"
 if "%_rc%"=="9009" goto NoPython
 if not "%_rc%"=="0" goto NoNumpy
-py "%SYS%lsjj\mkdeck.py" "%OUT%LSJJ.DAT"
+"%PY%" "%SYS%lsjj\mkdeck.py" "%OUT%LSJJ.DAT"
 set "_rc=%errorlevel%"
 if not "%_rc%"=="0" goto LsjjErr
 set "LSJJOK=1"
@@ -88,14 +91,16 @@ echo .
 goto LsjjFallback
 :NoNumpy
 echo .
-echo WARNING: numpy is not installed, so LSJJ.DAT was not rebuilt.  True
-echo          jj coupling (column 38 of the ING11 main card set to 8)
-echo          will not be available; everything else in the package
-echo          works.  Install it with
+echo WARNING: numpy is not installed for %PY%,
+echo          the Python the utilities run, so LSJJ.DAT was not
+echo          rebuilt.  True jj coupling (column 38 of the ING11 main
+echo          card set to 8) will not be available; everything else
+echo          in the package works.  Install it with
 echo .
-echo              pip install numpy
+echo              "%PY%" -m pip install numpy
 echo .
-echo          and run make_cfp again.
+echo          or, for a conda Python, conda install numpy -- and run
+echo          make_cfp again.
 echo .
 goto LsjjFallback
 :LsjjErr

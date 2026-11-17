@@ -69,6 +69,9 @@
         mkverres.bat  - called by the two build scripts; compiles the
                         Windows version resource from version.txt.
         mark_time.bat - called by the four above; times the run.
+        findpy.bat    - called by the wrappers of the Python utilities
+                        and by make_cfp.bat; chooses the Python
+                        interpreter (INSTALL.md).
         update11.bat  - the post-fit cycle, described in UTILITIES.md.
         ```
 

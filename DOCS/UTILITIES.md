@@ -323,6 +323,17 @@ The Python version is no longer limited to LS and JJ. Its options are:
   printed labels where they are closed.
 - `--components 5   --min-percent 1.5` -- how much of each eigenvector
   composition to print.
+- `--ampl` -- print each component as its signed amplitude, as RCG
+  printed it in `OUTG11` (five decimals), instead of its percentage.
+  The components are the same ones in the same order, still selected
+  by `--min-percent` on the square, and the columns are named `amp1`,
+  `amp2`, ... instead of `%1`, `%2`, ..., so that `config_purity` and
+  the other programs that read `levels.txt` refuse such a file rather
+  than misread it. The overall sign of an eigenvector is arbitrary;
+  what carries meaning is the signs of its components relative to one
+  another, and those are the signs of the vectors RCG computed its
+  transitions with. As for the percentages, the amplitudes are the
+  fitted ones only after `update11`.
 - `--match eigenvector|energy-order` -- how a level of a second folder
   is tied to the same level here.
 
